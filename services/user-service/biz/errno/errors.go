@@ -3,9 +3,9 @@ package errno
 import "meshcart/app/common"
 
 const (
-	CodeUserNotFound    int32 = 201001
-	CodePasswordInvalid int32 = 201002
-	CodeUserLocked      int32 = 201003
+	CodeUserNotFound    int32 = 2010001
+	CodePasswordInvalid int32 = 2010002
+	CodeUserLocked      int32 = 2010003
 )
 
 var (

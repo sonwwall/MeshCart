@@ -16,11 +16,11 @@ func NewBizError(code int32, msg string) *BizError {
 
 const (
 	CodeOK            int32 = 0
-	CodeInvalidParam  int32 = 100001
-	CodeUnauthorized  int32 = 100002
-	CodeForbidden     int32 = 100003
-	CodeNotFound      int32 = 100004
-	CodeInternalError int32 = 500001
+	CodeInvalidParam  int32 = 1000001
+	CodeUnauthorized  int32 = 1000002
+	CodeForbidden     int32 = 1000003
+	CodeNotFound      int32 = 1000004
+	CodeInternalError int32 = 1009999
 )
 
 var (
