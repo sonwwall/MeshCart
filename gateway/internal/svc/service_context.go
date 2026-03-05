@@ -11,8 +11,13 @@ type ServiceContext struct {
 }
 
 func NewServiceContext(cfg config.Config) *ServiceContext {
+	userClient, err := userrpc.NewClient(cfg.UserRPC.ServiceName, cfg.UserRPC.Address)
+	if err != nil {
+		panic(err)
+	}
+
 	return &ServiceContext{
 		Config:     cfg,
-		UserClient: userrpc.NewMockClient(),
+		UserClient: userClient,
 	}
 }

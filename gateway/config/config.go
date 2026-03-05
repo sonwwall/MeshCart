@@ -12,7 +12,8 @@ type ServerConfig struct {
 }
 
 type UserRPCConfig struct {
-	Address string
+	ServiceName string
+	Address     string
 }
 
 func Load() Config {
@@ -21,7 +22,8 @@ func Load() Config {
 			Addr: getEnv("GATEWAY_ADDR", ":8080"),
 		},
 		UserRPC: UserRPCConfig{
-			Address: getEnv("USER_RPC_ADDR", "127.0.0.1:8888"),
+			ServiceName: getEnv("USER_RPC_SERVICE", "UserService"),
+			Address:     getEnv("USER_RPC_ADDR", "127.0.0.1:8888"),
 		},
 	}
 }

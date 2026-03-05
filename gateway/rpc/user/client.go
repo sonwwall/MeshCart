@@ -2,15 +2,15 @@ package user
 
 import (
 	"context"
-	"strings"
+	"errors"
+
+	"github.com/cloudwego/kitex/client"
+
+	user "meshcart/kitex_gen/meshcart/user"
+	userservice "meshcart/kitex_gen/meshcart/user/userservice"
 )
 
-const (
-	codeOK              int32 = 0
-	codeUserNotFound    int32 = 2010001
-	codePasswordInvalid int32 = 2010002
-	codeUserLocked      int32 = 2010003
-)
+var errNilLoginResponse = errors.New("user rpc returned nil login response")
 
 type LoginRequest struct {
 	Username string
@@ -29,30 +29,47 @@ type Client interface {
 	Login(ctx context.Context, req *LoginRequest) (*LoginResponse, error)
 }
 
-type mockClient struct{}
-
-func NewMockClient() Client {
-	return &mockClient{}
+type kitexClient struct {
+	cli userservice.Client
 }
 
-func (c *mockClient) Login(_ context.Context, req *LoginRequest) (*LoginResponse, error) {
-	username := strings.TrimSpace(req.Username)
-	password := strings.TrimSpace(req.Password)
-
-	switch {
-	case username == "":
-		return &LoginResponse{Code: codeUserNotFound, Message: "用户不存在"}, nil
-	case username == "locked":
-		return &LoginResponse{Code: codeUserLocked, Message: "用户已被锁定"}, nil
-	case password != "123456":
-		return &LoginResponse{Code: codePasswordInvalid, Message: "用户名或密码错误"}, nil
-	default:
-		return &LoginResponse{
-			Code:     codeOK,
-			Message:  "成功",
-			UserID:   10001,
-			Token:    "mock-token",
-			Username: username,
-		}, nil
+func NewClient(serviceName, hostPort string) (Client, error) {
+	cli, err := userservice.NewClient(
+		serviceName,
+		client.WithHostPorts(hostPort),
+	)
+	if err != nil {
+		return nil, err
 	}
+	return &kitexClient{cli: cli}, nil
+}
+
+func (c *kitexClient) Login(ctx context.Context, req *LoginRequest) (*LoginResponse, error) {
+	resp, err := c.cli.Login(ctx, &user.UserLoginRequest{
+		Username: req.Username,
+		Password: req.Password,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilLoginResponse
+	}
+
+	var code int32
+	var message string
+	if resp.Base != nil {
+		code = resp.Base.Code
+		message = resp.Base.Message
+	}
+
+	return &LoginResponse{
+		Code:    code,
+		Message: message,
+		// Current user.thrift only returns BaseResponse.
+		// Keep data fields for forward compatibility after IDL extension.
+		UserID:   0,
+		Token:    "",
+		Username: req.Username,
+	}, nil
 }
