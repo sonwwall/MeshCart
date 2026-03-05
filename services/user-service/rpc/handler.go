@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 
+	logx "meshcart/app/log"
 	base "meshcart/kitex_gen/meshcart/base"
 	user "meshcart/kitex_gen/meshcart/user"
 	"meshcart/services/user-service/biz/service"
+
+	"go.uber.org/zap"
 )
 
 // UserServiceImpl implements the last service interface defined in the IDL.
@@ -21,7 +24,13 @@ func NewUserServiceImpl(svc *service.UserService) *UserServiceImpl {
 func (s *UserServiceImpl) Login(ctx context.Context, request *user.UserLoginRequest) (resp *user.UserLoginResponse, err error) {
 	bizErr := s.svc.Login(ctx, request.Username, request.Password)
 	if bizErr != nil {
+		logx.L(ctx).Warn("user login failed",
+			zap.String("username", request.Username),
+			zap.Int32("code", bizErr.Code),
+			zap.String("message", bizErr.Msg),
+		)
 		return &user.UserLoginResponse{Base: &base.BaseResponse{Code: bizErr.Code, Message: bizErr.Msg}}, nil
 	}
+	logx.L(ctx).Info("user login success", zap.String("username", request.Username))
 	return &user.UserLoginResponse{Base: &base.BaseResponse{Code: 0, Message: "成功"}}, nil
 }

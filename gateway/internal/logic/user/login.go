@@ -5,9 +5,12 @@ import (
 	"strings"
 
 	"meshcart/app/common"
+	logx "meshcart/app/log"
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
 	userrpc "meshcart/gateway/rpc/user"
+
+	"go.uber.org/zap"
 )
 
 type LoginLogic struct {
@@ -32,6 +35,7 @@ func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *
 		Password: req.Password,
 	})
 	if err != nil {
+		logx.L(l.ctx).Error("user rpc login failed", zap.Error(err))
 		return nil, common.ErrInternalError
 	}
 	if resp.Code != common.CodeOK {
