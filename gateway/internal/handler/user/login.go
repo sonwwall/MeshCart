@@ -1,10 +1,10 @@
-package handler
+package user
 
 import (
 	"context"
 
 	"meshcart/app/common"
-	"meshcart/gateway/internal/logic"
+	userlogic "meshcart/gateway/internal/logic/user"
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
@@ -12,7 +12,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
-func UserLogin(svcCtx *svc.ServiceContext) app.HandlerFunc {
+func Login(svcCtx *svc.ServiceContext) app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
 		traceID := middleware.TraceIDFromRequest(c)
 
@@ -22,7 +22,7 @@ func UserLogin(svcCtx *svc.ServiceContext) app.HandlerFunc {
 			return
 		}
 
-		loginLogic := logic.NewUserLoginLogic(ctx, svcCtx)
+		loginLogic := userlogic.NewLoginLogic(ctx, svcCtx)
 		data, bizErr := loginLogic.Login(&req)
 		if bizErr != nil {
 			c.JSON(200, common.Fail(bizErr, traceID))

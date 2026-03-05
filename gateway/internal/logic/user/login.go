@@ -1,4 +1,4 @@
-package logic
+package user
 
 import (
 	"context"
@@ -10,19 +10,19 @@ import (
 	userrpc "meshcart/gateway/rpc/user"
 )
 
-type UserLoginLogic struct {
+type LoginLogic struct {
 	ctx    context.Context
 	svcCtx *svc.ServiceContext
 }
 
-func NewUserLoginLogic(ctx context.Context, svcCtx *svc.ServiceContext) *UserLoginLogic {
-	return &UserLoginLogic{
+func NewLoginLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LoginLogic {
+	return &LoginLogic{
 		ctx:    ctx,
 		svcCtx: svcCtx,
 	}
 }
 
-func (l *UserLoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *common.BizError) {
+func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *common.BizError) {
 	if strings.TrimSpace(req.Username) == "" || strings.TrimSpace(req.Password) == "" {
 		return nil, common.ErrInvalidParam
 	}
