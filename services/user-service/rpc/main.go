@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"os"
 
 	logx "meshcart/app/log"
+	tracex "meshcart/app/trace"
 	userservice "meshcart/kitex_gen/meshcart/user/userservice"
 	"meshcart/services/user-service/biz/repository"
 	bizservice "meshcart/services/user-service/biz/service"
@@ -22,6 +24,17 @@ func main() {
 		panic(err)
 	}
 	defer logx.Sync()
+
+	traceShutdown, err := tracex.Init(context.Background(), tracex.Config{
+		ServiceName: "user-service",
+		Environment: getEnv("APP_ENV", "dev"),
+		Endpoint:    getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4319"),
+		Insecure:    true,
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = traceShutdown(context.Background()) }()
 
 	cfg, err := config.Load()
 	if err != nil {

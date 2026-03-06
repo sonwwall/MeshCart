@@ -3,6 +3,8 @@ package log
 import (
 	"context"
 
+	tracex "meshcart/app/trace"
+
 	"go.uber.org/zap"
 )
 
@@ -58,11 +60,27 @@ func ContextFields(ctx context.Context) []zap.Field {
 	}
 
 	fields := make([]zap.Field, 0, 3)
+	hasTraceID := false
+	hasSpanID := false
+
 	if traceID, ok := ctx.Value(traceIDKey).(string); ok && traceID != "" {
 		fields = append(fields, zap.String(fieldTraceID, traceID))
+		hasTraceID = true
 	}
 	if spanID, ok := ctx.Value(spanIDKey).(string); ok && spanID != "" {
 		fields = append(fields, zap.String(fieldSpanID, spanID))
+		hasSpanID = true
+	}
+
+	if !hasTraceID {
+		if traceID := tracex.TraceID(ctx); traceID != "" {
+			fields = append(fields, zap.String(fieldTraceID, traceID))
+		}
+	}
+	if !hasSpanID {
+		if spanID := tracex.SpanID(ctx); spanID != "" {
+			fields = append(fields, zap.String(fieldSpanID, spanID))
+		}
 	}
 	if userID, ok := ctx.Value(userIDKey).(string); ok && userID != "" {
 		fields = append(fields, zap.String(fieldUserID, userID))

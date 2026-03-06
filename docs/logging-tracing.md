@@ -1,218 +1,220 @@
-# 日志与链路追踪设计说明
+# 可观测性设计与使用说明
 
-## 1. 目标
+## 1. 文档范围
 
-本项目日志系统的目标：
+本文档描述 MeshCart 当前可观测性方案的设计与使用方式，覆盖以下组件：
 
-- 输出结构化 JSON 日志，便于检索与聚合
-- 统一字段命名，便于跨服务关联
-- 支持在 `context` 中透传链路字段（`trace_id/span_id/user_id`）
-- 为后续接入 Loki、OpenTelemetry 做准备
+- 日志：Zap（结构化 JSON）
+- 链路追踪：OpenTelemetry SDK + Jaeger
+- 日志存储检索：Loki + Promtail
+- 指标：Prometheus
+- 可视化：Grafana
 
-## 2. 当前实现位置
+## 2. 总体架构
 
-### 2.1 日志基础封装
+### 2.1 数据流
 
-- `app/log/logger.go`
-- `app/log/context.go`
+1. 应用（gateway / user-service）输出结构化日志（stdout）
+2. Promtail 采集容器日志并推送到 Loki
+3. 应用通过 OTel SDK 上报 trace 到 OTel Collector
+4. OTel Collector 转发 trace 到 Jaeger
+5. OTel Collector 暴露 metrics，Prometheus 抓取
+6. Grafana 统一读取 Prometheus / Loki / Jaeger 数据源
 
-### 2.2 已接入服务
+### 2.2 部署组件
 
-- Gateway
-  - `gateway/cmd/gateway/main.go`
-  - `gateway/internal/handler/user/login.go`
-  - `gateway/internal/logic/user/login.go`
-- User Service
-  - `services/user-service/rpc/main.go`
-  - `services/user-service/rpc/handler.go`
+通过 `docker-compose.yml` 部署以下基础设施：
 
-## 3. 日志模型
+- `prometheus`
+- `grafana`
+- `loki`
+- `promtail`
+- `jaeger`
+- `otel-collector`
 
-当前采用 `zap` 输出 JSON 日志。每条日志由两部分组成：
+配置文件位置：`deploy/docker/observability/`
 
-1. 基础字段（启动时注入）
-2. 业务/链路字段（按请求上下文注入）
+## 3. 代码设计
 
-### 3.1 基础字段
+## 3.1 日志模块（`app/log`）
 
-- `service`：服务名（如 `gateway`、`user-service`）
-- `env`：运行环境（如 `dev`、`test`、`prod`）
-- `level`：日志级别（`debug/info/warn/error`）
+### 3.1.1 目标
+
+- 统一日志格式
+- 统一字段命名
+- 自动携带链路字段
+
+### 3.1.2 关键文件
+
+- `app/log/logger.go`：Zap 初始化、全局 logger、级别控制
+- `app/log/context.go`：从 context 读取并注入日志字段
+
+### 3.1.3 字段规范
+
+统一字段名：
+
+- `service`：服务名
+- `env`：环境
+- `trace_id`：链路 ID
+- `span_id`：Span ID
+- `user_id`：用户 ID（已登录场景）
+- `level`：日志级别
 - `msg`：日志消息
-- `ts`：时间戳（ISO8601）
-- `caller`：源码位置
+- `ts`：时间
+- `caller`：代码位置
 
-### 3.2 链路字段
+说明：
 
-- `trace_id`：一次完整请求链路的唯一标识
-- `span_id`：链路中某一步调用的标识
-- `user_id`：当前请求关联的用户标识（如果已登录）
+- `trace_id/span_id` 优先从业务 context 字段读取
+- 若 context 中存在 OTel span，上述字段会自动从 span context 补齐
 
-这些字段由 `context` 注入：
+## 3.2 Trace 模块（`app/trace`）
 
-- `log.WithTraceID(ctx, traceID)`
-- `log.WithSpanID(ctx, spanID)`
-- `log.WithUserID(ctx, userID)`
+### 3.2.1 关键文件
 
-然后通过 `log.L(ctx)` 自动带入日志。
+- `app/trace/otel.go`
+  - 初始化 OTel TracerProvider
+  - 配置 OTLP gRPC exporter
+  - 设置全局 Propagator（W3C TraceContext + Baggage）
+  - 提供 `StartSpan/TraceID/SpanID` 工具方法
 
-## 4. 字段含义详解
+- `app/trace/hertz.go`
+  - Hertz 请求头 carrier
+  - 从 HTTP 请求头提取 trace context
+  - 向请求头注入 trace context
 
-### 4.1 `trace_id`
+### 3.2.2 Span 命名
 
-作用：将网关、微服务、数据库访问日志串成同一条业务链路。
-
-典型用途：
-
-- 用户报错时，拿到 `trace_id` 后跨服务检索全部日志
-- 排查请求在哪个服务、哪个步骤失败
-
-### 4.2 `span_id`
-
-作用：表示链路中的一个“步骤”或“片段”。
+当前命名规范：`<domain>.<layer>.<module>.<action>`
 
 示例：
 
-- 网关接收请求是一个 span
-- 网关调用 user-service 是另一个 span
+- `gateway.user.login`
+- `gateway.logic.user.login`
+- `gateway.rpc.user.login`
+- `user.rpc.login`
 
-当前项目已预留该字段，但尚未接入完整 OpenTelemetry span 生命周期管理。
+## 3.3 服务接入点
 
-### 4.3 `user_id`
+### 3.3.1 启动初始化
 
-作用：关联用户维度日志，便于运营审计与用户问题排查。
+- `gateway/cmd/gateway/main.go`
+- `services/user-service/rpc/main.go`
 
-使用建议：
+启动时初始化：
 
-- 登录前接口可以为空
-- 鉴权通过后注入到 context
+1. `log.Init(...)`
+2. `trace.Init(...)`
+3. 服务启动
 
-## 5. 你的项目里，日志如何流动
+并在退出时调用 `log.Sync()`、`traceShutdown()`。
 
-以 `POST /api/v1/user/login` 为例：
+### 3.3.2 请求链路接入
 
-1. Gateway handler 从请求头读取 `X-Trace-Id`
-2. `trace_id` 写入 context：`log.WithTraceID(...)`
-3. handler 与 logic 使用 `log.L(ctx)` 打日志
-4. 调用 user-service 后，user-service 在 handler/logic 打日志
-5. 最终通过 `trace_id` 将两个服务日志关联
+Gateway 登录请求：
 
-## 6. 日志级别规范
+1. handler 从 Header 提取 trace context（`ExtractFromHertz`）
+2. 创建 server span（`gateway.user.login`）
+3. logic 创建 internal span（`gateway.logic.user.login`）
+4. rpc client 创建 client span（`gateway.rpc.user.login`）
+5. user-service handler 创建 server span（`user.rpc.login`）
 
-建议按以下标准使用：
+## 4. 配置说明
 
-- `debug`：调试细节（默认线上关闭）
-- `info`：关键业务事件（启动、成功流程）
-- `warn`：可恢复异常（参数不合法、业务失败）
-- `error`：技术异常（RPC失败、DB异常）
+## 4.1 应用配置（环境变量）
 
-当前代码中：
+- `APP_ENV`：环境标识（如 `dev` / `prod`）
+- `LOG_LEVEL`：日志级别（如 `info`）
+- `OTEL_EXPORTER_OTLP_ENDPOINT`：OTLP 上报地址
 
-- 参数错误、业务错误：`warn`
-- RPC技术错误：`error`
-- 启动事件、成功事件：`info`
+本地使用当前 compose 时建议：
 
-## 7. 为什么做结构化日志
+- `OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319`
 
-结构化日志不是拼接字符串，而是 key-value。
+## 4.2 观测组件端口
 
-优点：
+- Grafana：`3000`
+- Prometheus：`9090`
+- Loki：`3100`
+- Jaeger UI：`16686`
+- OTel Collector OTLP gRPC：`4319`（宿主机）
+- OTel Collector OTLP HTTP：`4320`（宿主机）
 
-- 查询快：例如 `service="gateway" and trace_id="xxx"`
-- 聚合简单：按 `level`、`service`、`code` 统计
-- 统一可观测性：日志平台可直接识别字段
+## 5. 使用步骤
 
-这也是后续接 Loki 的基础。
+### 5.1 启动可观测性组件
 
-## 8. 与 Loki 的关系
-
-Loki 主要做日志存储与检索，当前你已经完成最关键准备：
-
-- JSON结构化输出
-- 统一字段名
-- trace字段透传
-
-后续接入步骤通常是：
-
-1. 用 Promtail/Agent 收集 stdout 日志
-2. 发送到 Loki
-3. 在 Grafana 里按 `service`、`trace_id` 查询
-
-## 9. 链路追踪（Tracing）入门说明
-
-你还没用过 tracing，先记住两点：
-
-1. 日志用于“记录事件”
-2. tracing 用于“记录调用关系与耗时”
-
-完整 tracing 一般包括：
-
-- `trace_id`：整条链路 ID
-- `span_id`：每个节点 ID
-- `parent_span_id`：父子关系
-- `duration`：每个 span 耗时
-
-当前项目状态：
-
-- 已支持日志携带 `trace_id/span_id`
-- 尚未接入完整 OTel 自动埋点
-
-## 10. 后续接 OpenTelemetry 的最小方案
-
-建议顺序：
-
-1. Gateway 接入 OTel 中间件，自动生成 `trace_id/span_id`
-2. RPC 调用透传 trace context 到 user-service
-3. user-service 继续传递 context 并输出日志
-4. 将 tracing 数据上报到 Jaeger/Tempo
-
-这样你会同时得到：
-
-- 日志可检索（Loki）
-- 链路可视化（Jaeger/Tempo）
-
-## 11. 常见问题
-
-### 11.1 为什么日志里有 `trace_id` 但查不到下游日志？
-
-可能原因：
-
-- 下游服务没有透传 context
-- 下游没有使用 `log.L(ctx)` 打日志
-- 请求头没有带 `X-Trace-Id`
-
-### 11.2 `span_id` 为空是不是异常？
-
-不是。当前还没接完整 tracing SDK，`span_id` 为空是预期行为。
-
-### 11.3 `user_id` 什么时候写入？
-
-在鉴权完成后写入 context，后续链路日志自动携带。
-
-## 12. 当前接口与调用方式
-
-### 12.1 初始化日志
-
-```go
-err := log.Init(log.Config{
-    Service: "gateway",
-    Env:     "dev",
-    Level:   "info",
-})
+```bash
+docker compose up -d
 ```
 
-### 12.2 写入链路字段
+### 5.2 启动应用
 
-```go
-ctx = log.WithTraceID(ctx, traceID)
-ctx = log.WithSpanID(ctx, spanID)
-ctx = log.WithUserID(ctx, userID)
+分别启动 gateway、user-service，并设置：
+
+```bash
+export APP_ENV=dev
+export LOG_LEVEL=info
+export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319
 ```
 
-### 12.3 打日志
+### 5.3 触发请求
 
-```go
-log.L(ctx).Info("user login success")
-log.L(ctx).Warn("invalid param", zap.String("field", "username"))
-log.L(ctx).Error("rpc failed", zap.Error(err))
-```
+调用 `POST /api/v1/user/login`。
+
+### 5.4 查看结果
+
+- Jaeger（`http://localhost:16686`）查看 trace
+- Grafana（`http://localhost:3000`）查看 Loki 日志与 Prometheus 指标
+- Loki 中按 `trace_id` 过滤日志
+
+## 6. 日志与链路关联方式
+
+关联键使用 `trace_id`：
+
+- 在 Jaeger 中获取 trace id
+- 在 Loki 中按该 `trace_id` 查询同链路日志
+
+这是当前问题排查的核心路径：
+
+1. Jaeger 定位慢/失败 span
+2. Loki 查看该 trace_id 对应详细日志
+
+## 7. 开发约束
+
+- 新接口必须创建至少一个 server span
+- 跨服务调用必须使用同一 context 透传
+- 日志必须使用 `log.L(ctx)`，避免丢失 trace 信息
+- 日志字段命名不得自定义变体（如 `traceId`）
+
+## 8. 常见问题
+
+### 8.1 Jaeger 看不到链路
+
+检查：
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` 是否正确
+- `otel-collector` 与 `jaeger` 是否正常运行
+- 代码是否实际创建了 span
+
+### 8.2 日志中没有 trace_id
+
+检查：
+
+- 是否使用 `log.L(ctx)`
+- handler 是否提取并透传了 context
+- span 是否在当前 context 中
+
+### 8.3 Grafana 无日志
+
+检查：
+
+- promtail 是否运行
+- 容器日志目录挂载是否可读
+- Loki 数据源是否健康
+
+## 9. 后续扩展建议
+
+- 接入 OTel Metrics SDK（应用级 RED 指标）
+- 在 Grafana 增加业务看板（登录成功率、错误率、延迟分位）
+- 接入 Alertmanager 与告警规则

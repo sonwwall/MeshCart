@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:9464"]
+
+  # Example app metrics targets (enable after your services expose /metrics):
+  # - job_name: meshcart-gateway
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ["host.docker.internal:8080"]
