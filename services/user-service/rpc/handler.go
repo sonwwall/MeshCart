@@ -28,6 +28,7 @@ func NewUserServiceImpl(svc *service.UserService) *UserServiceImpl {
 
 // Login implements the UserServiceImpl interface.
 func (s *UserServiceImpl) Login(ctx context.Context, request *user.UserLoginRequest) (resp *user.UserLoginResponse, err error) {
+	// 下游服务入站 server span：与 gateway 的 client span 共同组成跨服务链路。
 	start := time.Now()
 	code := int32(0)
 	defer func() {

@@ -27,6 +27,7 @@ func main() {
 	}
 	defer logx.Sync()
 
+	// 初始化 trace exporter：把 user-service 的 span 上报到 OTel Collector。
 	traceShutdown, err := tracex.Init(context.Background(), tracex.Config{
 		ServiceName: "user-service",
 		Environment: getEnv("APP_ENV", "dev"),

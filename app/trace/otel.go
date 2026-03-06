@@ -21,6 +21,7 @@ type Config struct {
 }
 
 func Init(ctx context.Context, cfg Config) (func(context.Context) error, error) {
+	// 1) 创建 OTLP Trace exporter，把 span 发给 OTel Collector。
 	opts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(cfg.Endpoint)}
 	if cfg.Insecure {
 		opts = append(opts, otlptracegrpc.WithInsecure())
@@ -31,6 +32,7 @@ func Init(ctx context.Context, cfg Config) (func(context.Context) error, error) 
 		return nil, err
 	}
 
+	// 2) 给当前进程打上资源标签，便于在 Jaeger/Grafana 中按服务筛选。
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceNameKey.String(cfg.ServiceName),
@@ -41,11 +43,13 @@ func Init(ctx context.Context, cfg Config) (func(context.Context) error, error) 
 		return nil, err
 	}
 
+	// 3) 创建全局 TracerProvider，应用里所有 span 都从这里生产。
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
 	)
 
+	// 4) 注册全局 Provider 与 Propagator，确保跨服务可传播 trace 上下文。
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
@@ -60,6 +64,7 @@ func Tracer(name string) oteltrace.Tracer {
 }
 
 func StartSpan(ctx context.Context, tracerName, spanName string, opts ...oteltrace.SpanStartOption) (context.Context, oteltrace.Span) {
+	// 统一的 span 创建入口：返回“携带新 span 的 context”。
 	return Tracer(tracerName).Start(ctx, spanName, opts...)
 }
 

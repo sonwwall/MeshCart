@@ -73,11 +73,13 @@ func ContextFields(ctx context.Context) []zap.Field {
 	}
 
 	if !hasTraceID {
+		// 当业务未手动写 trace_id 时，尝试从 OTel span context 自动提取。
 		if traceID := tracex.TraceID(ctx); traceID != "" {
 			fields = append(fields, zap.String(fieldTraceID, traceID))
 		}
 	}
 	if !hasSpanID {
+		// 同上：从 OTel span context 补齐 span_id。
 		if spanID := tracex.SpanID(ctx); spanID != "" {
 			fields = append(fields, zap.String(fieldSpanID, spanID))
 		}

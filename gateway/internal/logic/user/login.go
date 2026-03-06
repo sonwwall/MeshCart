@@ -29,6 +29,7 @@ func NewLoginLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LoginLogic 
 }
 
 func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *common.BizError) {
+	// 业务层 internal span：用于观察网关内部业务编排耗时。
 	ctx, span := tracex.StartSpan(l.ctx, "meshcart.gateway", "gateway.logic.user.login", oteltrace.WithSpanKind(oteltrace.SpanKindInternal))
 	defer span.End()
 
@@ -37,6 +38,7 @@ func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *
 		return nil, common.ErrInvalidParam
 	}
 
+	// 使用同一个 ctx 调下游 RPC，trace 会沿着 ctx 继续传播。
 	resp, err := l.svcCtx.UserClient.Login(ctx, &userrpc.LoginRequest{
 		Username: req.Username,
 		Password: req.Password,

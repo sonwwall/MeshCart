@@ -20,12 +20,15 @@ import (
 
 func Login(svcCtx *svc.ServiceContext) app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
+		// 从 HTTP 请求头提取链路上下文，确保接入已有 trace。
 		ctx = tracex.ExtractFromHertz(ctx, c)
+		// 入站 server span：代表“gateway 收到并处理 login 请求”。
 		ctx, span := tracex.StartSpan(ctx, "meshcart.gateway", "gateway.user.login", oteltrace.WithSpanKind(oteltrace.SpanKindServer))
 		defer span.End()
 
 		traceID := middleware.TraceIDFromRequest(c)
 		if traceID == "" {
+			// 若请求头未显式传 trace_id，则使用当前 span 的 trace_id。
 			traceID = tracex.TraceID(ctx)
 		}
 		ctx = logx.WithTraceID(ctx, traceID)

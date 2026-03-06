@@ -28,6 +28,7 @@ func main() {
 	defer logx.Sync()
 
 	//链路追踪初始化
+	// 初始化 trace exporter：把当前服务的 span 上报到 OTel Collector。
 	traceShutdown, err := tracex.Init(context.Background(), tracex.Config{
 		ServiceName: "gateway",
 		Environment: getEnv("APP_ENV", "dev"),

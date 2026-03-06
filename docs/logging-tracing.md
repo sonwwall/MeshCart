@@ -285,3 +285,141 @@ Grafana -> Folder `MeshCart` -> `MeshCart Observability`
 - 日志必须使用 `log.L(ctx)` 输出
 - 日志字段命名必须使用统一规范
 - 新业务指标必须遵循统一前缀 `meshcart_`
+
+## 10. 单条链路追踪详解（以 user/login 为例）
+
+本节按一次真实调用路径展开：
+
+`HTTP 请求 -> gateway handler -> gateway logic -> gateway rpc client -> user-service rpc handler`
+
+### 10.1 初始化阶段（服务启动时）
+
+Gateway 启动文件：`gateway/cmd/gateway/main.go`  
+User-service 启动文件：`services/user-service/rpc/main.go`
+
+调用函数：`tracex.Init(ctx, tracex.Config{...})`（位于 `app/trace/otel.go`）
+
+参数说明（`tracex.Config`）：
+
+- `ServiceName`：服务名，写入资源属性，Jaeger 中用于区分服务
+- `Environment`：环境标识（dev/prod）
+- `Endpoint`：OTLP 上报地址（示例：`localhost:4319`）
+- `Insecure`：是否使用非 TLS 方式连接 collector
+
+初始化做了什么：
+
+1. 创建 OTLP trace exporter（gRPC）
+2. 构建 Resource（包含 `service.name`、`deployment.environment`）
+3. 创建全局 TracerProvider
+4. 设置全局 Propagator（W3C TraceContext + Baggage）
+
+返回值说明：
+
+- `shutdown func(context.Context) error`：进程退出前调用，确保 span 刷盘上报
+
+### 10.2 入站请求提取上下文（Gateway）
+
+文件：`gateway/internal/handler/user/login.go`  
+函数：`Login(svcCtx *svc.ServiceContext) app.HandlerFunc`
+
+关键调用：
+
+1. `tracex.ExtractFromHertz(ctx, c)`  
+   位置：`app/trace/hertz.go`  
+   作用：从请求头提取 `traceparent`，把上游 trace 写入当前 context。
+
+2. `tracex.StartSpan(ctx, "meshcart.gateway", "gateway.user.login", SpanKindServer)`  
+   位置：`app/trace/otel.go`  
+   作用：创建 Gateway 入站 server span。
+
+参数说明（`StartSpan`）：
+
+- `ctx`：当前上下文，必须向后透传
+- `tracerName`：Tracer 名称（示例：`meshcart.gateway`）
+- `spanName`：span 名称（示例：`gateway.user.login`）
+- `SpanKind`：
+  - `Server`：入站请求
+  - `Internal`：进程内业务步骤
+  - `Client`：出站调用下游
+
+### 10.3 业务层 span（Gateway Logic）
+
+文件：`gateway/internal/logic/user/login.go`  
+函数：`func (l *LoginLogic) Login(req *types.UserLoginRequest) ...`
+
+关键调用：
+
+- `tracex.StartSpan(ctx, "meshcart.gateway", "gateway.logic.user.login", SpanKindInternal)`
+
+作用：
+
+- 把 handler 与下游 RPC 调用之间的业务耗时单独量化
+
+### 10.4 出站 RPC span（Gateway -> user-service）
+
+文件：`gateway/rpc/user/client.go`  
+函数：`func (c *kitexClient) Login(ctx context.Context, req *LoginRequest) ...`
+
+关键调用：
+
+- `tracex.StartSpan(ctx, "meshcart.gateway", "gateway.rpc.user.login", SpanKindClient)`
+- `c.cli.Login(ctx, ...)`（使用同一个 ctx 发起 kitex 调用）
+
+重点：
+
+- 同一个 `ctx` 透传是跨服务链路串联的关键
+- 如果替换了 ctx 或未透传，会导致 Jaeger 中链路断裂
+
+### 10.5 下游入站 span（user-service）
+
+文件：`services/user-service/rpc/handler.go`  
+函数：`func (s *UserServiceImpl) Login(ctx context.Context, request *user.UserLoginRequest) ...`
+
+关键调用：
+
+- `tracex.StartSpan(ctx, "meshcart.user-service", "user.rpc.login", SpanKindServer)`
+
+作用：
+
+- 与上游 client span 形成父子关系，完成跨服务追踪闭环
+
+### 10.6 状态与错误记录
+
+当前代码中使用：
+
+- `span.SetStatus(codes.Ok, "ok")`：成功状态
+- `span.SetStatus(codes.Error, "...")`：失败状态
+- `span.RecordError(err)`：记录技术异常
+- `span.SetAttributes(...)`：记录业务标签（如 `user.username`）
+
+这些字段可在 Jaeger Span 详情中直接查看。
+
+### 10.7 日志与 trace 关联
+
+文件：`app/log/context.go`  
+函数：`ContextFields(ctx context.Context) []zap.Field`
+
+逻辑：
+
+1. 先尝试从业务 context 读取 `trace_id/span_id`
+2. 若没有，则从 OTel span context 自动提取 `TraceID/SpanID`
+3. 最终由 `log.L(ctx)` 注入日志字段
+
+效果：
+
+- 同一条请求在 Jaeger 和 Loki 可通过 `trace_id` 互相定位
+
+### 10.8 核心字段释义（链路层）
+
+- `trace_id`：整条链路唯一 ID（跨服务不变）
+- `span_id`：当前步骤 ID（每个 span 独立）
+- `parent_span_id`：父 span ID（由 OTel 内部维护）
+- `span.kind`：步骤类型（server/internal/client）
+- `service.name`：服务名（来自 `tracex.Config.ServiceName`）
+
+### 10.9 最小排障路径（实践）
+
+1. 在 Jaeger 按服务/接口找到慢链路
+2. 复制该链路 `trace_id`
+3. 在 Grafana Loki 用 `trace_id` 检索日志
+4. 结合 span status + error 日志定位问题点
