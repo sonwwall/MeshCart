@@ -1,29 +1,34 @@
-# 可观测性设计与使用说明
+# MeshCart 可观测性设计与使用手册
 
-## 1. 文档范围
+## 1. 目标与范围
 
-本文档描述 MeshCart 当前可观测性方案的设计与使用方式，覆盖以下组件：
+本文档描述 MeshCart 当前可观测性体系的设计与使用方式，覆盖：
 
-- 日志：Zap（结构化 JSON）
+- 日志：Zap（结构化日志）
+- 指标：Prometheus（HTTP/RPC 指标采集）
 - 链路追踪：OpenTelemetry SDK + Jaeger
-- 日志存储检索：Loki + Promtail
-- 指标：Prometheus
-- 可视化：Grafana
+- 日志采集：Promtail -> Loki
+- 可视化：Grafana（数据源 + 预置看板）
+
+适用服务：
+
+- `gateway`
+- `user-service`
 
 ## 2. 总体架构
 
-### 2.1 数据流
+数据流如下：
 
-1. 应用（gateway / user-service）输出结构化日志（stdout）
+1. 应用输出 Zap JSON 日志到 stdout
 2. Promtail 采集容器日志并推送到 Loki
 3. 应用通过 OTel SDK 上报 trace 到 OTel Collector
 4. OTel Collector 转发 trace 到 Jaeger
-5. OTel Collector 暴露 metrics，Prometheus 抓取
-6. Grafana 统一读取 Prometheus / Loki / Jaeger 数据源
+5. 应用暴露 Prometheus 指标端点，Prometheus 抓取
+6. Grafana 统一展示 Prometheus / Loki / Jaeger 数据
 
-### 2.2 部署组件
+## 3. 组件清单与落点
 
-通过 `docker-compose.yml` 部署以下基础设施：
+### 3.1 基础设施（Docker Compose）
 
 - `prometheus`
 - `grafana`
@@ -32,60 +37,78 @@
 - `jaeger`
 - `otel-collector`
 
-配置文件位置：`deploy/docker/observability/`
+主配置文件：
 
-## 3. 代码设计
+- `docker-compose.yml`
+- `deploy/docker/observability/`
 
-## 3.1 日志模块（`app/log`）
+### 3.2 代码模块
 
-### 3.1.1 目标
+- 日志：`app/log`
+  - `logger.go`
+  - `context.go`
+- 链路追踪：`app/trace`
+  - `otel.go`
+  - `hertz.go`
+- 指标：`app/metrics`
+  - `http.go`
+  - `rpc.go`
+  - `prom.go`
 
-- 统一日志格式
-- 统一字段命名
-- 自动携带链路字段
+### 3.3 服务接入点
 
-### 3.1.2 关键文件
+- Gateway
+  - `gateway/cmd/gateway/main.go`
+  - `gateway/internal/handler/user/login.go`
+  - `gateway/internal/logic/user/login.go`
+  - `gateway/rpc/user/client.go`
+- User Service
+  - `services/user-service/rpc/main.go`
+  - `services/user-service/rpc/handler.go`
 
-- `app/log/logger.go`：Zap 初始化、全局 logger、级别控制
-- `app/log/context.go`：从 context 读取并注入日志字段
+## 4. 设计说明
 
-### 3.1.3 字段规范
+## 4.1 日志设计（Zap）
 
-统一字段名：
+### 4.1.1 设计原则
 
-- `service`：服务名
-- `env`：环境
-- `trace_id`：链路 ID
-- `span_id`：Span ID
-- `user_id`：用户 ID（已登录场景）
+- 全量结构化 JSON 输出
+- 字段命名统一，避免跨服务不一致
+- 通过 `context` 自动注入链路字段
+
+### 4.1.2 统一字段
+
+基础字段：
+
+- `service`：服务名，如 `gateway`
+- `env`：环境，如 `dev`/`prod`
 - `level`：日志级别
 - `msg`：日志消息
-- `ts`：时间
+- `ts`：时间戳
 - `caller`：代码位置
+
+链路字段：
+
+- `trace_id`：一次完整请求链路唯一标识
+- `span_id`：链路中单个调用片段标识
+- `user_id`：用户标识（登录后可注入）
 
 说明：
 
-- `trace_id/span_id` 优先从业务 context 字段读取
-- 若 context 中存在 OTel span，上述字段会自动从 span context 补齐
+- `trace_id/span_id` 优先读业务 context
+- 若 context 内有 OTel span，会自动补齐对应字段
 
-## 3.2 Trace 模块（`app/trace`）
+## 4.2 Trace 设计（OpenTelemetry）
 
-### 3.2.1 关键文件
+### 4.2.1 设计原则
 
-- `app/trace/otel.go`
-  - 初始化 OTel TracerProvider
-  - 配置 OTLP gRPC exporter
-  - 设置全局 Propagator（W3C TraceContext + Baggage）
-  - 提供 `StartSpan/TraceID/SpanID` 工具方法
+- 服务启动时初始化全局 TracerProvider
+- 使用 W3C TraceContext 做上下文传播
+- 在关键链路创建 Server/Internal/Client span
 
-- `app/trace/hertz.go`
-  - Hertz 请求头 carrier
-  - 从 HTTP 请求头提取 trace context
-  - 向请求头注入 trace context
+### 4.2.2 Span 命名规范
 
-### 3.2.2 Span 命名
-
-当前命名规范：`<domain>.<layer>.<module>.<action>`
+格式：`<domain>.<layer>.<module>.<action>`
 
 示例：
 
@@ -94,63 +117,102 @@
 - `gateway.rpc.user.login`
 - `user.rpc.login`
 
-## 3.3 服务接入点
+### 4.2.3 链路传播
 
-### 3.3.1 启动初始化
+- Gateway 从 HTTP Header 提取 trace context
+- Gateway 内部调用保持同一 context
+- RPC 调用使用同一 context 继续传递
 
-- `gateway/cmd/gateway/main.go`
-- `services/user-service/rpc/main.go`
+## 4.3 Metrics 设计（Prometheus）
 
-启动时初始化：
+### 4.3.1 HTTP 指标（gateway）
 
-1. `log.Init(...)`
-2. `trace.Init(...)`
-3. 服务启动
+- `meshcart_http_requests_total`
+  - 类型：Counter
+  - 标签：`service`, `method`, `path`, `status`
+- `meshcart_http_request_duration_seconds`
+  - 类型：Histogram
+  - 标签：`service`, `method`, `path`
+- `meshcart_http_request_errors_total`
+  - 类型：Counter
+  - 标签：`service`, `method`, `path`, `status`
+  - 条件：`status >= 400`
 
-并在退出时调用 `log.Sync()`、`traceShutdown()`。
+### 4.3.2 RPC 指标（user-service）
 
-### 3.3.2 请求链路接入
+- `meshcart_rpc_requests_total`
+  - 类型：Counter
+  - 标签：`service`, `method`, `code`
+- `meshcart_rpc_request_duration_seconds`
+  - 类型：Histogram
+  - 标签：`service`, `method`
+- `meshcart_rpc_errors_total`
+  - 类型：Counter
+  - 标签：`service`, `method`, `code`
+  - 条件：`code != 0`
 
-Gateway 登录请求：
+## 4.4 Grafana 设计
 
-1. handler 从 Header 提取 trace context（`ExtractFromHertz`）
-2. 创建 server span（`gateway.user.login`）
-3. logic 创建 internal span（`gateway.logic.user.login`）
-4. rpc client 创建 client span（`gateway.rpc.user.login`）
-5. user-service handler 创建 server span（`user.rpc.login`）
+- 数据源：Prometheus / Loki / Jaeger
+- 数据源 UID：
+  - Prometheus：`prometheus`
+  - Loki：`loki`
+  - Jaeger：`jaeger`
+- 预置看板：`MeshCart Observability`
 
-## 4. 配置说明
+看板文件：
 
-## 4.1 应用配置（环境变量）
+- `deploy/docker/observability/grafana/provisioning/dashboards/dashboards.yaml`
+- `deploy/docker/observability/grafana/provisioning/dashboards/json/meshcart-observability.json`
 
-- `APP_ENV`：环境标识（如 `dev` / `prod`）
-- `LOG_LEVEL`：日志级别（如 `info`）
+## 5. 配置说明
+
+## 5.1 应用环境变量
+
+通用：
+
+- `APP_ENV`：运行环境
+- `LOG_LEVEL`：日志级别
 - `OTEL_EXPORTER_OTLP_ENDPOINT`：OTLP 上报地址
 
-本地使用当前 compose 时建议：
+建议本地值：
 
+- `APP_ENV=dev`
+- `LOG_LEVEL=info`
 - `OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319`
 
-## 4.2 观测组件端口
+user-service：
+
+- `USER_METRICS_ADDR`：metrics 监听地址（默认 `:9091`）
+
+## 5.2 端口说明
 
 - Grafana：`3000`
 - Prometheus：`9090`
 - Loki：`3100`
 - Jaeger UI：`16686`
-- OTel Collector OTLP gRPC：`4319`（宿主机）
-- OTel Collector OTLP HTTP：`4320`（宿主机）
+- OTel Collector OTLP gRPC（宿主机）：`4319`
+- OTel Collector OTLP HTTP（宿主机）：`4320`
+- Gateway metrics：`8080/metrics`
+- User-service metrics：`9091/metrics`
 
-## 5. 使用步骤
+## 6. 启动说明
 
-### 5.1 启动可观测性组件
+### 6.1 启动可观测性组件
 
 ```bash
 docker compose up -d
 ```
 
-### 5.2 启动应用
+### 6.2 重启 Grafana 以加载最新看板（首次或看板更新后）
 
-分别启动 gateway、user-service，并设置：
+```bash
+docker compose restart grafana
+```
+
+### 6.3 启动业务服务
+
+分别启动 `gateway` 与 `user-service`，并设置环境变量：
 
 ```bash
 export APP_ENV=dev
@@ -158,63 +220,68 @@ export LOG_LEVEL=info
 export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319
 ```
 
-### 5.3 触发请求
+## 7. 使用说明
 
-调用 `POST /api/v1/user/login`。
+## 7.1 验证指标
 
-### 5.4 查看结果
+- Gateway: `http://localhost:8080/metrics`
+- User-service: `http://localhost:9091/metrics`
+- Prometheus Targets: `http://localhost:9090/targets`
 
-- Jaeger（`http://localhost:16686`）查看 trace
-- Grafana（`http://localhost:3000`）查看 Loki 日志与 Prometheus 指标
-- Loki 中按 `trace_id` 过滤日志
+## 7.2 验证链路
 
-## 6. 日志与链路关联方式
+1. 调用 `POST /api/v1/user/login`
+2. 打开 Jaeger：`http://localhost:16686`
+3. 查询 `gateway`、`user-service` 相关 trace
 
-关联键使用 `trace_id`：
+## 7.3 验证日志
 
-- 在 Jaeger 中获取 trace id
-- 在 Loki 中按该 `trace_id` 查询同链路日志
+1. 打开 Grafana：`http://localhost:3000`
+2. 进入 Loki Explore
+3. 用 `trace_id` 过滤对应链路日志
 
-这是当前问题排查的核心路径：
+## 7.4 查看默认看板
 
-1. Jaeger 定位慢/失败 span
-2. Loki 查看该 trace_id 对应详细日志
-
-## 7. 开发约束
-
-- 新接口必须创建至少一个 server span
-- 跨服务调用必须使用同一 context 透传
-- 日志必须使用 `log.L(ctx)`，避免丢失 trace 信息
-- 日志字段命名不得自定义变体（如 `traceId`）
+Grafana -> Folder `MeshCart` -> `MeshCart Observability`
 
 ## 8. 常见问题
 
-### 8.1 Jaeger 看不到链路
+### 8.1 Jaeger 无链路
 
 检查：
 
 - `OTEL_EXPORTER_OTLP_ENDPOINT` 是否正确
-- `otel-collector` 与 `jaeger` 是否正常运行
-- 代码是否实际创建了 span
+- `otel-collector`、`jaeger` 容器是否运行
+- 对应接口是否创建了 span
 
-### 8.2 日志中没有 trace_id
-
-检查：
-
-- 是否使用 `log.L(ctx)`
-- handler 是否提取并透传了 context
-- span 是否在当前 context 中
-
-### 8.3 Grafana 无日志
+### 8.2 日志缺少 `trace_id`
 
 检查：
 
-- promtail 是否运行
-- 容器日志目录挂载是否可读
-- Loki 数据源是否健康
+- 是否使用 `log.L(ctx)` 打日志
+- 是否正确透传了 context
+- 当前上下文是否已有 span
 
-## 9. 后续扩展建议
+### 8.3 Prometheus 抓取失败
 
-- 接入 OTel Metrics SDK（应用级 RED 指标）
-- 在 Grafana 增加业务看板（登录成功率、错误率、延迟分位）
-- 接入 Alertmanager 与告警规则
+检查：
+
+- `gateway` 和 `user-service` metrics 端点是否可访问
+- `prometheus.yml` target 是否可达
+- Docker 环境下 `host.docker.internal` 是否可解析
+
+### 8.4 Grafana 无数据
+
+检查：
+
+- 数据源状态是否 Healthy
+- Prometheus 是否有对应时序数据
+- Loki 是否收到日志（Promtail 是否运行）
+
+## 9. 开发约束
+
+- 新接口必须至少创建一个 server span
+- 跨服务调用必须透传同一 context
+- 日志必须使用 `log.L(ctx)` 输出
+- 日志字段命名必须使用统一规范
+- 新业务指标必须遵循统一前缀 `meshcart_`

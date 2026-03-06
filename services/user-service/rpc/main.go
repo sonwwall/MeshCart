@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"os"
 
 	logx "meshcart/app/log"
+	metricsx "meshcart/app/metrics"
 	tracex "meshcart/app/trace"
 	userservice "meshcart/kitex_gen/meshcart/user/userservice"
 	"meshcart/services/user-service/biz/repository"
@@ -49,6 +51,16 @@ func main() {
 
 	repo := repository.NewMySQLUserRepository(mysqlDB)
 	svc := bizservice.NewUserService(repo)
+
+	metricsAddr := getEnv("USER_METRICS_ADDR", ":9091")
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", metricsx.PromHandler())
+		logx.L(nil).Info("user-service metrics server starting", zap.String("addr", metricsAddr))
+		if err := http.ListenAndServe(metricsAddr, mux); err != nil {
+			logx.L(nil).Error("user-service metrics server stopped with error", zap.Error(err))
+		}
+	}()
 
 	svr := userservice.NewServer(NewUserServiceImpl(svc))
 	logx.L(nil).Info("user-service starting")

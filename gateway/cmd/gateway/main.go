@@ -5,6 +5,7 @@ import (
 	"os"
 
 	logx "meshcart/app/log"
+	metricsx "meshcart/app/metrics"
 	tracex "meshcart/app/trace"
 	"meshcart/gateway/config"
 	"meshcart/gateway/internal/handler"
@@ -15,6 +16,8 @@ import (
 )
 
 func main() {
+
+	//日志初始化
 	if err := logx.Init(logx.Config{
 		Service: "gateway",
 		Env:     getEnv("APP_ENV", "dev"),
@@ -24,6 +27,7 @@ func main() {
 	}
 	defer logx.Sync()
 
+	//链路追踪初始化
 	traceShutdown, err := tracex.Init(context.Background(), tracex.Config{
 		ServiceName: "gateway",
 		Environment: getEnv("APP_ENV", "dev"),
@@ -40,6 +44,8 @@ func main() {
 
 	logx.L(nil).Info("gateway starting", zap.String("addr", cfg.Server.Addr))
 	h := server.Default(server.WithHostPorts(cfg.Server.Addr))
+	h.Use(metricsx.HTTPMiddleware("gateway"))
+	h.GET("/metrics", metricsx.Handler())
 	handler.Register(h, svcCtx)
 	h.Spin()
 }

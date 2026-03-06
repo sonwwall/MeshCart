@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"time"
 
 	logx "meshcart/app/log"
+	metricsx "meshcart/app/metrics"
 	tracex "meshcart/app/trace"
 	base "meshcart/kitex_gen/meshcart/base"
 	user "meshcart/kitex_gen/meshcart/user"
@@ -26,12 +28,19 @@ func NewUserServiceImpl(svc *service.UserService) *UserServiceImpl {
 
 // Login implements the UserServiceImpl interface.
 func (s *UserServiceImpl) Login(ctx context.Context, request *user.UserLoginRequest) (resp *user.UserLoginResponse, err error) {
+	start := time.Now()
+	code := int32(0)
+	defer func() {
+		metricsx.ObserveRPC("user-service", "login", code, time.Since(start))
+	}()
+
 	ctx, span := tracex.StartSpan(ctx, "meshcart.user-service", "user.rpc.login", oteltrace.WithSpanKind(oteltrace.SpanKindServer))
 	defer span.End()
 	span.SetAttributes(attribute.String("user.username", request.Username))
 
 	bizErr := s.svc.Login(ctx, request.Username, request.Password)
 	if bizErr != nil {
+		code = bizErr.Code
 		span.SetStatus(codes.Error, bizErr.Msg)
 		logx.L(ctx).Warn("user login failed",
 			zap.String("username", request.Username),

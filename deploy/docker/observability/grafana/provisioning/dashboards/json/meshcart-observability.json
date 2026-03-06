@@ -1,0 +1,228 @@
+{
+  "id": null,
+  "uid": "meshcart-observability",
+  "title": "MeshCart Observability",
+  "tags": ["meshcart", "observability"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "interval",
+        "type": "interval",
+        "label": "Interval",
+        "query": "30s,1m,5m,10m",
+        "current": {
+          "text": "1m",
+          "value": "1m"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Gateway QPS",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(meshcart_http_requests_total{service=\"gateway\"}[$interval]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Gateway Error Rate",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "(sum(rate(meshcart_http_request_errors_total{service=\"gateway\"}[$interval])) / clamp_min(sum(rate(meshcart_http_requests_total{service=\"gateway\"}[$interval])), 1e-9)) * 100",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Gateway P95 Latency",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(meshcart_http_request_duration_seconds_bucket{service=\"gateway\"}[$interval])) by (le))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "User Login RPC QPS",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(meshcart_rpc_requests_total{service=\"user-service\",method=\"login\"}[$interval]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Gateway QPS by Path",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(meshcart_http_requests_total{service=\"gateway\"}[$interval])) by (path)",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "reqps"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Gateway Latency P95/P99",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(meshcart_http_request_duration_seconds_bucket{service=\"gateway\"}[$interval])) by (le))",
+          "legendFormat": "p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(meshcart_http_request_duration_seconds_bucket{service=\"gateway\"}[$interval])) by (le))",
+          "legendFormat": "p99",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "s"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom"},
+        "tooltip": {"mode": "single"}
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "User Login RPC Error Rate",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "(sum(rate(meshcart_rpc_errors_total{service=\"user-service\",method=\"login\"}[$interval])) / clamp_min(sum(rate(meshcart_rpc_requests_total{service=\"user-service\",method=\"login\"}[$interval])), 1e-9)) * 100",
+          "legendFormat": "login error rate",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "percent"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom"},
+        "tooltip": {"mode": "single"}
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "User Login RPC Duration P95/P99",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(meshcart_rpc_request_duration_seconds_bucket{service=\"user-service\",method=\"login\"}[$interval])) by (le))",
+          "legendFormat": "p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(meshcart_rpc_request_duration_seconds_bucket{service=\"user-service\",method=\"login\"}[$interval])) by (le))",
+          "legendFormat": "p99",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "s"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom"},
+        "tooltip": {"mode": "single"}
+      }
+    }
+  ]
+}
