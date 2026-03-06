@@ -2,10 +2,11 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 
 	dalmodel "meshcart/services/user-service/dal/model"
+
+	"gorm.io/gorm"
 )
 
 var ErrUserNotFound = errors.New("user not found")
@@ -15,29 +16,24 @@ type UserRepository interface {
 }
 
 type MySQLUserRepository struct {
-	db *sql.DB
+	db *gorm.DB
 }
 
-func NewMySQLUserRepository(db *sql.DB) *MySQLUserRepository {
+func NewMySQLUserRepository(db *gorm.DB) *MySQLUserRepository {
 	return &MySQLUserRepository{db: db}
 }
 
 func (r *MySQLUserRepository) GetByUsername(ctx context.Context, username string) (*dalmodel.User, error) {
-	const query = `
-		SELECT id, username, password, is_locked
-		FROM users
-		WHERE username = ?
-		LIMIT 1
-	`
-
-	row := r.db.QueryRowContext(ctx, query, username)
 	user := &dalmodel.User{}
-	if err := row.Scan(&user.ID, &user.Username, &user.Password, &user.IsLocked); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	err := r.db.WithContext(ctx).
+		Where("username = ?", username).
+		Limit(1).
+		First(user).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUserNotFound
 		}
 		return nil, err
 	}
-
 	return user, nil
 }

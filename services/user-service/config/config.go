@@ -10,7 +10,8 @@ import (
 )
 
 type Config struct {
-	MySQL MySQLConfig `mapstructure:"mysql"`
+	MySQL     MySQLConfig     `mapstructure:"mysql"`
+	Migration MigrationConfig `mapstructure:"migration"`
 }
 
 type MySQLConfig struct {
@@ -21,6 +22,11 @@ type MySQLConfig struct {
 	Charset   string `mapstructure:"charset"`
 	ParseTime bool   `mapstructure:"parse_time"`
 	Loc       string `mapstructure:"loc"`
+}
+
+type MigrationConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Source  string `mapstructure:"source"`
 }
 
 type ApolloLoader interface {
@@ -68,6 +74,8 @@ func Load() (Config, error) {
 	v.SetDefault("mysql.charset", "utf8mb4")
 	v.SetDefault("mysql.parse_time", true)
 	v.SetDefault("mysql.loc", "Local")
+	v.SetDefault("migration.enabled", true)
+	v.SetDefault("migration.source", "file://services/user-service/migrations")
 
 	if err := v.ReadInConfig(); err != nil {
 		return Config{}, err

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+cd "$ROOT_DIR"
+
+export APP_ENV="${APP_ENV:-dev}"
+export LOG_LEVEL="${LOG_LEVEL:-info}"
+export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-localhost:4319}"
+export USER_METRICS_ADDR="${USER_METRICS_ADDR:-:9091}"
+export USER_SERVICE_CONFIG="${USER_SERVICE_CONFIG:-services/user-service/config/user-service.local.yaml}"
+export USER_SERVICE_CONFIG_SOURCE="${USER_SERVICE_CONFIG_SOURCE:-file}"
+
+if [[ ! -f "$USER_SERVICE_CONFIG" ]]; then
+  echo "[ERROR] config file not found: $USER_SERVICE_CONFIG" >&2
+  exit 1
+fi
+
+echo "[INFO] starting user-service"
+echo "[INFO] APP_ENV=$APP_ENV LOG_LEVEL=$LOG_LEVEL OTEL_EXPORTER_OTLP_ENDPOINT=$OTEL_EXPORTER_OTLP_ENDPOINT"
+echo "[INFO] USER_METRICS_ADDR=$USER_METRICS_ADDR USER_SERVICE_CONFIG=$USER_SERVICE_CONFIG USER_SERVICE_CONFIG_SOURCE=$USER_SERVICE_CONFIG_SOURCE"
+
+exec go run ./services/user-service/rpc

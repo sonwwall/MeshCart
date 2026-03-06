@@ -112,3 +112,24 @@ if err != nil {
 - `mysql.loc`
 
 建议 Apollo 中保持与本地 YAML 相同的字段命名，减少解析转换成本。
+
+## 8. 数据迁移配置（golang-migrate）
+
+当前 user-service 启动时支持自动执行 migration（见 `services/user-service/rpc/main.go`）：
+
+- `migration.enabled`：是否执行迁移
+- `migration.source`：迁移文件源（示例：`file://services/user-service/migrations`）
+
+迁移文件目录：
+
+- `services/user-service/migrations`
+
+文件命名规则：
+
+- `xxxxxx_name.up.sql`
+- `xxxxxx_name.down.sql`
+
+示例：
+
+- `000001_create_users.up.sql`
+- `000001_create_users.down.sql`

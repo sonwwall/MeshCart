@@ -44,11 +44,22 @@ func main() {
 		logx.L(nil).Fatal("load config failed", zap.Error(err))
 	}
 
+	if cfg.Migration.Enabled {
+		if err := db.RunMigrations(cfg.MySQL.DSN(), cfg.Migration.Source); err != nil {
+			logx.L(nil).Fatal("run migrations failed", zap.Error(err), zap.String("source", cfg.Migration.Source))
+		}
+		logx.L(nil).Info("database migrations applied", zap.String("source", cfg.Migration.Source))
+	}
+
 	mysqlDB, err := db.NewMySQL(cfg.MySQL.DSN())
 	if err != nil {
 		logx.L(nil).Fatal("init mysql failed", zap.Error(err))
 	}
-	defer mysqlDB.Close()
+	sqlDB, err := mysqlDB.DB()
+	if err != nil {
+		logx.L(nil).Fatal("get mysql sql db failed", zap.Error(err))
+	}
+	defer sqlDB.Close()
 
 	repo := repository.NewMySQLUserRepository(mysqlDB)
 	svc := bizservice.NewUserService(repo)

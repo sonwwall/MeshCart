@@ -1,26 +1,31 @@
 package db
 
 import (
-	"database/sql"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
-func NewMySQL(dsn string) (*sql.DB, error) {
-	db, err := sql.Open("mysql", dsn)
+func NewMySQL(dsn string) (*gorm.DB, error) {
+	gdb, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, err
 	}
 
-	db.SetMaxOpenConns(20)
-	db.SetMaxIdleConns(10)
-	db.SetConnMaxLifetime(30 * time.Minute)
-
-	if err := db.Ping(); err != nil {
-		_ = db.Close()
+	sqlDB, err := gdb.DB()
+	if err != nil {
 		return nil, err
 	}
 
-	return db, nil
+	sqlDB.SetMaxOpenConns(20)
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+
+	if err := sqlDB.Ping(); err != nil {
+		_ = sqlDB.Close()
+		return nil, err
+	}
+
+	return gdb, nil
 }
