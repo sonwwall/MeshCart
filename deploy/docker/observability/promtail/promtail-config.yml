@@ -23,3 +23,21 @@ scrape_configs:
         target_label: compose_service
       - replacement: meshcart
         target_label: project
+  - job_name: meshcart-local-files
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: meshcart-local-files
+          project: meshcart
+          source: file
+          service: gateway
+          __path__: /workspace/logs/gateway.log
+      - targets:
+          - localhost
+        labels:
+          job: meshcart-local-files
+          project: meshcart
+          source: file
+          service: user-service
+          __path__: /workspace/logs/user-service.log

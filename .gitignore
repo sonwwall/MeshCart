@@ -1,3 +1,4 @@
 
 # local sensitive configs
 services/user-service/config/user-service.local.yaml
+logs/

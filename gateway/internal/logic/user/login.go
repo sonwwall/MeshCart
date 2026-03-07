@@ -11,6 +11,7 @@ import (
 	"meshcart/gateway/internal/types"
 	userrpc "meshcart/gateway/rpc/user"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -32,9 +33,15 @@ func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *
 	// 业务层 internal span：用于观察网关内部业务编排耗时。
 	ctx, span := tracex.StartSpan(l.ctx, "meshcart.gateway", "gateway.logic.user.login", oteltrace.WithSpanKind(oteltrace.SpanKindInternal))
 	defer span.End()
+	span.SetAttributes(attribute.String("biz.module", "user"), attribute.String("biz.action", "login"))
 
 	if strings.TrimSpace(req.Username) == "" || strings.TrimSpace(req.Password) == "" {
-		span.SetStatus(codes.Error, common.ErrInvalidParam.Msg)
+		span.SetAttributes(
+			attribute.Bool("biz.success", false),
+			attribute.String("biz.type", "business"),
+			attribute.Int("biz.code", int(common.ErrInvalidParam.Code)),
+			attribute.String("biz.message", common.ErrInvalidParam.Msg),
+		)
 		return nil, common.ErrInvalidParam
 	}
 
@@ -45,14 +52,24 @@ func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *
 	})
 	if err != nil {
 		span.RecordError(err)
+		span.SetAttributes(
+			attribute.Bool("biz.success", false),
+			attribute.String("biz.type", "technical"),
+		)
 		span.SetStatus(codes.Error, "user rpc login failed")
 		logx.L(ctx).Error("user rpc login failed", zap.Error(err))
 		return nil, common.ErrInternalError
 	}
 	if resp.Code != common.CodeOK {
-		span.SetStatus(codes.Error, resp.Message)
+		span.SetAttributes(
+			attribute.Bool("biz.success", false),
+			attribute.String("biz.type", "business"),
+			attribute.Int("biz.code", int(resp.Code)),
+			attribute.String("biz.message", resp.Message),
+		)
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
+	span.SetAttributes(attribute.Bool("biz.success", true))
 	span.SetStatus(codes.Ok, "ok")
 
 	return &types.UserLoginData{

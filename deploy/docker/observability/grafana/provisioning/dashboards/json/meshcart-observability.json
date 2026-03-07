@@ -33,7 +33,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "sum(rate(meshcart_http_requests_total{service=\"gateway\"}[$interval]))",
+          "expr": "sum(rate(hertz_server_throughput[$interval]))",
           "refId": "A"
         }
       ],
@@ -57,7 +57,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "(sum(rate(meshcart_http_request_errors_total{service=\"gateway\"}[$interval])) / clamp_min(sum(rate(meshcart_http_requests_total{service=\"gateway\"}[$interval])), 1e-9)) * 100",
+          "expr": "(sum(rate(hertz_server_throughput{statusCode!~\"2..\"}[$interval])) / clamp_min(sum(rate(hertz_server_throughput[$interval])), 1e-9)) * 100",
           "refId": "A"
         }
       ],
@@ -89,7 +89,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(meshcart_http_request_duration_seconds_bucket{service=\"gateway\"}[$interval])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(hertz_server_latency_us_bucket[$interval])) by (le)) / 1000000",
           "refId": "A"
         }
       ],
@@ -132,13 +132,13 @@
     },
     {
       "type": "timeseries",
-      "title": "Gateway QPS by Path",
+      "title": "Gateway QPS by Method",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "sum(rate(meshcart_http_requests_total{service=\"gateway\"}[$interval])) by (path)",
-          "legendFormat": "{{path}}",
+          "expr": "sum(rate(hertz_server_throughput[$interval])) by (method)",
+          "legendFormat": "{{method}}",
           "refId": "A"
         }
       ],
@@ -158,12 +158,12 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(meshcart_http_request_duration_seconds_bucket{service=\"gateway\"}[$interval])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(hertz_server_latency_us_bucket[$interval])) by (le)) / 1000000",
           "legendFormat": "p95",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(meshcart_http_request_duration_seconds_bucket{service=\"gateway\"}[$interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(hertz_server_latency_us_bucket[$interval])) by (le)) / 1000000",
           "legendFormat": "p99",
           "refId": "B"
         }

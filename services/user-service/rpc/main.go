@@ -5,9 +5,13 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/cloudwego/kitex/server"
+	"github.com/cloudwego/kitex/pkg/rpcinfo"
+	otelprovider "github.com/kitex-contrib/obs-opentelemetry/provider"
+	kitextrace "github.com/kitex-contrib/obs-opentelemetry/tracing"
+
 	logx "meshcart/app/log"
 	metricsx "meshcart/app/metrics"
-	tracex "meshcart/app/trace"
 	userservice "meshcart/kitex_gen/meshcart/user/userservice"
 	"meshcart/services/user-service/biz/repository"
 	bizservice "meshcart/services/user-service/biz/service"
@@ -22,22 +26,19 @@ func main() {
 		Service: "user-service",
 		Env:     getEnv("APP_ENV", "dev"),
 		Level:   getEnv("LOG_LEVEL", "info"),
+		LogDir:  getEnv("LOG_DIR", "logs"),
 	}); err != nil {
 		panic(err)
 	}
 	defer logx.Sync()
 
-	// 初始化 trace exporter：把 user-service 的 span 上报到 OTel Collector。
-	traceShutdown, err := tracex.Init(context.Background(), tracex.Config{
-		ServiceName: "user-service",
-		Environment: getEnv("APP_ENV", "dev"),
-		Endpoint:    getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4319"),
-		Insecure:    true,
-	})
-	if err != nil {
-		panic(err)
-	}
-	defer func() { _ = traceShutdown(context.Background()) }()
+	otel := otelprovider.NewOpenTelemetryProvider(
+		otelprovider.WithServiceName("user-service"),
+		otelprovider.WithDeploymentEnvironment(getEnv("APP_ENV", "dev")),
+		otelprovider.WithExportEndpoint(getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4319")),
+		otelprovider.WithInsecure(),
+	)
+	defer func() { _ = otel.Shutdown(context.Background()) }()
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -74,7 +75,11 @@ func main() {
 		}
 	}()
 
-	svr := userservice.NewServer(NewUserServiceImpl(svc))
+	svr := userservice.NewServer(
+		NewUserServiceImpl(svc),
+		server.WithSuite(kitextrace.NewServerSuite()),
+		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "user-service"}),
+	)
 	logx.L(nil).Info("user-service starting")
 	if err := svr.Run(); err != nil {
 		logx.L(nil).Error("user-service stopped with error", zap.Error(err))

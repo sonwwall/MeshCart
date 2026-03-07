@@ -6,7 +6,7 @@
 
 - 日志：Zap（结构化日志）
 - 指标：Prometheus（HTTP/RPC 指标采集）
-- 链路追踪：OpenTelemetry SDK + Jaeger
+- 链路追踪：OpenTelemetry + Jaeger
 - 日志采集：Promtail -> Loki
 - 可视化：Grafana（数据源 + 预置看板）
 
@@ -19,9 +19,9 @@
 
 数据流如下：
 
-1. 应用输出 Zap JSON 日志到 stdout
-2. Promtail 采集容器日志并推送到 Loki
-3. 应用通过 OTel SDK 上报 trace 到 OTel Collector
+1. 应用输出 Zap JSON 日志到 stdout，并同时写入项目 `logs/` 目录
+2. Promtail 采集容器日志和项目日志文件并推送到 Loki
+3. 应用通过 Hertz / Kitex 观测插件和 OpenTelemetry Provider 上报 trace 到 OTel Collector
 4. OTel Collector 转发 trace 到 Jaeger
 5. 应用暴露 Prometheus 指标端点，Prometheus 抓取
 6. Grafana 统一展示 Prometheus / Loki / Jaeger 数据
@@ -102,9 +102,10 @@
 
 ### 4.2.1 设计原则
 
-- 服务启动时初始化全局 TracerProvider
-- 使用 W3C TraceContext 做上下文传播
-- 在关键链路创建 Server/Internal/Client span
+- 服务启动时初始化 OpenTelemetry Provider
+- Gateway 使用 `hertz-contrib/obs-opentelemetry` 完成 HTTP 入站 trace 提取与 server span 创建
+- RPC 使用 `kitex-contrib/obs-opentelemetry` 完成 Kitex client/server span 创建与 trace 透传
+- 业务层只在必要位置补充 internal span，不重复手写 HTTP server span 或 RPC client/server span
 
 ### 4.2.2 Span 命名规范
 
@@ -112,31 +113,25 @@
 
 示例：
 
-- `gateway.user.login`
 - `gateway.logic.user.login`
-- `gateway.rpc.user.login`
-- `user.rpc.login`
 
 ### 4.2.3 链路传播
 
-- Gateway 从 HTTP Header 提取 trace context
-- Gateway 内部调用保持同一 context
-- RPC 调用使用同一 context 继续传递
+- Gateway 由 `hertz-contrib` tracing middleware 自动提取 HTTP Header 中的 trace context
+- Gateway 内部调用保持同一 `context.Context`
+- Gateway 调用 user-service 时，Kitex ClientSuite 自动透传 trace context
+- User-service 由 Kitex ServerSuite 自动接收上游 trace context 并创建 RPC server span
 
 ## 4.3 Metrics 设计（Prometheus）
 
 ### 4.3.1 HTTP 指标（gateway）
 
-- `meshcart_http_requests_total`
+- `hertz_server_throughput`
   - 类型：Counter
-  - 标签：`service`, `method`, `path`, `status`
-- `meshcart_http_request_duration_seconds`
+  - 标签：`method`, `statusCode`
+- `hertz_server_latency_us`
   - 类型：Histogram
-  - 标签：`service`, `method`, `path`
-- `meshcart_http_request_errors_total`
-  - 类型：Counter
-  - 标签：`service`, `method`, `path`, `status`
-  - 条件：`status >= 400`
+  - 标签：`method`, `statusCode`
 
 ### 4.3.2 RPC 指标（user-service）
 
@@ -189,12 +184,28 @@ user-service：
 
 - Grafana：`3000`
 - Prometheus：`9090`
-- Loki：`3100`
+- Loki API：`3100`
 - Jaeger UI：`16686`
 - OTel Collector OTLP gRPC（宿主机）：`4319`
 - OTel Collector OTLP HTTP（宿主机）：`4320`
-- Gateway metrics：`8080/metrics`
+- Gateway metrics：`9092/metrics`
 - User-service metrics：`9091/metrics`
+
+## 5.3 访问入口总表
+
+- Grafana 看板入口：`http://localhost:3000`
+- Prometheus 控制台：`http://localhost:9090`
+- Prometheus Targets：`http://localhost:9090/targets`
+- Jaeger 链路查询：`http://localhost:16686`
+- Loki HTTP API：`http://localhost:3100`
+- Gateway 指标端点：`http://localhost:9092/metrics`
+- User-service 指标端点：`http://localhost:9091/metrics`
+
+说明：
+
+- Grafana 默认账号密码：`admin/admin`
+- Loki 通常不直接打开页面使用，主要通过 Grafana Explore 或 HTTP API 查询
+- `http://localhost:3100` 根路径返回 `404` 属于正常现象，Loki 主要提供 API，不提供首页 UI
 
 ## 6. 启动说明
 
@@ -210,6 +221,13 @@ docker compose up -d
 docker compose restart grafana
 ```
 
+### 6.2.1 配置变更后的重载规则
+
+- 修改 `prometheus.yml` 后，需要重启或重建 `prometheus`
+- 修改 `promtail-config.yml` 后，需要重启或重建 `promtail`
+- 修改 Grafana provisioning/dashboard 后，需要重启 `grafana`
+- 修改业务代码中的日志、trace、metrics 逻辑后，需要重启对应业务服务
+
 ### 6.3 启动业务服务
 
 分别启动 `gateway` 与 `user-service`，并设置环境变量：
@@ -222,9 +240,125 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319
 
 ## 7. 使用说明
 
+## 7.0 面板用途与使用指南
+
+### 7.0.1 Grafana
+
+地址：
+
+- `http://localhost:3000`
+
+用途：
+
+- 统一查看指标、日志、链路
+- 查看预置看板 `MeshCart Observability`
+- 进入 Explore 手工查 Prometheus、Loki、Jaeger 数据
+
+常用入口：
+
+- Dashboards：看整体监控面板
+- Explore -> Prometheus：查指标
+- Explore -> Loki：查日志
+- Explore -> Jaeger：跳转链路
+
+### 7.0.2 Prometheus
+
+地址：
+
+- `http://localhost:9090`
+
+用途：
+
+- 查看原始 metrics 数据
+- 验证抓取是否正常
+- 手工执行 PromQL 查询
+
+常用入口：
+
+- `http://localhost:9090/targets`
+  - 查看 `gateway`、`user-service` 是否抓取成功
+- `Graph`
+  - 手工查询指标，比如 `hertz_server_throughput`
+  - 手工查询 RPC 指标，比如 `meshcart_rpc_requests_total`
+
+### 7.0.3 Jaeger
+
+地址：
+
+- `http://localhost:16686`
+
+用途：
+
+- 查看一次请求的完整调用链
+- 排查慢请求、错误请求、跨服务 trace 断链
+
+常用方法：
+
+- 选择 `gateway` 或 `user-service`
+- 点击 `Find Traces`
+- 打开某条 trace 后查看每个 span 的耗时、父子关系、错误信息
+
+界面说明：
+
+- 不同颜色主要用于区分不同 `service`
+- 红色错误标记才表示该 span 被标记为 `error=true`
+- 黄色、蓝色、绿色本身不表示告警等级
+
+### 7.0.4 Loki
+
+地址：
+
+- `http://localhost:3100`
+
+用途：
+
+- Loki 是日志存储后端
+- 一般不直接使用页面，而是通过 Grafana Explore 查询
+
+常用方法：
+
+- 打开 Grafana -> Explore -> 选择 `Loki`
+- 查询 gateway 文件日志：
+  - `{project="meshcart", source="file", service="gateway"}`
+- 查询 user-service 文件日志：
+  - `{project="meshcart", source="file", service="user-service"}`
+- 查询容器日志：
+  - `{project="meshcart", compose_service="loki"}`
+- 按链路查询：
+  - `{project="meshcart", source="file", service="gateway"} |= "trace_id"`
+
+查看原则：
+
+- 平时优先查 `source="file"` 的应用日志，不优先查容器内部组件日志
+- 如果查到了 `service_name="meshcart-loki"` 或 `compose_service="loki"`，说明你看到的是 Loki 自己的查询日志，不是业务日志
+- 查询业务日志时，先限定服务，再加 `trace_id`、`level`、`msg` 等条件收敛范围
+
+推荐查询：
+
+- 查 gateway 最近错误：
+  - `{project="meshcart", source="file", service="gateway"} |= "\"level\":\"error\""`
+- 查 user-service 最近警告：
+  - `{project="meshcart", source="file", service="user-service"} |= "\"level\":\"warn\""`
+- 按 trace_id 查整条链路：
+  - `{project="meshcart", source="file"} |= "你的trace_id"`
+- 查登录失败：
+  - `{project="meshcart", source="file"} |= "user login failed"`
+
+### 7.0.5 Metrics 端点
+
+地址：
+
+- Gateway：`http://localhost:9092/metrics`
+- User-service：`http://localhost:9091/metrics`
+
+用途：
+
+- 直接查看服务暴露的原始指标
+- 判断是“服务没产出指标”还是“Prometheus 没抓到指标”
+
 ## 7.1 验证指标
 
-- Gateway: `http://localhost:8080/metrics`
+- Gateway: `http://localhost:9092/metrics`
 - User-service: `http://localhost:9091/metrics`
 - Prometheus Targets: `http://localhost:9090/targets`
 
@@ -238,7 +372,8 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319
 
 1. 打开 Grafana：`http://localhost:3000`
 2. 进入 Loki Explore
-3. 用 `trace_id` 过滤对应链路日志
+3. 先查 `{project="meshcart", source="file", service="gateway"}` 或 `{project="meshcart", source="file", service="user-service"}`
+4. 再结合 `trace_id` 或错误关键字过滤对应链路日志
 
 ## 7.4 查看默认看板
 
@@ -252,7 +387,25 @@ Grafana -> Folder `MeshCart` -> `MeshCart Observability`
 
 - `OTEL_EXPORTER_OTLP_ENDPOINT` 是否正确
 - `otel-collector`、`jaeger` 容器是否运行
-- 对应接口是否创建了 span
+- Gateway 是否注册了 `hztrace.ServerMiddleware(...)`
+- Kitex client/server 是否注册了 `kitextrace.NewClientSuite()` / `kitextrace.NewServerSuite()`
+
+### 8.1.1 Jaeger 红色 span 但接口可用
+
+说明：
+
+- Jaeger 中的红色 span 不一定表示接口不可用
+- 推荐口径是：只有技术异常标记为 `Error`
+- 普通业务失败（如参数错误、用户名密码错误、库存不足）不标记为 `Error`
+
+当前项目约定：
+
+- 技术错误：
+  - `span.RecordError(err)`
+  - `span.SetStatus(codes.Error, ...)`
+- 业务错误：
+  - 不设置 `codes.Error`
+  - 使用 `biz.success=false`、`biz.type=business`、`biz.code`、`biz.message` 等属性记录
 
 ### 8.2 日志缺少 `trace_id`
 
@@ -277,14 +430,17 @@ Grafana -> Folder `MeshCart` -> `MeshCart Observability`
 - 数据源状态是否 Healthy
 - Prometheus 是否有对应时序数据
 - Loki 是否收到日志（Promtail 是否运行）
+- 本地服务是否已在项目根目录生成 `logs/gateway.log` 或 `logs/user-service.log`
+- 查询条件是否错误选成了 `loki`、`grafana` 等观测组件自身日志
 
 ## 9. 开发约束
 
-- 新接口必须至少创建一个 server span
+- HTTP server span 与 RPC client/server span 由框架插件自动生成
 - 跨服务调用必须透传同一 context
 - 日志必须使用 `log.L(ctx)` 输出
 - 日志字段命名必须使用统一规范
 - 新业务指标必须遵循统一前缀 `meshcart_`
+- 仅在业务拆分有意义时补充 internal span，避免重复创建与框架职责冲突的 span
 
 ## 10. 单条链路追踪详解（以 user/login 为例）
 
@@ -297,14 +453,15 @@ Grafana -> Folder `MeshCart` -> `MeshCart Observability`
 Gateway 启动文件：`gateway/cmd/gateway/main.go`  
 User-service 启动文件：`services/user-service/rpc/main.go`
 
-调用函数：`tracex.Init(ctx, tracex.Config{...})`（位于 `app/trace/otel.go`）
+Gateway 调用函数：`otelprovider.NewOpenTelemetryProvider(...)`（`hertz-contrib`）  
+User-service 调用函数：`otelprovider.NewOpenTelemetryProvider(...)`（`kitex-contrib`）
 
-参数说明（`tracex.Config`）：
+参数说明（Gateway / User-service `provider.Option`）：
 
-- `ServiceName`：服务名，写入资源属性，Jaeger 中用于区分服务
-- `Environment`：环境标识（dev/prod）
-- `Endpoint`：OTLP 上报地址（示例：`localhost:4319`）
-- `Insecure`：是否使用非 TLS 方式连接 collector
+- `WithServiceName`：服务名，写入资源属性
+- `WithDeploymentEnvironment`：环境标识
+- `WithExportEndpoint`：OTLP 上报地址（示例：`localhost:4319`）
+- `WithInsecure`：是否使用非 TLS 方式连接 collector
 
 初始化做了什么：
 
@@ -315,36 +472,32 @@ User-service 启动文件：`services/user-service/rpc/main.go`
 
 返回值说明：
 
-- `shutdown func(context.Context) error`：进程退出前调用，确保 span 刷盘上报
+- `Shutdown(context.Context)`：进程退出前调用，确保 span 刷盘上报
 
 ### 10.2 入站请求提取上下文（Gateway）
 
 文件：`gateway/internal/handler/user/login.go`  
 函数：`Login(svcCtx *svc.ServiceContext) app.HandlerFunc`
 
-关键调用：
+关键调用（在 `gateway/cmd/gateway/main.go` 注册）：
 
-1. `tracex.ExtractFromHertz(ctx, c)`  
-   位置：`app/trace/hertz.go`  
-   作用：从请求头提取 `traceparent`，把上游 trace 写入当前 context。
+1. `hztrace.NewServerTracer()`  
+2. `h.Use(hztrace.ServerMiddleware(traceCfg))`
 
-2. `tracex.StartSpan(ctx, "meshcart.gateway", "gateway.user.login", SpanKindServer)`  
-   位置：`app/trace/otel.go`  
-   作用：创建 Gateway 入站 server span。
+作用：
 
-参数说明（`StartSpan`）：
+- `hertz-contrib` 自动从请求头提取 `traceparent`
+- 为当前 HTTP 请求创建 gateway 的入站 server span
+- 把带有 span 的 `context.Context` 传给后续 handler / logic / rpc client
 
-- `ctx`：当前上下文，必须向后透传
-- `tracerName`：Tracer 名称（示例：`meshcart.gateway`）
-- `spanName`：span 名称（示例：`gateway.user.login`）
-- `SpanKind`：
-  - `Server`：入站请求
-  - `Internal`：进程内业务步骤
-  - `Client`：出站调用下游
+说明：
+
+- 这一层不再手写 `StartSpan(..., SpanKindServer)`
+- [login.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/handler/user/login.go) 只负责取请求参数、调用 logic、写响应
 
 ### 10.3 业务层 span（Gateway Logic）
 
-文件：`gateway/internal/logic/user/login.go`  
+文件：[login.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/logic/user/login.go)  
 函数：`func (l *LoginLogic) Login(req *types.UserLoginRequest) ...`
 
 关键调用：
@@ -353,50 +506,87 @@ User-service 启动文件：`services/user-service/rpc/main.go`
 
 作用：
 
+- 补充一个业务 internal span
 - 把 handler 与下游 RPC 调用之间的业务耗时单独量化
+- internal span 仍然挂在 gateway 的 HTTP server span 下面
 
 ### 10.4 出站 RPC span（Gateway -> user-service）
 
-文件：`gateway/rpc/user/client.go`  
+文件：[client.go](/Users/ruitong/GolandProjects/MeshCart/gateway/rpc/user/client.go)  
 函数：`func (c *kitexClient) Login(ctx context.Context, req *LoginRequest) ...`
 
 关键调用：
 
-- `tracex.StartSpan(ctx, "meshcart.gateway", "gateway.rpc.user.login", SpanKindClient)`
-- `c.cli.Login(ctx, ...)`（使用同一个 ctx 发起 kitex 调用）
+- `client.WithSuite(kitextrace.NewClientSuite())`
+- `client.WithClientBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "gateway"})`
+- `c.cli.Login(ctx, ...)`
 
 重点：
 
+- RPC client span 由 `kitex-contrib` 自动创建
+- 当前代码不再手写 `gateway.rpc.user.login` 这一层 span
 - 同一个 `ctx` 透传是跨服务链路串联的关键
 - 如果替换了 ctx 或未透传，会导致 Jaeger 中链路断裂
 
 ### 10.5 下游入站 span（user-service）
 
-文件：`services/user-service/rpc/handler.go`  
+文件：`services/user-service/rpc/main.go`  
+业务处理文件：`services/user-service/rpc/handler.go`  
 函数：`func (s *UserServiceImpl) Login(ctx context.Context, request *user.UserLoginRequest) ...`
 
 关键调用：
 
-- `tracex.StartSpan(ctx, "meshcart.user-service", "user.rpc.login", SpanKindServer)`
+- `server.WithSuite(kitextrace.NewServerSuite())`
+- `server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "user-service"})`
 
 作用：
 
-- 与上游 client span 形成父子关系，完成跨服务追踪闭环
+- user-service 的 RPC server span 由 `kitex-contrib` 自动创建
+- 与 gateway 侧的 RPC client span 形成父子关系，完成跨服务追踪闭环
+- `handler.go` 中不再手写 `SpanKindServer`
 
 ### 10.6 状态与错误记录
 
-当前代码中使用：
+当前实现分为两类：
 
-- `span.SetStatus(codes.Ok, "ok")`：成功状态
-- `span.SetStatus(codes.Error, "...")`：失败状态
-- `span.RecordError(err)`：记录技术异常
-- `span.SetAttributes(...)`：记录业务标签（如 `user.username`）
+- 框架自动 span
+  - HTTP server span：由 `hertz-contrib` 创建
+  - RPC client/server span：由 `kitex-contrib` 创建
+- 业务补充 span
+  - gateway logic 中的 internal span 仍可调用 `tracex.StartSpan(...)`
 
-这些字段可在 Jaeger Span 详情中直接查看。
+说明：
+
+- 如果需要记录更细的业务标签，可以在 logic/service 层的 internal span 上调用 `SetAttributes(...)`
+- 技术异常会体现在 RPC 返回错误、日志和 span 状态中，Jaeger 中可直接查看耗时与错误链路
+- 普通业务失败不建议直接标红，而是写入业务属性
+
+推荐属性：
+
+- `biz.success`
+- `biz.type`
+- `biz.code`
+- `biz.message`
+- `biz.module`
+- `biz.action`
+
+当前 `gateway.logic.user.login` 的口径：
+
+- 参数错误、用户名密码错误：
+  - `biz.success=false`
+  - `biz.type=business`
+  - 不设置 `codes.Error`
+- RPC 调用失败、网络异常、下游不可用：
+  - `biz.success=false`
+  - `biz.type=technical`
+  - 设置 `codes.Error`
+- 请求成功：
+  - `biz.success=true`
+  - `codes.Ok`
 
 ### 10.7 日志与 trace 关联
 
-文件：`app/log/context.go`  
+文件：[context.go](/Users/ruitong/GolandProjects/MeshCart/app/log/context.go)  
 函数：`ContextFields(ctx context.Context) []zap.Field`
 
 逻辑：
@@ -415,7 +605,7 @@ User-service 启动文件：`services/user-service/rpc/main.go`
 - `span_id`：当前步骤 ID（每个 span 独立）
 - `parent_span_id`：父 span ID（由 OTel 内部维护）
 - `span.kind`：步骤类型（server/internal/client）
-- `service.name`：服务名（来自 `tracex.Config.ServiceName`）
+- `service.name`：服务名（来自 Provider 的 `WithServiceName`）
 
 ### 10.9 最小排障路径（实践）
 

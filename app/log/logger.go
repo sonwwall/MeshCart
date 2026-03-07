@@ -2,6 +2,8 @@ package log
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -13,6 +15,7 @@ type Config struct {
 	Service string
 	Env     string
 	Level   string
+	LogDir  string
 }
 
 var (
@@ -26,32 +29,45 @@ func Init(cfg Config) error {
 		return err
 	}
 
-	zapCfg := zap.Config{
-		Level:       zap.NewAtomicLevelAt(level),
-		Development: cfg.Env != "prod",
-		Encoding:    "json",
-		EncoderConfig: zapcore.EncoderConfig{
-			TimeKey:        "ts",
-			LevelKey:       "level",
-			NameKey:        "logger",
-			CallerKey:      "caller",
-			FunctionKey:    "func",
-			MessageKey:     "msg",
-			StacktraceKey:  "stacktrace",
-			LineEnding:     zapcore.DefaultLineEnding,
-			EncodeLevel:    zapcore.LowercaseLevelEncoder,
-			EncodeTime:     zapcore.ISO8601TimeEncoder,
-			EncodeDuration: zapcore.StringDurationEncoder,
-			EncodeCaller:   zapcore.ShortCallerEncoder,
-		},
-		OutputPaths:      []string{"stdout"},
-		ErrorOutputPaths: []string{"stderr"},
+	encoderCfg := zapcore.EncoderConfig{
+		TimeKey:        "ts",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		FunctionKey:    "func",
+		MessageKey:     "msg",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.StringDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 
-	logger, err := zapCfg.Build(zap.AddCaller(), zap.AddCallerSkip(1))
-	if err != nil {
-		return err
+	cores := []zapcore.Core{
+		zapcore.NewCore(
+			zapcore.NewJSONEncoder(encoderCfg),
+			zapcore.AddSync(os.Stdout),
+			level,
+		),
 	}
+	if cfg.LogDir != "" && cfg.Service != "" {
+		if err := os.MkdirAll(cfg.LogDir, 0o755); err != nil {
+			return err
+		}
+		logFile := filepath.Join(cfg.LogDir, cfg.Service+".log")
+		file, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			return err
+		}
+		cores = append(cores, zapcore.NewCore(
+			zapcore.NewJSONEncoder(encoderCfg),
+			zapcore.AddSync(file),
+			level,
+		))
+	}
+
+	logger := zap.New(zapcore.NewTee(cores...), zap.AddCaller(), zap.AddCallerSkip(1))
 
 	baseFields := make([]zap.Field, 0, 2)
 	if cfg.Service != "" {
