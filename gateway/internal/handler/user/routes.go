@@ -9,4 +9,5 @@ import (
 func RegisterRoutes(api *route.RouterGroup, svcCtx *svc.ServiceContext) {
 	userGroup := api.Group("/user")
 	userGroup.POST("/login", Login(svcCtx))
+	userGroup.POST("/register", Register(svcCtx))
 }

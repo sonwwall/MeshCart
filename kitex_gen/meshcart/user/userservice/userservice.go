@@ -20,6 +20,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"register": kitex.NewMethodInfo(
+		registerHandler,
+		newUserServiceRegisterArgs,
+		newUserServiceRegisterResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -104,6 +111,24 @@ func newUserServiceLoginResult() interface{} {
 	return user.NewUserServiceLoginResult()
 }
 
+func registerHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*user.UserServiceRegisterArgs)
+	realResult := result.(*user.UserServiceRegisterResult)
+	success, err := handler.(user.UserService).Register(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newUserServiceRegisterArgs() interface{} {
+	return user.NewUserServiceRegisterArgs()
+}
+
+func newUserServiceRegisterResult() interface{} {
+	return user.NewUserServiceRegisterResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -119,6 +144,16 @@ func (p *kClient) Login(ctx context.Context, request *user.UserLoginRequest) (r 
 	_args.Request = request
 	var _result user.UserServiceLoginResult
 	if err = p.c.Call(ctx, "login", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) Register(ctx context.Context, request *user.UserRegisterRequest) (r *user.UserRegisterResponse, err error) {
+	var _args user.UserServiceRegisterArgs
+	_args.Request = request
+	var _result user.UserServiceRegisterResult
+	if err = p.c.Call(ctx, "register", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

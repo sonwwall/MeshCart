@@ -3,7 +3,7 @@ package model
 import "time"
 
 type User struct {
-	ID        int64     `gorm:"column:id;primaryKey;autoIncrement"`
+	ID        int64     `gorm:"column:id;primaryKey"`
 	Username  string    `gorm:"column:username;type:varchar(64);uniqueIndex:uk_username;not null"`
 	Password  string    `gorm:"column:password;type:varchar(255);not null"`
 	IsLocked  bool      `gorm:"column:is_locked;type:tinyint(1);not null;default:0"`

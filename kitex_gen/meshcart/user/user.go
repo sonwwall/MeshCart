@@ -84,8 +84,86 @@ var fieldIDToName_UserLoginResponse = map[int16]string{
 	255: "base",
 }
 
+type UserRegisterRequest struct {
+	Username string `thrift:"username,1" frugal:"1,default,string" json:"username"`
+	Password string `thrift:"password,2" frugal:"2,default,string" json:"password"`
+}
+
+func NewUserRegisterRequest() *UserRegisterRequest {
+	return &UserRegisterRequest{}
+}
+
+func (p *UserRegisterRequest) InitDefault() {
+}
+
+func (p *UserRegisterRequest) GetUsername() (v string) {
+	return p.Username
+}
+
+func (p *UserRegisterRequest) GetPassword() (v string) {
+	return p.Password
+}
+func (p *UserRegisterRequest) SetUsername(val string) {
+	p.Username = val
+}
+func (p *UserRegisterRequest) SetPassword(val string) {
+	p.Password = val
+}
+
+func (p *UserRegisterRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserRegisterRequest(%+v)", *p)
+}
+
+var fieldIDToName_UserRegisterRequest = map[int16]string{
+	1: "username",
+	2: "password",
+}
+
+type UserRegisterResponse struct {
+	Base *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+}
+
+func NewUserRegisterResponse() *UserRegisterResponse {
+	return &UserRegisterResponse{}
+}
+
+func (p *UserRegisterResponse) InitDefault() {
+}
+
+var UserRegisterResponse_Base_DEFAULT *base.BaseResponse
+
+func (p *UserRegisterResponse) GetBase() (v *base.BaseResponse) {
+	if !p.IsSetBase() {
+		return UserRegisterResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+func (p *UserRegisterResponse) SetBase(val *base.BaseResponse) {
+	p.Base = val
+}
+
+func (p *UserRegisterResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *UserRegisterResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserRegisterResponse(%+v)", *p)
+}
+
+var fieldIDToName_UserRegisterResponse = map[int16]string{
+	255: "base",
+}
+
 type UserService interface {
 	Login(ctx context.Context, request *UserLoginRequest) (r *UserLoginResponse, err error)
+
+	Register(ctx context.Context, request *UserRegisterRequest) (r *UserRegisterResponse, err error)
 }
 
 type UserServiceLoginArgs struct {
@@ -161,5 +239,81 @@ func (p *UserServiceLoginResult) String() string {
 }
 
 var fieldIDToName_UserServiceLoginResult = map[int16]string{
+	0: "success",
+}
+
+type UserServiceRegisterArgs struct {
+	Request *UserRegisterRequest `thrift:"request,1" frugal:"1,default,UserRegisterRequest" json:"request"`
+}
+
+func NewUserServiceRegisterArgs() *UserServiceRegisterArgs {
+	return &UserServiceRegisterArgs{}
+}
+
+func (p *UserServiceRegisterArgs) InitDefault() {
+}
+
+var UserServiceRegisterArgs_Request_DEFAULT *UserRegisterRequest
+
+func (p *UserServiceRegisterArgs) GetRequest() (v *UserRegisterRequest) {
+	if !p.IsSetRequest() {
+		return UserServiceRegisterArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *UserServiceRegisterArgs) SetRequest(val *UserRegisterRequest) {
+	p.Request = val
+}
+
+func (p *UserServiceRegisterArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *UserServiceRegisterArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserServiceRegisterArgs(%+v)", *p)
+}
+
+var fieldIDToName_UserServiceRegisterArgs = map[int16]string{
+	1: "request",
+}
+
+type UserServiceRegisterResult struct {
+	Success *UserRegisterResponse `thrift:"success,0,optional" frugal:"0,optional,UserRegisterResponse" json:"success,omitempty"`
+}
+
+func NewUserServiceRegisterResult() *UserServiceRegisterResult {
+	return &UserServiceRegisterResult{}
+}
+
+func (p *UserServiceRegisterResult) InitDefault() {
+}
+
+var UserServiceRegisterResult_Success_DEFAULT *UserRegisterResponse
+
+func (p *UserServiceRegisterResult) GetSuccess() (v *UserRegisterResponse) {
+	if !p.IsSetSuccess() {
+		return UserServiceRegisterResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *UserServiceRegisterResult) SetSuccess(x interface{}) {
+	p.Success = x.(*UserRegisterResponse)
+}
+
+func (p *UserServiceRegisterResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *UserServiceRegisterResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserServiceRegisterResult(%+v)", *p)
+}
+
+var fieldIDToName_UserServiceRegisterResult = map[int16]string{
 	0: "success",
 }

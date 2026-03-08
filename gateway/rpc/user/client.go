@@ -13,6 +13,7 @@ import (
 )
 
 var errNilLoginResponse = errors.New("user rpc returned nil login response")
+var errNilRegisterResponse = errors.New("user rpc returned nil register response")
 
 type LoginRequest struct {
 	Username string
@@ -27,8 +28,19 @@ type LoginResponse struct {
 	Username string
 }
 
+type RegisterRequest struct {
+	Username string
+	Password string
+}
+
+type RegisterResponse struct {
+	Code    int32
+	Message string
+}
+
 type Client interface {
 	Login(ctx context.Context, req *LoginRequest) (*LoginResponse, error)
+	Register(ctx context.Context, req *RegisterRequest) (*RegisterResponse, error)
 }
 
 type kitexClient struct {
@@ -74,5 +86,29 @@ func (c *kitexClient) Login(ctx context.Context, req *LoginRequest) (*LoginRespo
 		UserID:   0,
 		Token:    "",
 		Username: req.Username,
+	}, nil
+}
+
+func (c *kitexClient) Register(ctx context.Context, req *RegisterRequest) (*RegisterResponse, error) {
+	resp, err := c.cli.Register(ctx, &user.UserRegisterRequest{
+		Username: req.Username,
+		Password: req.Password,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilRegisterResponse
+	}
+
+	var code int32
+	var message string
+	if resp.Base != nil {
+		code = resp.Base.Code
+		message = resp.Base.Message
+	}
+	return &RegisterResponse{
+		Code:    code,
+		Message: message,
 	}, nil
 }

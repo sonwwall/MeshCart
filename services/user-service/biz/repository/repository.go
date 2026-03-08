@@ -6,13 +6,16 @@ import (
 
 	dalmodel "meshcart/services/user-service/dal/model"
 
+	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 )
 
 var ErrUserNotFound = errors.New("user not found")
+var ErrUserAlreadyExists = errors.New("user already exists")
 
 type UserRepository interface {
 	GetByUsername(ctx context.Context, username string) (*dalmodel.User, error)
+	Create(ctx context.Context, user *dalmodel.User) error
 }
 
 type MySQLUserRepository struct {
@@ -36,4 +39,19 @@ func (r *MySQLUserRepository) GetByUsername(ctx context.Context, username string
 		return nil, err
 	}
 	return user, nil
+}
+
+func (r *MySQLUserRepository) Create(ctx context.Context, user *dalmodel.User) error {
+	err := r.db.WithContext(ctx).Create(user).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return ErrUserAlreadyExists
+		}
+		var mysqlErr *mysql.MySQLError
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+			return ErrUserAlreadyExists
+		}
+		return err
+	}
+	return nil
 }

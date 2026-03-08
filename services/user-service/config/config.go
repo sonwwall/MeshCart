@@ -12,6 +12,7 @@ import (
 type Config struct {
 	MySQL     MySQLConfig     `mapstructure:"mysql"`
 	Migration MigrationConfig `mapstructure:"migration"`
+	Snowflake SnowflakeConfig `mapstructure:"snowflake"`
 }
 
 type MySQLConfig struct {
@@ -27,6 +28,10 @@ type MySQLConfig struct {
 type MigrationConfig struct {
 	Enabled bool   `mapstructure:"enabled"`
 	Source  string `mapstructure:"source"`
+}
+
+type SnowflakeConfig struct {
+	Node int64 `mapstructure:"node"`
 }
 
 type ApolloLoader interface {
@@ -76,6 +81,7 @@ func Load() (Config, error) {
 	v.SetDefault("mysql.loc", "Local")
 	v.SetDefault("migration.enabled", true)
 	v.SetDefault("migration.source", "file://services/user-service/migrations")
+	v.SetDefault("snowflake.node", 1)
 
 	if err := v.ReadInConfig(); err != nil {
 		return Config{}, err

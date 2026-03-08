@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/cloudwego/kitex/server"
+	"github.com/bwmarrin/snowflake"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
+	"github.com/cloudwego/kitex/server"
 	otelprovider "github.com/kitex-contrib/obs-opentelemetry/provider"
 	kitextrace "github.com/kitex-contrib/obs-opentelemetry/tracing"
 
@@ -63,7 +64,11 @@ func main() {
 	defer sqlDB.Close()
 
 	repo := repository.NewMySQLUserRepository(mysqlDB)
-	svc := bizservice.NewUserService(repo)
+	node, err := snowflake.NewNode(cfg.Snowflake.Node)
+	if err != nil {
+		logx.L(nil).Fatal("init snowflake node failed", zap.Error(err), zap.Int64("node", cfg.Snowflake.Node))
+	}
+	svc := bizservice.NewUserService(repo, node)
 
 	metricsAddr := getEnv("USER_METRICS_ADDR", ":9091")
 	go func() {
