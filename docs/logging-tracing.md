@@ -75,6 +75,8 @@
 - 全量结构化 JSON 输出
 - 字段命名统一，避免跨服务不一致
 - 通过 `context` 自动注入链路字段
+- 开发阶段同时保留控制台输出与本地文件输出
+- 本地日志文件使用滚动切分，避免单文件无限增长
 
 ### 4.1.2 统一字段
 
@@ -225,8 +227,16 @@ docker compose restart grafana
 
 - 修改 `prometheus.yml` 后，需要重启或重建 `prometheus`
 - 修改 `promtail-config.yml` 后，需要重启或重建 `promtail`
+- 修改 `deploy/docker/observability/promtail/positions.yaml` 后，需要重启或重建 `promtail`
 - 修改 Grafana provisioning/dashboard 后，需要重启 `grafana`
 - 修改业务代码中的日志、trace、metrics 逻辑后，需要重启对应业务服务
+
+### 6.2.2 开发阶段日志方案
+
+- 业务日志同时输出到控制台和 `logs/` 目录
+- 本地日志文件由 `lumberjack` 做滚动切分
+- `promtail` 只采集 `logs/gateway.log` 和 `logs/user-service.log`
+- `promtail` 的读取位点文件使用宿主机持久化，避免重启后反复从头扫描旧日志
 
 ### 6.3 启动业务服务
 
@@ -432,6 +442,15 @@ Grafana -> Folder `MeshCart` -> `MeshCart Observability`
 - Loki 是否收到日志（Promtail 是否运行）
 - 本地服务是否已在项目根目录生成 `logs/gateway.log` 或 `logs/user-service.log`
 - 查询条件是否错误选成了 `loki`、`grafana` 等观测组件自身日志
+
+### 8.5 Promtail 重启后日志查询不稳定
+
+检查：
+
+- `promtail` 是否已挂载持久化的 `positions.yaml`
+- 业务日志文件是否持续滚动写入
+- 查询时间范围是否覆盖到最新日志
+- 是否存在大量过旧日志导致 `too far behind`
 
 ## 9. 开发约束
 

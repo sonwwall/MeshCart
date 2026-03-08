@@ -9,6 +9,7 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 type Config struct {
@@ -56,13 +57,15 @@ func Init(cfg Config) error {
 			return err
 		}
 		logFile := filepath.Join(cfg.LogDir, cfg.Service+".log")
-		file, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-		if err != nil {
-			return err
-		}
 		cores = append(cores, zapcore.NewCore(
 			zapcore.NewJSONEncoder(encoderCfg),
-			zapcore.AddSync(file),
+			zapcore.AddSync(&lumberjack.Logger{
+				Filename:   logFile,
+				MaxSize:    50,
+				MaxBackups: 7,
+				MaxAge:     7,
+				Compress:   false,
+			}),
 			level,
 		))
 	}
