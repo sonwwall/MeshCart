@@ -7,6 +7,7 @@ import (
 	"meshcart/app/common"
 	logx "meshcart/app/log"
 	tracex "meshcart/app/trace"
+	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
 	userrpc "meshcart/gateway/rpc/user"
@@ -72,9 +73,24 @@ func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *
 	span.SetAttributes(attribute.Bool("biz.success", true))
 	span.SetStatus(codes.Ok, "ok")
 
+	token, _, err := l.svcCtx.JWT.TokenGenerator(&middleware.AuthIdentity{
+		UserID:   resp.UserID,
+		Username: req.Username,
+	})
+	if err != nil {
+		span.RecordError(err)
+		span.SetAttributes(
+			attribute.Bool("biz.success", false),
+			attribute.String("biz.type", "technical"),
+		)
+		span.SetStatus(codes.Error, "jwt token generate failed")
+		logx.L(ctx).Error("jwt token generate failed", zap.Error(err))
+		return nil, common.ErrInternalError
+	}
+
 	return &types.UserLoginData{
 		UserID:   resp.UserID,
-		Token:    resp.Token,
+		Token:    middleware.FormatBearerToken(token),
 		Username: resp.Username,
 	}, nil
 }

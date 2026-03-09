@@ -187,7 +187,7 @@
   "message": "成功",
   "data": {
     "user_id": 0,
-    "token": "",
+    "token": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
     "username": "test_user"
   },
   "trace_id": "8f2d3f..."
@@ -196,9 +196,9 @@
 
 说明：
 
-- 当前示例版本只打通登录校验流程
-- `token` 还未接入真实签发逻辑
-- `user_id`、`token` 预留给后续登录态扩展
+- 登录成功后由 `gateway` 使用 Hertz JWT 中间件签发访问令牌
+- 当前 `user-service` IDL 还没有返回真实 `user_id`，因此示例响应中可能仍为 `0`
+- 后续受保护接口通过 `Authorization: Bearer <token>` 携带登录态
 
 失败响应示例：
 
@@ -217,3 +217,76 @@
 - `2010002`：用户名或密码错误
 - `2010003`：用户已被锁定
 - `1009999`：系统内部错误
+
+## 7.3 当前登录态接口
+
+### 7.3 获取当前用户信息
+
+- 方法：`GET`
+- 路径：`/api/v1/user/me`
+- 鉴权：需要在 Header 中携带 `Authorization: Bearer <token>`
+
+成功响应：
+
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "data": {
+    "user_id": 0,
+    "username": "test_user"
+  },
+  "trace_id": "8f2d3f..."
+}
+```
+
+失败响应示例：
+
+```json
+{
+  "code": 1000002,
+  "message": "未登录或登录已过期",
+  "trace_id": "8f2d3f..."
+}
+```
+
+说明：
+
+- 该接口由网关 JWT 中间件保护
+- 返回值来自当前 token 中的 claims 解析结果
+- 当前示例版本中，如果下游还未返回真实 `user_id`，这里仍可能为 `0`
+
+### 7.4 刷新访问令牌
+
+- 方法：`GET`
+- 路径：`/api/v1/user/refresh_token`
+- 鉴权：需要在 Header 中携带 `Authorization: Bearer <token>`
+
+成功响应：
+
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "data": {
+    "token": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expire_at": "2026-03-09T18:00:00Z"
+  },
+  "trace_id": "8f2d3f..."
+}
+```
+
+失败响应示例：
+
+```json
+{
+  "code": 1000002,
+  "message": "未登录或登录已过期",
+  "trace_id": "8f2d3f..."
+}
+```
+
+说明：
+
+- 该接口用于基于当前有效 token 刷新访问令牌
+- 返回的 `token` 已带 `Bearer ` 前缀，可直接写回 `Authorization` 头

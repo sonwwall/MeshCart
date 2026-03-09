@@ -7,6 +7,7 @@ require (
 	github.com/cloudwego/hertz v0.10.4
 	github.com/cloudwego/kitex v0.16.1
 	github.com/go-sql-driver/mysql v1.8.1
+	github.com/hertz-contrib/jwt v1.0.4
 )
 
 require (
