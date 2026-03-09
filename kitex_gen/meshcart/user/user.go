@@ -47,7 +47,9 @@ var fieldIDToName_UserLoginRequest = map[int16]string{
 }
 
 type UserLoginResponse struct {
-	Base *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+	UserId   int64              `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
+	Username string             `thrift:"username,2" frugal:"2,default,string" json:"username"`
+	Base     *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
 }
 
 func NewUserLoginResponse() *UserLoginResponse {
@@ -57,6 +59,14 @@ func NewUserLoginResponse() *UserLoginResponse {
 func (p *UserLoginResponse) InitDefault() {
 }
 
+func (p *UserLoginResponse) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *UserLoginResponse) GetUsername() (v string) {
+	return p.Username
+}
+
 var UserLoginResponse_Base_DEFAULT *base.BaseResponse
 
 func (p *UserLoginResponse) GetBase() (v *base.BaseResponse) {
@@ -64,6 +74,12 @@ func (p *UserLoginResponse) GetBase() (v *base.BaseResponse) {
 		return UserLoginResponse_Base_DEFAULT
 	}
 	return p.Base
+}
+func (p *UserLoginResponse) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *UserLoginResponse) SetUsername(val string) {
+	p.Username = val
 }
 func (p *UserLoginResponse) SetBase(val *base.BaseResponse) {
 	p.Base = val
@@ -81,6 +97,8 @@ func (p *UserLoginResponse) String() string {
 }
 
 var fieldIDToName_UserLoginResponse = map[int16]string{
+	1:   "user_id",
+	2:   "username",
 	255: "base",
 }
 

@@ -95,13 +95,11 @@ func (c *kitexClient) Login(ctx context.Context, req *LoginRequest) (*LoginRespo
 		message = resp.Base.Message
 	}
 	return &LoginResponse{
-		Code:    code,
-		Message: message,
-		// Current user.thrift only returns BaseResponse.
-		// Keep data fields for forward compatibility after IDL extension.
-		UserID:   0,
+		Code:     code,
+		Message:  message,
+		UserID:   resp.UserId,
 		Token:    "",
-		Username: req.Username,
+		Username: resp.Username,
 	}, nil
 }
 

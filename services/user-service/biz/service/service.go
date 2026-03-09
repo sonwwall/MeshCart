@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"meshcart/app/common"
+	"meshcart/services/user-service/biz/dto"
 	"meshcart/services/user-service/biz/errno"
 	"meshcart/services/user-service/biz/repository"
 	dalmodel "meshcart/services/user-service/dal/model"
@@ -25,23 +26,26 @@ func NewUserService(repo repository.UserRepository, node *snowflake.Node) *UserS
 	}
 }
 
-func (s *UserService) Login(ctx context.Context, username, password string) *common.BizError {
+func (s *UserService) Login(ctx context.Context, username, password string) (*dto.LoginResult, *common.BizError) {
 	user, err := s.repo.GetByUsername(ctx, username)
 	if err != nil {
 		if err == repository.ErrUserNotFound {
-			return errno.ErrUserNotFound
+			return nil, errno.ErrUserNotFound
 		}
-		return common.ErrInternalError
+		return nil, common.ErrInternalError
 	}
 
 	if user.IsLocked {
-		return errno.ErrUserLocked
+		return nil, errno.ErrUserLocked
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		return errno.ErrPasswordInvalid
+		return nil, errno.ErrPasswordInvalid
 	}
 
-	return nil
+	return &dto.LoginResult{
+		UserID:   user.ID,
+		Username: user.Username,
+	}, nil
 }
 
 func (s *UserService) Register(ctx context.Context, username, password string) *common.BizError {

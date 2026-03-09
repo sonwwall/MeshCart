@@ -30,7 +30,7 @@ func (s *UserServiceImpl) Login(ctx context.Context, request *user.UserLoginRequ
 		metricsx.ObserveRPC("user-service", "login", code, time.Since(start))
 	}()
 
-	bizErr := s.svc.Login(ctx, request.Username, request.Password)
+	loginResult, bizErr := s.svc.Login(ctx, request.Username, request.Password)
 	if bizErr != nil {
 		code = bizErr.Code
 		logx.L(ctx).Warn("user login failed",
@@ -41,7 +41,11 @@ func (s *UserServiceImpl) Login(ctx context.Context, request *user.UserLoginRequ
 		return &user.UserLoginResponse{Base: &base.BaseResponse{Code: bizErr.Code, Message: bizErr.Msg}}, nil
 	}
 	logx.L(ctx).Info("user login success", zap.String("username", request.Username))
-	return &user.UserLoginResponse{Base: &base.BaseResponse{Code: 0, Message: "成功"}}, nil
+	return &user.UserLoginResponse{
+		UserId:   loginResult.UserID,
+		Username: loginResult.Username,
+		Base:     &base.BaseResponse{Code: 0, Message: "成功"},
+	}, nil
 }
 
 func (s *UserServiceImpl) Register(ctx context.Context, request *user.UserRegisterRequest) (resp *user.UserRegisterResponse, err error) {

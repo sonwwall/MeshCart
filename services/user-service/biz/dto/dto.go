@@ -1,3 +1,6 @@
 package dto
 
-// TODO: request/response DTOs.
+type LoginResult struct {
+	UserID   int64
+	Username string
+}

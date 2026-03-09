@@ -10,6 +10,8 @@ struct UserLoginRequest {
 }
 
 struct UserLoginResponse {
+    1: i64 user_id
+    2: string username
     255: base.BaseResponse base
 }
 

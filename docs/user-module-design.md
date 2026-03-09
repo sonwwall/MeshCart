@@ -186,7 +186,7 @@
   "code": 0,
   "message": "成功",
   "data": {
-    "user_id": 0,
+    "user_id": 123456789012345678,
     "token": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
     "username": "test_user"
   },
@@ -197,7 +197,7 @@
 说明：
 
 - 登录成功后由 `gateway` 使用 Hertz JWT 中间件签发访问令牌
-- 当前 `user-service` IDL 还没有返回真实 `user_id`，因此示例响应中可能仍为 `0`
+- `user_id` 由 `user-service` 登录成功后返回真实用户 ID
 - 后续受保护接口通过 `Authorization: Bearer <token>` 携带登录态
 
 失败响应示例：
@@ -233,7 +233,7 @@
   "code": 0,
   "message": "成功",
   "data": {
-    "user_id": 0,
+    "user_id": 123456789012345678,
     "username": "test_user"
   },
   "trace_id": "8f2d3f..."
@@ -254,7 +254,6 @@
 
 - 该接口由网关 JWT 中间件保护
 - 返回值来自当前 token 中的 claims 解析结果
-- 当前示例版本中，如果下游还未返回真实 `user_id`，这里仍可能为 `0`
 
 ### 7.4 刷新访问令牌
 
