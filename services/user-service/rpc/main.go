@@ -2,14 +2,19 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/server"
+	consulapi "github.com/hashicorp/consul/api"
 	otelprovider "github.com/kitex-contrib/obs-opentelemetry/provider"
 	kitextrace "github.com/kitex-contrib/obs-opentelemetry/tracing"
+	consul "github.com/kitex-contrib/registry-consul"
 
 	logx "meshcart/app/log"
 	metricsx "meshcart/app/metrics"
@@ -80,11 +85,29 @@ func main() {
 		}
 	}()
 
-	svr := userservice.NewServer(
-		NewUserServiceImpl(svc),
+	serviceName := getEnv("USER_RPC_SERVICE", "meshcart.user")
+	serviceAddr, err := mustResolveTCPAddr(getEnv("USER_SERVICE_ADDR", "127.0.0.1:8888"))
+	if err != nil {
+		logx.L(nil).Fatal("resolve user-service addr failed", zap.Error(err))
+	}
+
+	opts := []server.Option{
 		server.WithSuite(kitextrace.NewServerSuite()),
-		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "user-service"}),
-	)
+		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: serviceName}),
+		server.WithServiceAddr(serviceAddr),
+	}
+	if strings.EqualFold(getEnv("USER_SERVICE_REGISTRY", "consul"), "consul") {
+		consulRegistry, err := consul.NewConsulRegister(
+			getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
+			consul.WithCheck(buildConsulCheck(serviceName, serviceAddr)),
+		)
+		if err != nil {
+			logx.L(nil).Fatal("init consul registry failed", zap.Error(err))
+		}
+		opts = append(opts, server.WithRegistry(consulRegistry))
+	}
+
+	svr := userservice.NewServer(NewUserServiceImpl(svc), opts...)
 	logx.L(nil).Info("user-service starting")
 	if err := svr.Run(); err != nil {
 		logx.L(nil).Error("user-service stopped with error", zap.Error(err))
@@ -96,4 +119,31 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func mustResolveTCPAddr(addr string) (*net.TCPAddr, error) {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("resolve tcp addr %q: %w", addr, err)
+	}
+	return tcpAddr, nil
+}
+
+func buildConsulCheck(serviceName string, serviceAddr *net.TCPAddr) *consulapi.AgentServiceCheck {
+	checkID := fmt.Sprintf("service:%s:%s", serviceName, serviceAddr.String())
+	if strings.EqualFold(getEnv("USER_SERVICE_CONSUL_TCP_CHECK", "false"), "true") {
+		return &consulapi.AgentServiceCheck{
+			CheckID:                        checkID,
+			TCP:                            serviceAddr.String(),
+			Interval:                       "5s",
+			Timeout:                        "5s",
+			DeregisterCriticalServiceAfter: "1m",
+		}
+	}
+
+	return &consulapi.AgentServiceCheck{
+		CheckID:                        checkID,
+		TTL:                            "10s",
+		DeregisterCriticalServiceAfter: "1m",
+	}
 }

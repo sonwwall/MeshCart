@@ -3,10 +3,13 @@ package user
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/cloudwego/kitex/client"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	kitextrace "github.com/kitex-contrib/obs-opentelemetry/tracing"
+	consul "github.com/kitex-contrib/registry-consul"
 
 	user "meshcart/kitex_gen/meshcart/user"
 	userservice "meshcart/kitex_gen/meshcart/user/userservice"
@@ -47,13 +50,26 @@ type kitexClient struct {
 	cli userservice.Client
 }
 
-func NewClient(serviceName, hostPort string) (Client, error) {
-	cli, err := userservice.NewClient(
-		serviceName,
-		client.WithHostPorts(hostPort),
+func NewClient(serviceName, hostPort, discoveryType, consulAddress string) (Client, error) {
+	opts := []client.Option{
 		client.WithSuite(kitextrace.NewClientSuite()),
 		client.WithClientBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "gateway"}),
-	)
+	}
+
+	switch strings.ToLower(discoveryType) {
+	case "", "direct":
+		opts = append(opts, client.WithHostPorts(hostPort))
+	case "consul":
+		resolver, err := consul.NewConsulResolver(consulAddress)
+		if err != nil {
+			return nil, fmt.Errorf("create consul resolver: %w", err)
+		}
+		opts = append(opts, client.WithResolver(resolver))
+	default:
+		return nil, fmt.Errorf("unsupported user rpc discovery type: %s", discoveryType)
+	}
+
+	cli, err := userservice.NewClient(serviceName, opts...)
 	if err != nil {
 		return nil, err
 	}

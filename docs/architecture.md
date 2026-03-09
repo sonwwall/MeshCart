@@ -1,4 +1,4 @@
-# Architecture
+# 架构设计
 
 MeshCart 当前采用 Gateway + RPC 微服务架构。
 
@@ -16,16 +16,17 @@ MeshCart 当前采用 Gateway + RPC 微服务架构。
 依赖关系：
 
 - 客户端 -> `gateway`
-- `gateway` -> `user-service`
+- `gateway` -> `Consul` -> `user-service`
 - `gateway` / `user-service` -> MySQL
 - `gateway` / `user-service` -> OTel Collector
 - `Prometheus` 抓取 `gateway` / `user-service` metrics
 - `Promtail` 采集业务日志并写入 `Loki`
 - `Grafana` 统一展示 `Prometheus` / `Loki` / `Jaeger`
 
-See:
+相关文档：
 
 - [Gateway 分层设计](./gateway-design.md)
+- [Consul 服务发现设计](./consul-service-discovery.md)
 - [错误码规范](./error-code.md)
 - [日志与链路追踪](./logging-tracing.md)
 

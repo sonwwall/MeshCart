@@ -11,7 +11,12 @@ type ServiceContext struct {
 }
 
 func NewServiceContext(cfg config.Config) *ServiceContext {
-	userClient, err := userrpc.NewClient(cfg.UserRPC.ServiceName, cfg.UserRPC.Address)
+	userClient, err := userrpc.NewClient(
+		cfg.UserRPC.ServiceName,
+		cfg.UserRPC.Address,
+		cfg.UserRPC.DiscoveryType,
+		cfg.UserRPC.ConsulAddress,
+	)
 	if err != nil {
 		panic(err)
 	}

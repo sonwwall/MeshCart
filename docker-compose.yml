@@ -1,4 +1,18 @@
 services:
+  consul:
+    image: hashicorp/consul:1.20
+    container_name: meshcart-consul
+    restart: unless-stopped
+    command: ["agent", "-server", "-bootstrap-expect=1", "-ui", "-client=0.0.0.0"]
+    ports:
+      - "8500:8500"
+      - "8600:8600/tcp"
+      - "8600:8600/udp"
+    volumes:
+      - consul_data:/consul/data
+    networks:
+      - meshcart
+
   prometheus:
     image: prom/prometheus:v3.2.1
     container_name: meshcart-prometheus
@@ -95,10 +109,13 @@ services:
       - observability
 
 volumes:
+  consul_data:
   prometheus_data:
   grafana_data:
   loki_data:
 
 networks:
+  meshcart:
+    name: meshcart
   observability:
     name: meshcart-observability
