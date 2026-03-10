@@ -76,6 +76,7 @@ func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *
 	token, _, err := l.svcCtx.JWT.TokenGenerator(&middleware.AuthIdentity{
 		UserID:   resp.UserID,
 		Username: req.Username,
+		Role:     l.svcCtx.AccessControl.RoleForUser(resp.UserID),
 	})
 	if err != nil {
 		span.RecordError(err)

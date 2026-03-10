@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -13,6 +14,7 @@ type Config struct {
 	Server     ServerConfig
 	UserRPC    UserRPCConfig
 	ProductRPC ProductRPCConfig
+	Admin      AdminConfig
 	JWT        JWTConfig
 }
 
@@ -52,6 +54,10 @@ type ProductRPCConfig struct {
 	Address       string
 	DiscoveryType string
 	ConsulAddress string
+}
+
+type AdminConfig struct {
+	UserIDs []int64
 }
 
 type JWTConfig struct {
@@ -94,6 +100,9 @@ func Load() Config {
 			DiscoveryType: getEnv("PRODUCT_RPC_DISCOVERY", "direct"),
 			ConsulAddress: getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
 		},
+		Admin: AdminConfig{
+			UserIDs: getEnvAsInt64Slice("ADMIN_USER_IDS"),
+		},
 		JWT: JWTConfig{
 			Secret:            getEnv("JWT_SECRET", "meshcart-dev-secret-change-me"),
 			Issuer:            getEnv("JWT_ISSUER", "meshcart.gateway"),
@@ -101,6 +110,28 @@ func Load() Config {
 			MaxRefreshMinutes: getEnvAsInt("JWT_MAX_REFRESH_MINUTES", 720),
 		},
 	}
+}
+
+func getEnvAsInt64Slice(key string) []int64 {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return nil
+	}
+
+	parts := strings.Split(value, ",")
+	result := make([]int64, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		parsed, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			continue
+		}
+		result = append(result, parsed)
+	}
+	return result
 }
 
 func getEnv(key, fallback string) string {

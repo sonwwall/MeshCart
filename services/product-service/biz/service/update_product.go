@@ -24,6 +24,8 @@ func (s *ProductService) UpdateProduct(ctx context.Context, req *productpb.Updat
 		req.Description,
 		req.Status,
 		req.Skus,
+		0,
+		req.OperatorId,
 	)
 	if bizErr != nil {
 		return bizErr

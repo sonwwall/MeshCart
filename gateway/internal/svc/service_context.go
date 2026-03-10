@@ -2,6 +2,7 @@ package svc
 
 import (
 	"meshcart/gateway/config"
+	"meshcart/gateway/internal/authz"
 	"meshcart/gateway/internal/middleware"
 	productrpc "meshcart/gateway/rpc/product"
 	userrpc "meshcart/gateway/rpc/user"
@@ -13,6 +14,7 @@ type ServiceContext struct {
 	Config        config.Config
 	UserClient    userrpc.Client
 	ProductClient productrpc.Client
+	AccessControl *authz.AccessController
 	JWT           *jwtmw.HertzJWTMiddleware
 }
 
@@ -42,10 +44,16 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		panic(err)
 	}
 
+	accessController, err := authz.NewAccessController(cfg.Admin)
+	if err != nil {
+		panic(err)
+	}
+
 	return &ServiceContext{
 		Config:        cfg,
 		UserClient:    userClient,
 		ProductClient: productClient,
+		AccessControl: accessController,
 		JWT:           jwtMiddleware,
 	}
 }

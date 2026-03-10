@@ -10,6 +10,7 @@
 - 核心数据模型
 - 数据库设计
 - 对外能力与服务协作
+- 权限模型
 - 当前项目文件结构
 - HTTP / RPC 接口文档
 - 后续演进方向
@@ -30,6 +31,13 @@
 - 搜索引擎检索
 - 复杂类目树运营
 - 图片媒体管理平台
+
+当前权限由 `gateway` 统一控制：
+
+- 普通用户只能查询 `online` 商品
+- 管理员可以创建商品
+- 管理员只能查询和修改自己创建的 `draft/offline` 商品
+- 管理员也只能修改自己创建的商品
 
 这样设计的原因：
 
@@ -84,6 +92,8 @@ SPU 表示一类商品的抽象定义，例如：
 - `brand`
 - `description`
 - `status`
+- `creator_id`
+- `updated_by`
 - `created_at`
 - `updated_at`
 
@@ -159,11 +169,14 @@ CREATE TABLE `products` (
   `brand` VARCHAR(128) NOT NULL DEFAULT '',
   `description` TEXT,
   `status` TINYINT NOT NULL DEFAULT 0,
+  `creator_id` BIGINT NOT NULL DEFAULT 0,
+  `updated_by` BIGINT NOT NULL DEFAULT 0,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_category_id` (`category_id`),
   KEY `idx_status` (`status`),
+  KEY `idx_creator_id` (`creator_id`),
   KEY `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
@@ -177,6 +190,8 @@ CREATE TABLE `products` (
 - `brand`：品牌名称
 - `description`：商品详情描述
 - `status`：SPU 状态，`0=draft`、`1=offline`、`2=online`
+- `creator_id`：商品创建者用户 ID，用于权限控制
+- `updated_by`：最后一次修改商品的用户 ID
 - `created_at`：创建时间
 - `updated_at`：最后更新时间
 
@@ -185,6 +200,7 @@ CREATE TABLE `products` (
 - 主键：`id`
 - 索引：`idx_category_id`
 - 索引：`idx_status`
+- 索引：`idx_creator_id`
 - 索引：`idx_created_at`
 
 说明：
@@ -297,6 +313,15 @@ CREATE TABLE `product_sku_attrs` (
 
 - `deleted_at`：删除时间，空值表示未删除
 
+### 5.5 Migration 说明
+
+当前 migration 文件包括：
+
+- `000001_create_products`：创建 `products`
+- `000002_create_product_skus`：创建 `product_skus`
+- `000003_create_product_sku_attrs`：创建 `product_sku_attrs`
+- `000004_add_product_owner_fields`：为 `products` 增加 `creator_id`、`updated_by`
+
 ## 6. 对外能力
 
 当前已落地 6 个核心能力。
@@ -331,7 +356,7 @@ CREATE TABLE `product_sku_attrs` (
 - `PUT /api/v1/admin/products/:product_id`
 - `POST /api/v1/admin/products/:product_id/status`
 
-当前管理端接口已接到 gateway，但尚未补管理员鉴权细分。
+当前管理端接口已接入 JWT 和 Casbin 权限控制。
 
 ## 8. RPC 接口
 
@@ -366,6 +391,13 @@ IDL 文件：
 - metrics 地址：`:9093`
 - 配置文件：`services/product-service/config/product-service.local.yaml`
 - migration 目录：`services/product-service/migrations`
+
+说明：
+
+- `CreateProductRequest` 当前会携带 `creator_id`
+- `UpdateProductRequest` 当前会携带 `operator_id`
+- `ChangeProductStatusRequest` 当前会携带 `operator_id`
+- `ListProductsRequest` 当前支持按 `creator_id` 过滤
 
 ## 9. 与库存服务的边界
 
@@ -411,7 +443,27 @@ IDL 文件：
 
 否则商品改名、改价后，历史订单会失真。
 
-## 11. 当前实现范围
+## 11. 权限模型
+
+商品模块的权限设计不直接写死在 `product-service` 内，而是由 `gateway` 统一控制。
+
+具体设计见：
+
+- `docs/casbin-design.md`
+
+当前商品模块权限规则：
+
+- 未登录用户和普通用户只能查询 `online` 商品
+- 管理员可以创建商品
+- 管理员查询 `draft/offline` 商品时，只能查询自己创建的商品
+- 管理员修改商品或修改商品状态时，也只能操作自己创建的商品
+
+当前角色来源：
+
+- 登录后由 `gateway` 根据 `ADMIN_USER_IDS` 配置决定用户角色
+- 角色信息写入 JWT 的 `role` claim
+
+## 12. 当前实现范围
 
 当前版本已经实现：
 
@@ -434,11 +486,11 @@ IDL 文件：
 
 这是当前版本的 MVP 范围。
 
-## 12. 目录结构
+## 13. 目录结构
 
 当前实现采用和 `user-service` 接近的分层，同时把 `service` 和 `rpc` 都拆成“一接口一文件”，避免单文件持续膨胀。
 
-### 12.1 商品服务目录
+### 13.1 商品服务目录
 
 ```text
 services/product-service/
@@ -508,9 +560,15 @@ services/product-service/
 - `config/product-service.local.yaml`：本地开发环境默认配置。
 - `dal/db/db.go`：MySQL 连接初始化和连接池配置。
 - `dal/db/migrate.go`：启动时执行数据库 migration。
-- `dal/model/model.go`：GORM 持久化模型定义，对应 `products`、`product_skus`、`product_sku_attrs`。
+- `dal/model/model.go`：GORM 持久化模型定义，对应 `products`、`product_skus`、`product_sku_attrs`，并包含 `creator_id`、`updated_by`。
 - `migrations/000001_create_products.up.sql`：商品服务第一版建表脚本。
 - `migrations/000001_create_products.down.sql`：第一版建表回滚脚本。
+- `migrations/000002_create_product_skus.up.sql`：创建 SKU 表。
+- `migrations/000002_create_product_skus.down.sql`：回滚 SKU 表。
+- `migrations/000003_create_product_sku_attrs.up.sql`：创建 SKU 属性表。
+- `migrations/000003_create_product_sku_attrs.down.sql`：回滚 SKU 属性表。
+- `migrations/000004_add_product_owner_fields.up.sql`：增加商品创建者与最后更新人字段。
+- `migrations/000004_add_product_owner_fields.down.sql`：回滚商品创建者与最后更新人字段。
 - `rpc/handler.go`：`ProductServiceImpl` 定义和构造函数。
 - `rpc/main.go`：商品服务启动入口，负责日志、OTel、配置、数据库、Snowflake、RPC Server 初始化。
 - `rpc/create_product.go`：`CreateProduct` RPC 入站处理。
@@ -521,10 +579,12 @@ services/product-service/
 - `rpc/batch_get_sku.go`：`BatchGetSku` RPC 入站处理。
 - `script/start.sh`：本地启动脚本，统一注入环境变量并运行 `product-service`。
 
-### 12.2 网关侧商品相关目录
+### 13.2 网关侧商品相关目录
 
 ```text
 gateway/
+├── internal/authz/
+│   └── casbin.go
 ├── internal/handler/product/
 │   ├── routes.go
 │   ├── helpers.go
@@ -545,6 +605,7 @@ gateway/
 
 各文件说明如下：
 
+- `gateway/internal/authz/casbin.go`：内嵌 Casbin model / policy，并对商品权限做统一判定。
 - `gateway/internal/handler/product/routes.go`：注册商品相关 HTTP 路由。
 - `gateway/internal/handler/product/helpers.go`：公共解析函数，如 `product_id` 路径参数解析。
 - `gateway/internal/handler/product/create.go`：处理创建商品 HTTP 请求。
@@ -553,14 +614,14 @@ gateway/
 - `gateway/internal/handler/product/detail.go`：处理商品详情 HTTP 请求。
 - `gateway/internal/handler/product/list.go`：处理商品列表 HTTP 请求。
 - `gateway/internal/logic/product/create.go`：网关侧创建商品业务编排，负责参数检查和下游 RPC 调用。
-- `gateway/internal/logic/product/update.go`：网关侧更新商品业务编排。
-- `gateway/internal/logic/product/change_status.go`：网关侧商品状态变更业务编排。
-- `gateway/internal/logic/product/detail.go`：网关侧商品详情业务编排。
-- `gateway/internal/logic/product/list.go`：网关侧商品列表业务编排。
+- `gateway/internal/logic/product/update.go`：网关侧更新商品业务编排，并在写入前校验是否有权修改该商品。
+- `gateway/internal/logic/product/change_status.go`：网关侧商品状态变更业务编排，并校验是否有权修改该商品。
+- `gateway/internal/logic/product/detail.go`：网关侧商品详情业务编排，并根据商品状态和创建者做可见性控制。
+- `gateway/internal/logic/product/list.go`：网关侧商品列表业务编排，对普通用户和管理员应用不同查询策略。
 - `gateway/internal/types/product.go`：商品相关 HTTP 请求 / 响应结构定义。
 - `gateway/rpc/product/client.go`：商品服务 Kitex Client 封装。
 
-## 13. 可观测性设计
+## 14. 可观测性设计
 
 当前实现直接复用项目已有模式：
 
@@ -585,7 +646,7 @@ gateway/
 - `biz.success`
 - `biz.code`
 
-## 14. 错误码设计
+## 15. 错误码设计
 
 商品域当前已经使用独立错误码段：
 
@@ -601,12 +662,13 @@ gateway/
 - SKU 不可售
 - 商品价格非法
 
-## 15. 当前实现说明
+## 16. 当前实现说明
 
 当前代码已经实现以下模块：
 
 - `product-service` 的配置加载、MySQL 初始化、migration 执行、Snowflake ID 生成
 - 商品领域的三张核心表：`products`、`product_skus`、`product_sku_attrs`
+- `products` 已支持 `creator_id`、`updated_by`
 - 商品 RPC 服务：
   - `CreateProduct`
   - `UpdateProduct`
@@ -620,6 +682,11 @@ gateway/
   - `POST /api/v1/admin/products`
   - `PUT /api/v1/admin/products/:product_id`
   - `POST /api/v1/admin/products/:product_id/status`
+- `gateway` 权限控制：
+  - JWT 中新增 `role` claim
+  - 通过 Casbin 做商品访问授权
+  - 普通用户仅能查询 `online`
+  - 管理员仅能查询 / 修改自己创建的非公开商品
 
 当前代码组织补充说明：
 
@@ -650,15 +717,15 @@ gateway/
   - `0=inactive`
   - `1=active`
 
-## 16. HTTP 接口文档
+## 17. HTTP 接口文档
 
 说明：
 
 - 所有接口统一返回 `code`、`message`、`data`、`trace_id`
 - 成功时 `code=0`
-- 当前管理端接口未接管理员鉴权，后续可以在 gateway 层补鉴权中间件
+- 当前管理端接口已接入 JWT 与 Casbin 权限控制
 
-### 16.1 商品列表
+### 17.1 商品列表
 
 - 方法：`GET`
 - 路径：`/api/v1/products`
@@ -670,6 +737,12 @@ gateway/
 - `status`：商品状态，选填
 - `category_id`：类目 ID，选填
 - `keyword`：标题 / 副标题 / 品牌关键字，选填
+
+权限说明：
+
+- 未登录用户和普通用户：不传 `status` 时默认只看 `online`
+- 普通用户即使主动传 `status=0/1`，也不会获得草稿 / 下架数据
+- 管理员查询 `status=0/1` 时，只能看到自己创建的商品
 
 请求示例：
 
@@ -702,7 +775,7 @@ GET /api/v1/products?page=1&page_size=10&status=2&keyword=iphone
 }
 ```
 
-### 16.2 商品详情
+### 17.2 商品详情
 
 - 方法：`GET`
 - 路径：`/api/v1/products/detail/:product_id`
@@ -712,6 +785,11 @@ GET /api/v1/products?page=1&page_size=10&status=2&keyword=iphone
 ```http
 GET /api/v1/products/detail/192000000000000001
 ```
+
+权限说明：
+
+- `online` 商品：公开可见
+- `draft/offline` 商品：只有创建者本人且具备管理员角色时可见
 
 成功响应示例：
 
@@ -763,11 +841,17 @@ GET /api/v1/products/detail/192000000000000001
 }
 ```
 
-### 16.3 创建商品
+### 17.3 创建商品
 
 - 方法：`POST`
 - 路径：`/api/v1/admin/products`
 - Content-Type：`application/json`
+
+权限说明：
+
+- 需要登录
+- 仅管理员可访问
+- `creator_id` 不由前端传入，由网关从当前登录用户写入
 
 请求体示例：
 
@@ -817,7 +901,7 @@ GET /api/v1/products/detail/192000000000000001
 }
 ```
 
-### 16.4 更新商品
+### 17.4 更新商品
 
 - 方法：`PUT`
 - 路径：`/api/v1/admin/products/:product_id`
@@ -825,9 +909,30 @@ GET /api/v1/products/detail/192000000000000001
 
 请求体说明：
 
-- 结构与创建商品一致
-- 如果某个 SKU 是已有 SKU，建议带上 `id`
+- 结构与创建商品一致，但 `skus` 的语义是“更新后商品应保留的完整 SKU 集合”
+- 如果某个 SKU 是当前商品下已经存在的 SKU，必须带上这个商品详情里查到的真实 `id`
+- 如果某个 SKU 是本次新增的 SKU，不要传 `id`，或者传 `0`
+- `attrs` 当前不要求传属性 `id`，服务端会按请求内容重建该 SKU 的属性集合
 - 如果请求中缺失某个已有 SKU，则当前实现会视为删除该 SKU
+- 如果传入了一个 `sku.id`，但它不属于当前 `product_id`，会返回 `2020002 / SKU 不存在`
+
+推荐调用顺序：
+
+1. 先调用 `GET /api/v1/products/detail/:product_id` 查询商品详情
+2. 从返回结果里拿到该商品下真实存在的 `skus[].id`
+3. 更新已有 SKU 时，把这个真实 `id` 原样带回更新请求
+
+典型场景：
+
+- 更新已有 SKU：带真实 `sku.id`
+- 新增 SKU：不带 `id`
+- 删除 SKU：不要把该 SKU 放进本次请求的 `skus` 数组
+
+权限说明：
+
+- 需要登录
+- 仅管理员可访问
+- 且只能修改自己创建的商品
 
 请求体示例：
 
@@ -841,7 +946,7 @@ GET /api/v1/products/detail/192000000000000001
   "status": 2,
   "skus": [
     {
-      "id": 192000000000000101,
+      "id": 2031294457118203905,
       "sku_code": "IP15-BLACK-128G",
       "title": "iPhone 15 黑色 128G",
       "sale_price": 589900,
@@ -865,6 +970,68 @@ GET /api/v1/products/detail/192000000000000001
 }
 ```
 
+新增 SKU 示例：
+
+```json
+{
+  "title": "iPhone 15",
+  "sub_title": "A16 芯片升级版",
+  "category_id": 1001,
+  "brand": "Apple",
+  "description": "更新后的商品详情",
+  "status": 2,
+  "skus": [
+    {
+      "id": 2031294457118203905,
+      "sku_code": "IP15-BLACK-128G",
+      "title": "iPhone 15 黑色 128G",
+      "sale_price": 589900,
+      "market_price": 699900,
+      "status": 1,
+      "cover_url": "https://cdn.example.com/iphone15-black.jpg",
+      "attrs": [
+        {
+          "attr_name": "颜色",
+          "attr_value": "黑色",
+          "sort": 1
+        },
+        {
+          "attr_name": "内存",
+          "attr_value": "128G",
+          "sort": 2
+        }
+      ]
+    },
+    {
+      "sku_code": "IP15-WHITE-256G",
+      "title": "iPhone 15 白色 256G",
+      "sale_price": 699900,
+      "market_price": 799900,
+      "status": 1,
+      "cover_url": "https://cdn.example.com/iphone15-white.jpg",
+      "attrs": [
+        {
+          "attr_name": "颜色",
+          "attr_value": "白色",
+          "sort": 1
+        },
+        {
+          "attr_name": "内存",
+          "attr_value": "256G",
+          "sort": 2
+        }
+      ]
+    }
+  ]
+}
+```
+
+说明：
+
+- 第一个 SKU 带 `id`，表示更新已有 SKU
+- 第二个 SKU 不带 `id`，表示新增 SKU
+- 如果只想保留部分已有 SKU，未出现在 `skus` 数组中的旧 SKU 会被删除
+
 成功响应示例：
 
 ```json
@@ -875,11 +1042,17 @@ GET /api/v1/products/detail/192000000000000001
 }
 ```
 
-### 16.5 修改商品状态
+### 17.5 修改商品状态
 
 - 方法：`POST`
 - 路径：`/api/v1/admin/products/:product_id/status`
 - Content-Type：`application/json`
+
+权限说明：
+
+- 需要登录
+- 仅管理员可访问
+- 且只能修改自己创建的商品
 
 请求体示例：
 
@@ -899,7 +1072,7 @@ GET /api/v1/products/detail/192000000000000001
 }
 ```
 
-## 17. RPC 接口文档
+## 18. RPC 接口文档
 
 IDL：`idl/product.thrift`
 
@@ -912,39 +1085,45 @@ IDL：`idl/product.thrift`
 - `listProducts(ListProductsRequest) -> ListProductsResponse`
 - `batchGetSku(BatchGetSkuRequest) -> BatchGetSkuResponse`
 
-### 17.1 `createProduct`
+### 18.1 `createProduct`
 
 核心字段：
 
 - 商品基本信息：`title`、`sub_title`、`category_id`、`brand`、`description`、`status`
 - SKU 列表：`skus`
 - SKU 属性：`skus[].attrs`
+- 创建者：`creator_id`
 
 成功返回：
 
 - `product_id`
 - `base.code=0`
 
-### 17.2 `updateProduct`
+### 18.2 `updateProduct`
 
 核心字段：
 
 - `product_id`
 - 其余字段与 `createProduct` 一致
+- 操作人：`operator_id`
 
 说明：
 
 - 当前实现按“全量覆盖”方式更新商品及其 SKU 集合
 - 请求中缺失的旧 SKU 会被删除
+- 更新已有 SKU 时，`skus[].id` 必须是当前商品下真实存在的 SKU ID
+- 新增 SKU 时，不要传 `skus[].id`
+- 如果传入的 `skus[].id` 不属于当前 `product_id`，会返回 `2020002 / SKU 不存在`
 
-### 17.3 `changeProductStatus`
+### 18.3 `changeProductStatus`
 
 核心字段：
 
 - `product_id`
 - `status`
+- `operator_id`
 
-### 17.4 `getProductDetail`
+### 18.4 `getProductDetail`
 
 核心字段：
 
@@ -955,8 +1134,9 @@ IDL：`idl/product.thrift`
 - 商品主信息
 - 全量 SKU 列表
 - 每个 SKU 的销售属性列表
+- 商品创建者 `creator_id` 会在 RPC 层返回，供 gateway 判权
 
-### 17.5 `listProducts`
+### 18.5 `listProducts`
 
 核心字段：
 
@@ -965,13 +1145,14 @@ IDL：`idl/product.thrift`
 - `status`
 - `category_id`
 - `keyword`
+- `creator_id`
 
 成功返回：
 
 - 商品列表摘要 `products`
 - 总数 `total`
 
-### 17.6 `batchGetSku`
+### 18.6 `batchGetSku`
 
 核心字段：
 
@@ -987,7 +1168,7 @@ IDL：`idl/product.thrift`
 - 与请求 SKU ID 对应的 SKU 明细
 - 每个 SKU 携带属性列表，便于订单服务直接生成商品快照
 
-## 18. 未来设计设想
+## 19. 未来设计设想
 
 当前版本已经能支撑商品基础管理、列表详情查询和订单链路的 SKU 批量读取，但后续还有几个明确的演进方向。
 
@@ -1013,8 +1194,8 @@ IDL：`idl/product.thrift`
 
 ### 18.5 管理端能力演进
 
-- 当前管理端写接口已经存在，但还没有接管理员身份和权限模型。
-- 后续可以在 gateway 层补管理员鉴权、操作审计日志、商品变更历史、发布审批流。
+- 当前管理端接口已经接入管理员身份与创建者约束。
+- 后续可以继续补操作审计日志、商品变更历史、发布审批流、资源级角色授权。
 
 ### 18.6 稳定性与性能演进
 

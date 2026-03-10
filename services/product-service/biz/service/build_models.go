@@ -16,6 +16,8 @@ func (s *ProductService) buildModelsForWrite(
 	brand, description string,
 	status int32,
 	skus []*productpb.ProductSkuInput,
+	creatorID int64,
+	operatorID int64,
 ) (*dalmodel.Product, []*dalmodel.ProductSKU, *common.BizError) {
 	title = strings.TrimSpace(title)
 	subTitle = strings.TrimSpace(subTitle)
@@ -38,6 +40,8 @@ func (s *ProductService) buildModelsForWrite(
 		Brand:       brand,
 		Description: description,
 		Status:      status,
+		CreatorID:   creatorID,
+		UpdatedBy:   operatorID,
 	}
 
 	skuCodeSet := make(map[string]struct{}, len(skus))
@@ -58,6 +62,7 @@ func (s *ProductService) buildModelsForWrite(
 		skuCodeSet[skuCode] = struct{}{}
 
 		skuID := int64(0)
+		providedID := sku.IsSetId()
 		if sku.IsSetId() {
 			skuID = sku.GetId()
 		}
@@ -94,6 +99,7 @@ func (s *ProductService) buildModelsForWrite(
 			Status:      sku.Status,
 			CoverURL:    coverURL,
 			Attrs:       attrModels,
+			ProvidedID:  providedID,
 		})
 	}
 

@@ -10,6 +10,8 @@ type Product struct {
 	Brand       string       `gorm:"column:brand;type:varchar(128);not null;default:''"`
 	Description string       `gorm:"column:description;type:text"`
 	Status      int32        `gorm:"column:status;type:tinyint;not null;default:0"`
+	CreatorID   int64        `gorm:"column:creator_id;not null;default:0;index:idx_creator_id"`
+	UpdatedBy   int64        `gorm:"column:updated_by;not null;default:0"`
 	CreatedAt   time.Time    `gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt   time.Time    `gorm:"column:updated_at;autoUpdateTime"`
 	Skus        []ProductSKU `gorm:"foreignKey:SPUID;references:ID"`
@@ -31,6 +33,7 @@ type ProductSKU struct {
 	CreatedAt   time.Time        `gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt   time.Time        `gorm:"column:updated_at;autoUpdateTime"`
 	Attrs       []ProductSKUAttr `gorm:"foreignKey:SKUID;references:ID"`
+	ProvidedID  bool             `gorm:"-"`
 }
 
 func (ProductSKU) TableName() string {

@@ -6,7 +6,10 @@ import (
 	"meshcart/app/common"
 	logx "meshcart/app/log"
 	tracex "meshcart/app/trace"
+	"meshcart/gateway/internal/authz"
+	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
+	"meshcart/gateway/internal/types"
 	productpb "meshcart/kitex_gen/meshcart/product"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -24,7 +27,7 @@ func NewDetailLogic(ctx context.Context, svcCtx *svc.ServiceContext) *DetailLogi
 	return &DetailLogic{ctx: ctx, svcCtx: svcCtx}
 }
 
-func (l *DetailLogic) Get(productID int64) (*productpb.Product, *common.BizError) {
+func (l *DetailLogic) Get(productID int64, identity *middleware.AuthIdentity) (*types.ProductDetailData, *common.BizError) {
 	ctx, span := tracex.StartSpan(l.ctx, "meshcart.gateway", "gateway.logic.product.detail", oteltrace.WithSpanKind(oteltrace.SpanKindInternal))
 	defer span.End()
 	span.SetAttributes(attribute.String("biz.module", "product"), attribute.String("biz.action", "detail"), attribute.Int64("product_id", productID))
@@ -47,7 +50,17 @@ func (l *DetailLogic) Get(productID int64) (*productpb.Product, *common.BizError
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
 
+	product := resp.Product
+	if product == nil {
+		return nil, common.ErrNotFound
+	}
+	if product.GetStatus() != 2 {
+		if identity == nil || !l.svcCtx.AccessControl.Enforce(roleOf(l.svcCtx, identity), "product", authz.ActionReadPrivate, product.GetCreatorId(), identity.UserID, product.GetStatus()) {
+			return nil, common.ErrNotFound
+		}
+	}
+
 	span.SetAttributes(attribute.Bool("biz.success", true))
 	span.SetStatus(codes.Ok, "ok")
-	return resp.Product, nil
+	return toDetailData(product), nil
 }

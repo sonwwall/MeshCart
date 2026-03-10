@@ -6,6 +6,8 @@ import (
 	"meshcart/app/common"
 	logx "meshcart/app/log"
 	tracex "meshcart/app/trace"
+	"meshcart/gateway/internal/authz"
+	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
 	productpb "meshcart/kitex_gen/meshcart/product"
@@ -25,7 +27,7 @@ func NewListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListLogic {
 	return &ListLogic{ctx: ctx, svcCtx: svcCtx}
 }
 
-func (l *ListLogic) List(req *types.ListProductsRequest) (*types.ListProductsData, *common.BizError) {
+func (l *ListLogic) List(req *types.ListProductsRequest, identity *middleware.AuthIdentity) (*types.ListProductsData, *common.BizError) {
 	ctx, span := tracex.StartSpan(l.ctx, "meshcart.gateway", "gateway.logic.product.list", oteltrace.WithSpanKind(oteltrace.SpanKindInternal))
 	defer span.End()
 	span.SetAttributes(attribute.String("biz.module", "product"), attribute.String("biz.action", "list"))
@@ -35,7 +37,23 @@ func (l *ListLogic) List(req *types.ListProductsRequest) (*types.ListProductsDat
 		PageSize: req.PageSize,
 	}
 	if req.Status != nil {
-		rpcReq.Status = req.Status
+		status := *req.Status
+		switch status {
+		case 0, 1:
+			if identity == nil || !l.svcCtx.AccessControl.Enforce(roleOf(l.svcCtx, identity), "product", authz.ActionReadPrivate, identity.UserID, identity.UserID, status) {
+				return nil, common.ErrForbidden
+			}
+			rpcReq.Status = &status
+			creatorID := identity.UserID
+			rpcReq.CreatorId = &creatorID
+		case 2:
+			rpcReq.Status = &status
+		default:
+			return nil, common.ErrInvalidParam
+		}
+	} else {
+		status := int32(2)
+		rpcReq.Status = &status
 	}
 	if req.CategoryID != nil {
 		rpcReq.CategoryId = req.CategoryID
@@ -60,8 +78,12 @@ func (l *ListLogic) List(req *types.ListProductsRequest) (*types.ListProductsDat
 
 	span.SetAttributes(attribute.Bool("biz.success", true))
 	span.SetStatus(codes.Ok, "ok")
+	items := make([]types.ProductListItemData, 0, len(resp.Products))
+	for _, item := range resp.Products {
+		items = append(items, toListItemData(item))
+	}
 	return &types.ListProductsData{
-		Products: resp.Products,
+		Products: items,
 		Total:    resp.Total,
 	}, nil
 }

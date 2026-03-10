@@ -19,7 +19,7 @@ func (s *ProductServiceImpl) ChangeProductStatus(ctx context.Context, request *p
 		metricsx.ObserveRPC("product-service", "change_product_status", code, time.Since(start))
 	}()
 
-	bizErr := s.svc.ChangeProductStatus(ctx, request.ProductId, request.Status)
+	bizErr := s.svc.ChangeProductStatus(ctx, request.ProductId, request.Status, request.OperatorId)
 	if bizErr != nil {
 		code = bizErr.Code
 		logx.L(ctx).Warn("change product status failed", zap.Int64("product_id", request.ProductId), zap.Int32("code", bizErr.Code), zap.String("message", bizErr.Msg))

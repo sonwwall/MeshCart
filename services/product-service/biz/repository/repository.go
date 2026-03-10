@@ -45,13 +45,14 @@ type ListFilter struct {
 	PageSize   int32
 	Status     *int32
 	CategoryID *int64
+	CreatorID  *int64
 	Keyword    string
 }
 
 type ProductRepository interface {
 	Create(ctx context.Context, product *dalmodel.Product, skus []*dalmodel.ProductSKU) error
 	Update(ctx context.Context, product *dalmodel.Product, skus []*dalmodel.ProductSKU) error
-	ChangeStatus(ctx context.Context, productID int64, status int32) error
+	ChangeStatus(ctx context.Context, productID int64, status int32, operatorID int64) error
 	GetByID(ctx context.Context, productID int64) (*dalmodel.Product, error)
 	List(ctx context.Context, filter ListFilter) ([]*dalmodel.Product, int64, error)
 	ListSKUsByProductIDs(ctx context.Context, productIDs []int64) ([]*dalmodel.ProductSKU, error)
@@ -105,6 +106,7 @@ func (r *MySQLProductRepository) Update(ctx context.Context, product *dalmodel.P
 				"brand":       product.Brand,
 				"description": product.Description,
 				"status":      product.Status,
+				"updated_by":  product.UpdatedBy,
 			}).Error; err != nil {
 			return err
 		}
@@ -139,6 +141,9 @@ func (r *MySQLProductRepository) Update(ctx context.Context, product *dalmodel.P
 					return err
 				}
 			} else {
+				if sku.ID != 0 && sku.ProvidedID {
+					return ErrSKUNotFound
+				}
 				if err := tx.Omit("Attrs").Create(sku).Error; err != nil {
 					return mapSQLError(err)
 				}
@@ -171,10 +176,13 @@ func (r *MySQLProductRepository) Update(ctx context.Context, product *dalmodel.P
 	})
 }
 
-func (r *MySQLProductRepository) ChangeStatus(ctx context.Context, productID int64, status int32) error {
+func (r *MySQLProductRepository) ChangeStatus(ctx context.Context, productID int64, status int32, operatorID int64) error {
 	result := r.db.WithContext(ctx).Model(&dalmodel.Product{}).
 		Where("id = ?", productID).
-		Update("status", status)
+		Updates(map[string]any{
+			"status":     status,
+			"updated_by": operatorID,
+		})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -211,6 +219,9 @@ func (r *MySQLProductRepository) List(ctx context.Context, filter ListFilter) ([
 	}
 	if filter.CategoryID != nil {
 		query = query.Where("category_id = ?", *filter.CategoryID)
+	}
+	if filter.CreatorID != nil {
+		query = query.Where("creator_id = ?", *filter.CreatorID)
 	}
 	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
 		like := "%" + keyword + "%"

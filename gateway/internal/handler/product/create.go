@@ -29,9 +29,14 @@ func CreateProduct(svcCtx *svc.ServiceContext) app.HandlerFunc {
 			c.JSON(200, common.Fail(common.ErrInvalidParam, traceID))
 			return
 		}
+		identity, ok := middleware.IdentityFromRequest(ctx, c)
+		if !ok {
+			c.JSON(200, common.Fail(common.ErrUnauthorized, traceID))
+			return
+		}
 
 		logic := productlogic.NewCreateLogic(ctx, svcCtx)
-		data, bizErr := logic.Create(&req)
+		data, bizErr := logic.Create(&req, identity)
 		if bizErr != nil {
 			logx.L(ctx).Warn("create product failed", zap.Int32("code", bizErr.Code), zap.String("message", bizErr.Msg))
 			c.JSON(200, common.Fail(bizErr, traceID))

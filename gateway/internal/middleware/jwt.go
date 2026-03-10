@@ -16,12 +16,14 @@ import (
 const (
 	ClaimUserID   = "user_id"
 	ClaimUsername = "username"
+	ClaimRole     = "role"
 	ClaimIssuer   = "iss"
 )
 
 type AuthIdentity struct {
 	UserID   int64  `json:"user_id"`
 	Username string `json:"username"`
+	Role     string `json:"role"`
 }
 
 func NewJWT(cfg config.JWTConfig) (*jwtmw.HertzJWTMiddleware, error) {
@@ -42,6 +44,7 @@ func NewJWT(cfg config.JWTConfig) (*jwtmw.HertzJWTMiddleware, error) {
 			return jwtmw.MapClaims{
 				ClaimUserID:   identity.UserID,
 				ClaimUsername: identity.Username,
+				ClaimRole:     identity.Role,
 				ClaimIssuer:   cfg.Issuer,
 			}
 		},
@@ -92,7 +95,22 @@ func IdentityFromRequest(ctx context.Context, c *app.RequestContext) (*AuthIdent
 	return &AuthIdentity{
 		UserID:   claimInt64(claims[ClaimUserID]),
 		Username: username,
+		Role:     claimString(claims[ClaimRole]),
 	}, true
+}
+
+func OptionalIdentityFromRequest(ctx context.Context, c *app.RequestContext, jwtMiddleware *jwtmw.HertzJWTMiddleware) (*AuthIdentity, bool) {
+	if jwtMiddleware == nil {
+		return nil, false
+	}
+
+	token, err := jwtMiddleware.ParseToken(ctx, c)
+	if err != nil || token == nil || !token.Valid {
+		return nil, false
+	}
+
+	c.Set("JWT_PAYLOAD", jwtmw.ExtractClaimsFromToken(token))
+	return IdentityFromRequest(ctx, c)
 }
 
 func claimInt64(value interface{}) int64 {
@@ -114,4 +132,12 @@ func claimInt64(value interface{}) int64 {
 		}
 	}
 	return 0
+}
+
+func claimString(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	}
+	return ""
 }

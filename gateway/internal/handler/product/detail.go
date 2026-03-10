@@ -28,8 +28,9 @@ func GetProductDetail(svcCtx *svc.ServiceContext) app.HandlerFunc {
 			return
 		}
 
+		identity, _ := middleware.OptionalIdentityFromRequest(ctx, c, svcCtx.JWT)
 		logic := productlogic.NewDetailLogic(ctx, svcCtx)
-		data, bizErr := logic.Get(productID)
+		data, bizErr := logic.Get(productID, identity)
 		if bizErr != nil {
 			logx.L(ctx).Warn("get product detail failed", zap.Int64("product_id", productID), zap.Int32("code", bizErr.Code), zap.String("message", bizErr.Msg))
 			c.JSON(200, common.Fail(bizErr, traceID))

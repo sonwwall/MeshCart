@@ -20,6 +20,8 @@ func (s *ProductService) CreateProduct(ctx context.Context, req *productpb.Creat
 		req.Description,
 		req.Status,
 		req.Skus,
+		req.CreatorId,
+		req.CreatorId,
 	)
 	if bizErr != nil {
 		return 0, bizErr

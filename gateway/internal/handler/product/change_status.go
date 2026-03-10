@@ -35,9 +35,14 @@ func ChangeProductStatus(svcCtx *svc.ServiceContext) app.HandlerFunc {
 			c.JSON(200, common.Fail(common.ErrInvalidParam, traceID))
 			return
 		}
+		identity, ok := middleware.IdentityFromRequest(ctx, c)
+		if !ok {
+			c.JSON(200, common.Fail(common.ErrUnauthorized, traceID))
+			return
+		}
 
 		logic := productlogic.NewChangeStatusLogic(ctx, svcCtx)
-		bizErr = logic.Change(productID, req.Status)
+		bizErr = logic.Change(productID, req.Status, identity)
 		if bizErr != nil {
 			logx.L(ctx).Warn("change product status failed", zap.Int64("product_id", productID), zap.Int32("code", bizErr.Code), zap.String("message", bizErr.Msg))
 			c.JSON(200, common.Fail(bizErr, traceID))

@@ -41,6 +41,13 @@ func (s *ProductService) ListProducts(ctx context.Context, req *productpb.ListPr
 		}
 		filter.CategoryID = &categoryID
 	}
+	if req.IsSetCreatorId() {
+		creatorID := req.GetCreatorId()
+		if creatorID <= 0 {
+			return nil, 0, common.ErrInvalidParam
+		}
+		filter.CreatorID = &creatorID
+	}
 
 	products, total, err := s.repo.List(ctx, filter)
 	if err != nil {

@@ -53,6 +53,7 @@ func toRPCProduct(productModel *dalmodel.Product) *productpb.Product {
 		Description: productModel.Description,
 		Status:      productModel.Status,
 		Skus:        skus,
+		CreatorId:   productModel.CreatorID,
 	}
 }
 
@@ -94,6 +95,7 @@ func toRPCProductListItem(productModel *dalmodel.Product, skus []*dalmodel.Produ
 		CategoryId: productModel.CategoryID,
 		Brand:      productModel.Brand,
 		Status:     productModel.Status,
+		CreatorId:  productModel.CreatorID,
 	}
 
 	if len(skus) == 0 {

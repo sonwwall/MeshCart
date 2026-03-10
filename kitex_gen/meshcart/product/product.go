@@ -183,6 +183,7 @@ type Product struct {
 	Description string        `thrift:"description,6" frugal:"6,default,string" json:"description"`
 	Status      int32         `thrift:"status,7" frugal:"7,default,i32" json:"status"`
 	Skus        []*ProductSku `thrift:"skus,8" frugal:"8,default,list<ProductSku>" json:"skus"`
+	CreatorId   int64         `thrift:"creator_id,9" frugal:"9,default,i64" json:"creator_id"`
 }
 
 func NewProduct() *Product {
@@ -223,6 +224,10 @@ func (p *Product) GetStatus() (v int32) {
 func (p *Product) GetSkus() (v []*ProductSku) {
 	return p.Skus
 }
+
+func (p *Product) GetCreatorId() (v int64) {
+	return p.CreatorId
+}
 func (p *Product) SetId(val int64) {
 	p.Id = val
 }
@@ -247,6 +252,9 @@ func (p *Product) SetStatus(val int32) {
 func (p *Product) SetSkus(val []*ProductSku) {
 	p.Skus = val
 }
+func (p *Product) SetCreatorId(val int64) {
+	p.CreatorId = val
+}
 
 func (p *Product) String() string {
 	if p == nil {
@@ -264,6 +272,7 @@ var fieldIDToName_Product = map[int16]string{
 	6: "description",
 	7: "status",
 	8: "skus",
+	9: "creator_id",
 }
 
 type ProductListItem struct {
@@ -275,6 +284,7 @@ type ProductListItem struct {
 	Status       int32  `thrift:"status,6" frugal:"6,default,i32" json:"status"`
 	MinSalePrice int64  `thrift:"min_sale_price,7" frugal:"7,default,i64" json:"min_sale_price"`
 	CoverUrl     string `thrift:"cover_url,8" frugal:"8,default,string" json:"cover_url"`
+	CreatorId    int64  `thrift:"creator_id,9" frugal:"9,default,i64" json:"creator_id"`
 }
 
 func NewProductListItem() *ProductListItem {
@@ -315,6 +325,10 @@ func (p *ProductListItem) GetMinSalePrice() (v int64) {
 func (p *ProductListItem) GetCoverUrl() (v string) {
 	return p.CoverUrl
 }
+
+func (p *ProductListItem) GetCreatorId() (v int64) {
+	return p.CreatorId
+}
 func (p *ProductListItem) SetId(val int64) {
 	p.Id = val
 }
@@ -339,6 +353,9 @@ func (p *ProductListItem) SetMinSalePrice(val int64) {
 func (p *ProductListItem) SetCoverUrl(val string) {
 	p.CoverUrl = val
 }
+func (p *ProductListItem) SetCreatorId(val int64) {
+	p.CreatorId = val
+}
 
 func (p *ProductListItem) String() string {
 	if p == nil {
@@ -356,6 +373,7 @@ var fieldIDToName_ProductListItem = map[int16]string{
 	6: "status",
 	7: "min_sale_price",
 	8: "cover_url",
+	9: "creator_id",
 }
 
 type ProductSkuAttrInput struct {
@@ -514,6 +532,7 @@ type CreateProductRequest struct {
 	Description string             `thrift:"description,5" frugal:"5,default,string" json:"description"`
 	Status      int32              `thrift:"status,6" frugal:"6,default,i32" json:"status"`
 	Skus        []*ProductSkuInput `thrift:"skus,7" frugal:"7,default,list<ProductSkuInput>" json:"skus"`
+	CreatorId   int64              `thrift:"creator_id,8" frugal:"8,default,i64" json:"creator_id"`
 }
 
 func NewCreateProductRequest() *CreateProductRequest {
@@ -550,6 +569,10 @@ func (p *CreateProductRequest) GetStatus() (v int32) {
 func (p *CreateProductRequest) GetSkus() (v []*ProductSkuInput) {
 	return p.Skus
 }
+
+func (p *CreateProductRequest) GetCreatorId() (v int64) {
+	return p.CreatorId
+}
 func (p *CreateProductRequest) SetTitle(val string) {
 	p.Title = val
 }
@@ -571,6 +594,9 @@ func (p *CreateProductRequest) SetStatus(val int32) {
 func (p *CreateProductRequest) SetSkus(val []*ProductSkuInput) {
 	p.Skus = val
 }
+func (p *CreateProductRequest) SetCreatorId(val int64) {
+	p.CreatorId = val
+}
 
 func (p *CreateProductRequest) String() string {
 	if p == nil {
@@ -587,6 +613,7 @@ var fieldIDToName_CreateProductRequest = map[int16]string{
 	5: "description",
 	6: "status",
 	7: "skus",
+	8: "creator_id",
 }
 
 type CreateProductResponse struct {
@@ -645,6 +672,7 @@ type UpdateProductRequest struct {
 	Description string             `thrift:"description,6" frugal:"6,default,string" json:"description"`
 	Status      int32              `thrift:"status,7" frugal:"7,default,i32" json:"status"`
 	Skus        []*ProductSkuInput `thrift:"skus,8" frugal:"8,default,list<ProductSkuInput>" json:"skus"`
+	OperatorId  int64              `thrift:"operator_id,9" frugal:"9,default,i64" json:"operator_id"`
 }
 
 func NewUpdateProductRequest() *UpdateProductRequest {
@@ -685,6 +713,10 @@ func (p *UpdateProductRequest) GetStatus() (v int32) {
 func (p *UpdateProductRequest) GetSkus() (v []*ProductSkuInput) {
 	return p.Skus
 }
+
+func (p *UpdateProductRequest) GetOperatorId() (v int64) {
+	return p.OperatorId
+}
 func (p *UpdateProductRequest) SetProductId(val int64) {
 	p.ProductId = val
 }
@@ -709,6 +741,9 @@ func (p *UpdateProductRequest) SetStatus(val int32) {
 func (p *UpdateProductRequest) SetSkus(val []*ProductSkuInput) {
 	p.Skus = val
 }
+func (p *UpdateProductRequest) SetOperatorId(val int64) {
+	p.OperatorId = val
+}
 
 func (p *UpdateProductRequest) String() string {
 	if p == nil {
@@ -726,6 +761,7 @@ var fieldIDToName_UpdateProductRequest = map[int16]string{
 	6: "description",
 	7: "status",
 	8: "skus",
+	9: "operator_id",
 }
 
 type UpdateProductResponse struct {
@@ -767,8 +803,9 @@ var fieldIDToName_UpdateProductResponse = map[int16]string{
 }
 
 type ChangeProductStatusRequest struct {
-	ProductId int64 `thrift:"product_id,1" frugal:"1,default,i64" json:"product_id"`
-	Status    int32 `thrift:"status,2" frugal:"2,default,i32" json:"status"`
+	ProductId  int64 `thrift:"product_id,1" frugal:"1,default,i64" json:"product_id"`
+	Status     int32 `thrift:"status,2" frugal:"2,default,i32" json:"status"`
+	OperatorId int64 `thrift:"operator_id,3" frugal:"3,default,i64" json:"operator_id"`
 }
 
 func NewChangeProductStatusRequest() *ChangeProductStatusRequest {
@@ -785,11 +822,18 @@ func (p *ChangeProductStatusRequest) GetProductId() (v int64) {
 func (p *ChangeProductStatusRequest) GetStatus() (v int32) {
 	return p.Status
 }
+
+func (p *ChangeProductStatusRequest) GetOperatorId() (v int64) {
+	return p.OperatorId
+}
 func (p *ChangeProductStatusRequest) SetProductId(val int64) {
 	p.ProductId = val
 }
 func (p *ChangeProductStatusRequest) SetStatus(val int32) {
 	p.Status = val
+}
+func (p *ChangeProductStatusRequest) SetOperatorId(val int64) {
+	p.OperatorId = val
 }
 
 func (p *ChangeProductStatusRequest) String() string {
@@ -802,6 +846,7 @@ func (p *ChangeProductStatusRequest) String() string {
 var fieldIDToName_ChangeProductStatusRequest = map[int16]string{
 	1: "product_id",
 	2: "status",
+	3: "operator_id",
 }
 
 type ChangeProductStatusResponse struct {
@@ -933,6 +978,7 @@ type ListProductsRequest struct {
 	Status     *int32  `thrift:"status,3,optional" frugal:"3,optional,i32" json:"status,omitempty"`
 	CategoryId *int64  `thrift:"category_id,4,optional" frugal:"4,optional,i64" json:"category_id,omitempty"`
 	Keyword    *string `thrift:"keyword,5,optional" frugal:"5,optional,string" json:"keyword,omitempty"`
+	CreatorId  *int64  `thrift:"creator_id,6,optional" frugal:"6,optional,i64" json:"creator_id,omitempty"`
 }
 
 func NewListProductsRequest() *ListProductsRequest {
@@ -976,6 +1022,15 @@ func (p *ListProductsRequest) GetKeyword() (v string) {
 	}
 	return *p.Keyword
 }
+
+var ListProductsRequest_CreatorId_DEFAULT int64
+
+func (p *ListProductsRequest) GetCreatorId() (v int64) {
+	if !p.IsSetCreatorId() {
+		return ListProductsRequest_CreatorId_DEFAULT
+	}
+	return *p.CreatorId
+}
 func (p *ListProductsRequest) SetPage(val int32) {
 	p.Page = val
 }
@@ -991,6 +1046,9 @@ func (p *ListProductsRequest) SetCategoryId(val *int64) {
 func (p *ListProductsRequest) SetKeyword(val *string) {
 	p.Keyword = val
 }
+func (p *ListProductsRequest) SetCreatorId(val *int64) {
+	p.CreatorId = val
+}
 
 func (p *ListProductsRequest) IsSetStatus() bool {
 	return p.Status != nil
@@ -1002,6 +1060,10 @@ func (p *ListProductsRequest) IsSetCategoryId() bool {
 
 func (p *ListProductsRequest) IsSetKeyword() bool {
 	return p.Keyword != nil
+}
+
+func (p *ListProductsRequest) IsSetCreatorId() bool {
+	return p.CreatorId != nil
 }
 
 func (p *ListProductsRequest) String() string {
@@ -1017,6 +1079,7 @@ var fieldIDToName_ListProductsRequest = map[int16]string{
 	3: "status",
 	4: "category_id",
 	5: "keyword",
+	6: "creator_id",
 }
 
 type ListProductsResponse struct {

@@ -7,6 +7,8 @@ import (
 	"meshcart/app/common"
 	logx "meshcart/app/log"
 	tracex "meshcart/app/trace"
+	"meshcart/gateway/internal/authz"
+	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
 	productpb "meshcart/kitex_gen/meshcart/product"
@@ -26,7 +28,7 @@ func NewCreateLogic(ctx context.Context, svcCtx *svc.ServiceContext) *CreateLogi
 	return &CreateLogic{ctx: ctx, svcCtx: svcCtx}
 }
 
-func (l *CreateLogic) Create(req *types.CreateProductRequest) (*types.CreateProductData, *common.BizError) {
+func (l *CreateLogic) Create(req *types.CreateProductRequest, identity *middleware.AuthIdentity) (*types.CreateProductData, *common.BizError) {
 	ctx, span := tracex.StartSpan(l.ctx, "meshcart.gateway", "gateway.logic.product.create", oteltrace.WithSpanKind(oteltrace.SpanKindInternal))
 	defer span.End()
 	span.SetAttributes(attribute.String("biz.module", "product"), attribute.String("biz.action", "create"))
@@ -35,8 +37,11 @@ func (l *CreateLogic) Create(req *types.CreateProductRequest) (*types.CreateProd
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(common.ErrInvalidParam.Code)), attribute.String("biz.message", common.ErrInvalidParam.Msg))
 		return nil, common.ErrInvalidParam
 	}
+	if identity == nil || !l.svcCtx.AccessControl.Enforce(roleOf(l.svcCtx, identity), "product", authz.ActionCreate, 0, identity.UserID, req.Status) {
+		return nil, common.ErrForbidden
+	}
 
-	resp, err := l.svcCtx.ProductClient.CreateProduct(ctx, buildCreateProductRPCRequest(req))
+	resp, err := l.svcCtx.ProductClient.CreateProduct(ctx, buildCreateProductRPCRequest(req, identity.UserID))
 	if err != nil {
 		span.RecordError(err)
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "technical"))
@@ -54,7 +59,7 @@ func (l *CreateLogic) Create(req *types.CreateProductRequest) (*types.CreateProd
 	return &types.CreateProductData{ProductID: resp.ProductID}, nil
 }
 
-func buildCreateProductRPCRequest(req *types.CreateProductRequest) *productpb.CreateProductRequest {
+func buildCreateProductRPCRequest(req *types.CreateProductRequest, creatorID int64) *productpb.CreateProductRequest {
 	return &productpb.CreateProductRequest{
 		Title:       req.Title,
 		SubTitle:    req.SubTitle,
@@ -63,6 +68,7 @@ func buildCreateProductRPCRequest(req *types.CreateProductRequest) *productpb.Cr
 		Description: req.Description,
 		Status:      req.Status,
 		Skus:        buildSKUInputs(req.SKUs),
+		CreatorId:   creatorID,
 	}
 }
 

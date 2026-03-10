@@ -31,6 +31,7 @@ struct Product {
     6: string description
     7: i32 status
     8: list<ProductSku> skus
+    9: i64 creator_id
 }
 
 struct ProductListItem {
@@ -42,6 +43,7 @@ struct ProductListItem {
     6: i32 status
     7: i64 min_sale_price
     8: string cover_url
+    9: i64 creator_id
 }
 
 struct ProductSkuAttrInput {
@@ -69,6 +71,7 @@ struct CreateProductRequest {
     5: string description
     6: i32 status
     7: list<ProductSkuInput> skus
+    8: i64 creator_id
 }
 
 struct CreateProductResponse {
@@ -85,6 +88,7 @@ struct UpdateProductRequest {
     6: string description
     7: i32 status
     8: list<ProductSkuInput> skus
+    9: i64 operator_id
 }
 
 struct UpdateProductResponse {
@@ -94,6 +98,7 @@ struct UpdateProductResponse {
 struct ChangeProductStatusRequest {
     1: i64 product_id
     2: i32 status
+    3: i64 operator_id
 }
 
 struct ChangeProductStatusResponse {
@@ -115,6 +120,7 @@ struct ListProductsRequest {
     3: optional i32 status
     4: optional i64 category_id
     5: optional string keyword
+    6: optional i64 creator_id
 }
 
 struct ListProductsResponse {

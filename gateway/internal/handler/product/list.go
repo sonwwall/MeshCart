@@ -30,8 +30,9 @@ func ListProducts(svcCtx *svc.ServiceContext) app.HandlerFunc {
 			return
 		}
 
+		identity, _ := middleware.OptionalIdentityFromRequest(ctx, c, svcCtx.JWT)
 		logic := productlogic.NewListLogic(ctx, svcCtx)
-		data, bizErr := logic.List(&req)
+		data, bizErr := logic.List(&req, identity)
 		if bizErr != nil {
 			logx.L(ctx).Warn("list products failed", zap.Int32("code", bizErr.Code), zap.String("message", bizErr.Msg))
 			c.JSON(200, common.Fail(bizErr, traceID))
