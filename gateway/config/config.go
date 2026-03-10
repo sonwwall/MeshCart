@@ -6,13 +6,14 @@ import (
 )
 
 type Config struct {
-	App       AppConfig
-	Log       LogConfig
-	Telemetry TelemetryConfig
-	Metrics   MetricsConfig
-	Server    ServerConfig
-	UserRPC   UserRPCConfig
-	JWT       JWTConfig
+	App        AppConfig
+	Log        LogConfig
+	Telemetry  TelemetryConfig
+	Metrics    MetricsConfig
+	Server     ServerConfig
+	UserRPC    UserRPCConfig
+	ProductRPC ProductRPCConfig
+	JWT        JWTConfig
 }
 
 type AppConfig struct {
@@ -40,6 +41,13 @@ type ServerConfig struct {
 }
 
 type UserRPCConfig struct {
+	ServiceName   string
+	Address       string
+	DiscoveryType string
+	ConsulAddress string
+}
+
+type ProductRPCConfig struct {
 	ServiceName   string
 	Address       string
 	DiscoveryType string
@@ -78,6 +86,12 @@ func Load() Config {
 			ServiceName:   getEnv("USER_RPC_SERVICE", "meshcart.user"),
 			Address:       getEnv("USER_RPC_ADDR", "127.0.0.1:8888"),
 			DiscoveryType: getEnv("USER_RPC_DISCOVERY", "direct"),
+			ConsulAddress: getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
+		},
+		ProductRPC: ProductRPCConfig{
+			ServiceName:   getEnv("PRODUCT_RPC_SERVICE", "meshcart.product"),
+			Address:       getEnv("PRODUCT_RPC_ADDR", "127.0.0.1:8889"),
+			DiscoveryType: getEnv("PRODUCT_RPC_DISCOVERY", "direct"),
 			ConsulAddress: getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
 		},
 		JWT: JWTConfig{

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	producthandler "meshcart/gateway/internal/handler/product"
 	userhandler "meshcart/gateway/internal/handler/user"
 	"meshcart/gateway/internal/svc"
 
@@ -9,5 +10,6 @@ import (
 
 func Register(h *server.Hertz, svcCtx *svc.ServiceContext) {
 	apiV1 := h.Group("/api/v1")
+	producthandler.RegisterRoutes(apiV1, svcCtx)
 	userhandler.RegisterRoutes(apiV1, svcCtx)
 }
