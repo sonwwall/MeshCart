@@ -95,19 +95,37 @@ export USER_METRICS_ADDR=:9091
 - 默认监听 `:8080`
 - 默认通过 Consul 发现 `meshcart.user`
 - 默认启用 JWT
+- 默认服务名为 `gateway`
+- 默认 OTLP 地址为 `localhost:4319`
+- 默认 metrics 暴露为 `:9092/metrics`
 
 常用可覆盖环境变量：
 
 ```bash
+export APP_NAME=gateway
+export APP_ENV=dev
+export LOG_LEVEL=info
+export LOG_DIR=logs
+export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319
+export OTEL_EXPORTER_OTLP_INSECURE=true
 export GATEWAY_ADDR=:8080
+export GATEWAY_PROM_ADDR=:9092
+export GATEWAY_PROM_PATH=/metrics
 export USER_RPC_SERVICE=meshcart.user
 export USER_RPC_DISCOVERY=consul
+export USER_RPC_ADDR=127.0.0.1:8888
 export CONSUL_ADDR=127.0.0.1:8500
 export JWT_SECRET=meshcart-dev-secret-change-me
 export JWT_ISSUER=meshcart.gateway
 export JWT_TIMEOUT_MINUTES=120
 export JWT_MAX_REFRESH_MINUTES=720
 ```
+
+说明：
+
+- `gateway` 的启动期配置已经集中在 `gateway/config/config.go`
+- `cmd/gateway/main.go` 只负责编排启动流程，不再直接读取环境变量
+- 日志、OTel、HTTP Server 初始化由 `gateway/internal/component` 负责
 
 启动成功后应看到：
 
@@ -214,7 +232,17 @@ curl http://127.0.0.1:8080/api/v1/user/refresh_token \
 - `JWT_SECRET` 是否在网关重启前后发生变化
 - token 是否已经过期
 
-### 9.4 注册成功但登录拿不到真实 user_id
+### 9.4 Gateway 启动后看不到日志 / metrics / trace
+
+检查：
+
+- `LOG_DIR` 是否可写，且项目根目录下是否生成 `logs/gateway.log`
+- `GATEWAY_PROM_ADDR`、`GATEWAY_PROM_PATH` 是否符合预期
+- `OTEL_EXPORTER_OTLP_ENDPOINT` 是否指向本地 Collector
+- `OTEL_EXPORTER_OTLP_INSECURE` 是否与 Collector 监听方式匹配
+- 启动日志中是否出现 `gateway starting`
+
+### 9.5 注册成功但登录拿不到真实 user_id
 
 检查：
 

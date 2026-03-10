@@ -20,6 +20,7 @@
 
 - `gateway/cmd/gateway`
 - `gateway/config`
+- `gateway/internal/component`
 - `gateway/internal/{handler,logic,middleware,svc,types}`
 - `gateway/rpc`
 - `app/common`（网关返回结构与错误对象）
@@ -31,15 +32,21 @@ gateway/
 ├── cmd/gateway/main.go
 ├── config/config.go
 ├── internal/
+│   ├── component/
+│   │   ├── observability.go
+│   │   └── server.go
 │   ├── handler/
 │   │   ├── routes.go
 │   │   └── user/
 │   │       ├── routes.go
-│   │       └── login.go
+│   │       ├── login.go
+│   │       └── register.go
 │   ├── logic/
 │   │   └── user/
-│   │       └── login.go
+│   │       ├── login.go
+│   │       └── register.go
 │   ├── middleware/
+│   │   ├── jwt.go
 │   │   └── trace.go
 │   ├── svc/
 │   │   └── service_context.go
@@ -57,9 +64,14 @@ gateway/
 职责：
 
 - 读取配置
+- 编排组件初始化顺序
 - 初始化 `ServiceContext`
-- 初始化 Hertz Server
-- 注册路由并启动服务
+- 启动服务
+
+说明：
+
+- `cmd/gateway/main.go` 只保留启动主流程，不承载日志、OTel、HTTP Server 的具体构造细节
+- 具体初始化逻辑下沉到 `internal/component`
 
 ### 4.2 配置层（`config`）
 
@@ -68,7 +80,37 @@ gateway/
 - 定义配置结构体
 - 读取环境变量并生成运行时配置
 
-### 4.3 接口层（`internal/handler`）
+当前配置按职责分组：
+
+- `App`：服务名、环境
+- `Log`：日志级别、日志目录
+- `Telemetry`：OTLP 上报地址、是否 insecure
+- `Metrics`：metrics 暴露地址与路径
+- `Server`：网关 HTTP 监听地址
+- `UserRPC`：下游用户服务连接与服务发现
+- `JWT`：登录态签发与刷新配置
+
+这样做的目的：
+
+- `cmd` 与 `component` 不再各自读环境变量
+- 启动期配置有单一来源，便于排障和后续切换配置源
+
+### 4.3 组件初始化层（`internal/component`）
+
+职责：
+
+- 初始化日志
+- 初始化 OTel Provider
+- 构造 Hertz Server
+- 组装 tracing / metrics / route 注册
+
+边界：
+
+- 这里只负责“通用启动组件”的装配
+- 不承载具体业务逻辑
+- 不直接持有业务状态，业务依赖仍由 `svc.ServiceContext` 管理
+
+### 4.4 接口层（`internal/handler`）
 
 职责：
 
@@ -81,7 +123,7 @@ gateway/
 - 直接访问下游 RPC/数据库
 - 编排业务流程
 
-### 4.4 业务编排层（`internal/logic`）
+### 4.5 业务编排层（`internal/logic`）
 
 职责：
 
@@ -89,7 +131,7 @@ gateway/
 - 下游服务调用编排
 - 业务错误码映射
 
-### 4.5 客户端层（`rpc/<module>`）
+### 4.6 客户端层（`rpc/<module>`）
 
 职责：
 
@@ -101,14 +143,14 @@ gateway/
 
 - 承载业务规则判断
 
-### 4.6 依赖容器层（`internal/svc`）
+### 4.7 依赖容器层（`internal/svc`）
 
 职责：
 
 - 集中初始化与持有共享依赖（配置、RPC Client）
 - 向 `handler/logic` 提供依赖注入入口
 
-### 4.7 协议类型层（`internal/types`）
+### 4.8 协议类型层（`internal/types`）
 
 职责：
 
@@ -169,6 +211,14 @@ gateway/
 
 当前配置源为环境变量（见 `gateway/config/config.go`）：
 
+- `APP_NAME`：服务名，默认 `gateway`
+- `APP_ENV`：运行环境，默认 `dev`
+- `LOG_LEVEL`：日志级别，默认 `info`
+- `LOG_DIR`：日志目录，默认 `logs`
+- `OTEL_EXPORTER_OTLP_ENDPOINT`：OTLP 上报地址，默认 `localhost:4319`
+- `OTEL_EXPORTER_OTLP_INSECURE`：是否使用 insecure OTLP 连接，默认 `true`
+- `GATEWAY_PROM_ADDR`：Gateway metrics 暴露地址，默认 `:9092`
+- `GATEWAY_PROM_PATH`：Gateway metrics 路径，默认 `/metrics`
 - `GATEWAY_ADDR`：网关监听地址
 - `USER_RPC_SERVICE`：用户服务名
 - `USER_RPC_ADDR`：用户服务地址
@@ -178,6 +228,12 @@ gateway/
 - `JWT_ISSUER`：JWT 签发者
 - `JWT_TIMEOUT_MINUTES`：访问令牌过期时间（分钟）
 - `JWT_MAX_REFRESH_MINUTES`：刷新窗口（分钟）
+
+启动关系：
+
+- `config.Load()` 负责把环境变量装配成 `config.Config`
+- `component.InitLogger/InitOpenTelemetry/NewGatewayServer` 只消费 `config.Config`
+- 这样 `main` 中不再散落 `getEnv(...)` 调用
 
 ## 9. JWT 设计
 

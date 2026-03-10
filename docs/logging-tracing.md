@@ -168,15 +168,26 @@
 
 通用：
 
+- `APP_NAME`：服务名
 - `APP_ENV`：运行环境
 - `LOG_LEVEL`：日志级别
+- `LOG_DIR`：日志目录
 - `OTEL_EXPORTER_OTLP_ENDPOINT`：OTLP 上报地址
+- `OTEL_EXPORTER_OTLP_INSECURE`：是否使用 insecure OTLP 连接
 
 建议本地值：
 
+- `APP_NAME=gateway` 或 `APP_NAME=user-service`
 - `APP_ENV=dev`
 - `LOG_LEVEL=info`
+- `LOG_DIR=logs`
 - `OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319`
+- `OTEL_EXPORTER_OTLP_INSECURE=true`
+
+gateway：
+
+- `GATEWAY_PROM_ADDR`：metrics 监听地址（默认 `:9092`）
+- `GATEWAY_PROM_PATH`：metrics 暴露路径（默认 `/metrics`）
 
 user-service：
 

@@ -6,9 +6,33 @@ import (
 )
 
 type Config struct {
-	Server  ServerConfig
-	UserRPC UserRPCConfig
-	JWT     JWTConfig
+	App       AppConfig
+	Log       LogConfig
+	Telemetry TelemetryConfig
+	Metrics   MetricsConfig
+	Server    ServerConfig
+	UserRPC   UserRPCConfig
+	JWT       JWTConfig
+}
+
+type AppConfig struct {
+	Name string
+	Env  string
+}
+
+type LogConfig struct {
+	Level  string
+	LogDir string
+}
+
+type TelemetryConfig struct {
+	Endpoint string
+	Insecure bool
+}
+
+type MetricsConfig struct {
+	Addr string
+	Path string
 }
 
 type ServerConfig struct {
@@ -31,6 +55,22 @@ type JWTConfig struct {
 
 func Load() Config {
 	return Config{
+		App: AppConfig{
+			Name: getEnv("APP_NAME", "gateway"),
+			Env:  getEnv("APP_ENV", "dev"),
+		},
+		Log: LogConfig{
+			Level:  getEnv("LOG_LEVEL", "info"),
+			LogDir: getEnv("LOG_DIR", "logs"),
+		},
+		Telemetry: TelemetryConfig{
+			Endpoint: getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4319"),
+			Insecure: getEnvAsBool("OTEL_EXPORTER_OTLP_INSECURE", true),
+		},
+		Metrics: MetricsConfig{
+			Addr: getEnv("GATEWAY_PROM_ADDR", ":9092"),
+			Path: getEnv("GATEWAY_PROM_PATH", "/metrics"),
+		},
 		Server: ServerConfig{
 			Addr: getEnv("GATEWAY_ADDR", ":8080"),
 		},
@@ -62,6 +102,18 @@ func getEnvAsInt(key string, fallback int) int {
 		return fallback
 	}
 	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvAsBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
 	if err != nil {
 		return fallback
 	}
