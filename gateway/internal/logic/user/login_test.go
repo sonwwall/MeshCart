@@ -15,8 +15,10 @@ import (
 )
 
 type stubUserClient struct {
-	loginFn    func(ctx context.Context, req *userrpc.LoginRequest) (*userrpc.LoginResponse, error)
-	registerFn func(ctx context.Context, req *userrpc.RegisterRequest) (*userrpc.RegisterResponse, error)
+	loginFn      func(ctx context.Context, req *userrpc.LoginRequest) (*userrpc.LoginResponse, error)
+	registerFn   func(ctx context.Context, req *userrpc.RegisterRequest) (*userrpc.RegisterResponse, error)
+	getUserFn    func(ctx context.Context, req *userrpc.GetUserRequest) (*userrpc.GetUserResponse, error)
+	updateRoleFn func(ctx context.Context, req *userrpc.UpdateUserRoleRequest) (*userrpc.UpdateUserRoleResponse, error)
 }
 
 func (s *stubUserClient) Login(ctx context.Context, req *userrpc.LoginRequest) (*userrpc.LoginResponse, error) {
@@ -25,6 +27,14 @@ func (s *stubUserClient) Login(ctx context.Context, req *userrpc.LoginRequest) (
 
 func (s *stubUserClient) Register(ctx context.Context, req *userrpc.RegisterRequest) (*userrpc.RegisterResponse, error) {
 	return s.registerFn(ctx, req)
+}
+
+func (s *stubUserClient) GetUser(ctx context.Context, req *userrpc.GetUserRequest) (*userrpc.GetUserResponse, error) {
+	return s.getUserFn(ctx, req)
+}
+
+func (s *stubUserClient) UpdateUserRole(ctx context.Context, req *userrpc.UpdateUserRoleRequest) (*userrpc.UpdateUserRoleResponse, error) {
+	return s.updateRoleFn(ctx, req)
 }
 
 func newTestServiceContext(t *testing.T, client userrpc.Client) *svc.ServiceContext {
@@ -96,6 +106,7 @@ func TestLogin_Success(t *testing.T) {
 				Message:  "成功",
 				UserID:   12345,
 				Username: "tester",
+				Role:     "superadmin",
 			}, nil
 		},
 	}))
@@ -112,6 +123,9 @@ func TestLogin_Success(t *testing.T) {
 	}
 	if data.Username != "tester" {
 		t.Fatalf("expected username tester, got %s", data.Username)
+	}
+	if data.Role != "superadmin" {
+		t.Fatalf("expected role superadmin, got %s", data.Role)
 	}
 	if !strings.HasPrefix(data.Token, "Bearer ") {
 		t.Fatalf("expected bearer token, got %s", data.Token)

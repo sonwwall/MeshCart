@@ -62,26 +62,26 @@ Casbin 适合当前阶段的原因：
 
 ### 5.1 当前角色
 
-当前定义三种角色：
+当前定义四种角色：
 
 - `guest`
 - `user`
 - `admin`
+- `superadmin`
 
 当前角色来源：
 
 - 未登录请求：`guest`
-- 已登录普通用户：`user`
-- 在 `ADMIN_USER_IDS` 配置中的用户：`admin`
-
-当前管理员来源不是数据库角色表，而是网关配置：
-
-- 环境变量：`ADMIN_USER_IDS`
+- 已登录用户：根据 `user-service` 返回的 `role` 决定
+- 当前角色保存在用户表 `users.role`
+- 迁移已有用户数据时，系统会把最早注册的用户提升为初始 `superadmin`
+- 全新空库场景下，首个注册用户会自动成为 `superadmin`
 
 说明：
 
-- 这是当前阶段的轻量实现，适合开发和小规模联调
-- 后续如果角色体系复杂化，应迁移到用户域统一管理
+- 当前角色已经迁移到用户域统一管理
+- 网关不再通过启动参数维护管理员名单
+- JWT 中的 `role` 是登录时生成的角色快照
 
 ### 5.2 目标角色设计
 
@@ -131,6 +131,7 @@ Casbin 适合当前阶段的原因：
 - `read_private`
 - `write_own`
 - `create`
+- `manage_role`
 
 语义如下：
 
@@ -138,6 +139,7 @@ Casbin 适合当前阶段的原因：
 - `read_private`：读取非公开商品，但要求资源归属当前用户
 - `write_own`：修改自己创建的商品
 - `create`：创建商品
+- `manage_role`：修改用户角色
 
 ### 5.5 请求属性
 
@@ -165,6 +167,11 @@ Casbin 适合当前阶段的原因：
 - `admin` 可以 `read_private product`
 - `admin` 可以 `write_own product`
 - `admin` 可以 `create product`
+- `superadmin` 可以 `read_online product`
+- `superadmin` 可以 `read_private product`
+- `superadmin` 可以 `write_own product`
+- `superadmin` 可以 `create product`
+- `superadmin` 可以 `manage_role user`
 
 这代表当前权限含义：
 
@@ -173,6 +180,8 @@ Casbin 适合当前阶段的原因：
 - 但管理员也只能看自己创建的非公开商品
 - 只有管理员能创建商品
 - 只有管理员能修改自己创建的商品
+- `superadmin` 可以管理全量商品
+- 只有 `superadmin` 可以修改用户角色
 
 ## 7. 商品模块中的应用
 
@@ -216,6 +225,15 @@ Casbin 适合当前阶段的原因：
 - 只有管理员可修改商品状态
 - 且只能修改自己创建的商品
 
+### 7.6 修改用户角色
+
+规则：
+
+- 只有 `superadmin` 可访问
+- 当前已落地接口：`PUT /api/v1/admin/users/:user_id/role`
+- 角色修改由 `user-service` 落库
+- 不允许把最后一个 `superadmin` 降级，避免系统失去平台管理员
+
 ## 8. 数据模型配合
 
 为了支持“资源归属”判断，商品表增加了以下字段：
@@ -239,18 +257,18 @@ Casbin 适合当前阶段的原因：
 当前登录流程：
 
 1. 用户登录成功
-2. 网关根据 `ADMIN_USER_IDS` 判断角色
+2. `user-service` 返回用户当前角色
 3. 网关把 `role` 写进 JWT
-4. 后续商品管理接口和部分查询接口使用该角色参与 Casbin 判定
+4. 后续商品管理接口和用户角色管理接口使用该角色参与 Casbin 判定
 
 说明：
 
-- 旧 token 没有 `role` claim，修改后需要重新登录
-- 当前为了兼容旧 token，网关也可以根据 `user_id` 和本地配置重新推导角色
+- 角色修改后，旧 JWT 不会自动刷新
+- 如果用户刚被提权或降权，需要重新登录以获取新角色
 
 ## 10. 下一阶段设计方案
 
-当前 `ADMIN_USER_IDS` 方案只适合开发阶段。下一阶段建议将角色体系从网关配置迁移到用户域，形成真正可管理、可审计的权限系统。
+当前已经完成从 `ADMIN_USER_IDS` 到用户域角色落库的迁移，下一阶段重点是完善角色管理和审计能力。
 
 ### 10.1 设计原则
 
@@ -354,9 +372,9 @@ Casbin 适合当前阶段的原因：
 1. 在 `user-service` 的用户表增加 `role` 字段
 2. 登录接口和个人信息接口返回 `role`
 3. `gateway` 登录时改为使用 `user-service` 返回的角色签发 JWT
-4. 保留 `ADMIN_USER_IDS` 一段时间作为兼容开关
-5. 所有环境完成迁移后移除 `ADMIN_USER_IDS`
-6. 再引入 `superadmin` 管理接口和角色变更审计
+4. 增加 `superadmin` 管理接口
+5. 为角色变更补审计日志
+6. 再考虑把 Casbin policy 做持久化
 
 这样可以避免一次性切换导致所有环境同时失效。
 
@@ -398,11 +416,10 @@ Casbin 适合当前阶段的原因：
 
 当前实现仍有几个明显限制：
 
-- 管理员名单当前仍来自配置，而不是数据库角色体系
 - Casbin 策略写死在代码里，还没有持久化
-- 当前只对商品模块做了授权接入
+- 当前商品模块和用户角色管理已接入授权
 - 还没有操作审计日志和权限变更审计
-- 还没有 `superadmin` 角色和用户提权/降权流程
+- 角色变更后仍依赖重新登录刷新 JWT
 
 这些限制在当前阶段是可接受的，但不适合长期扩展。
 
@@ -410,8 +427,7 @@ Casbin 适合当前阶段的原因：
 
 建议的下一步演进如下：
 
-- 把管理员角色从 `ADMIN_USER_IDS` 迁移到用户域角色表
-- 引入 `superadmin` 角色和角色管理接口
+- 完善 `superadmin` 的角色管理与审计能力
 - 把 Casbin policy 从代码内嵌迁移到可配置存储
 - 引入更细的角色，例如运营、审核、商家
 - 把“只可操作自己创建的资源”扩展为更通用的 owner / tenant / organization 模型
@@ -479,10 +495,9 @@ Casbin 适合当前阶段的原因：
 
 我建议按以下顺序扩角色，而不是一次性全部引入：
 
-1. 当前阶段：保留 `guest` / `user` / `admin`
-2. 角色落库阶段：引入 `superadmin`
-3. 管理后台细分阶段：新增 `operator` / `reviewer`
-4. 多商家阶段：新增 `merchant_admin` / `merchant_operator`
-5. 平台化阶段：再考虑更细的组织、审批、跨团队角色
+1. 当前阶段：保留 `guest` / `user` / `admin` / `superadmin`
+2. 管理后台细分阶段：新增 `operator` / `reviewer`
+3. 多商家阶段：新增 `merchant_admin` / `merchant_operator`
+4. 平台化阶段：再考虑更细的组织、审批、跨团队角色
 
 这样可以避免权限模型在业务尚未稳定时过度设计。

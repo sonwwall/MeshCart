@@ -40,12 +40,14 @@ func (l *ListLogic) List(req *types.ListProductsRequest, identity *middleware.Au
 		status := *req.Status
 		switch status {
 		case 0, 1:
-			if identity == nil || !l.svcCtx.AccessControl.Enforce(roleOf(l.svcCtx, identity), "product", authz.ActionReadPrivate, identity.UserID, identity.UserID, status) {
+			if identity == nil || !l.svcCtx.AccessControl.Enforce(roleOf(identity), "product", authz.ActionReadPrivate, identity.UserID, identity.UserID, status) {
 				return nil, common.ErrForbidden
 			}
 			rpcReq.Status = &status
-			creatorID := identity.UserID
-			rpcReq.CreatorId = &creatorID
+			if roleOf(identity) != authz.RoleSuperAdmin {
+				creatorID := identity.UserID
+				rpcReq.CreatorId = &creatorID
+			}
 		case 2:
 			rpcReq.Status = &status
 		default:

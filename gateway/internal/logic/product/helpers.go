@@ -4,22 +4,18 @@ import (
 	"meshcart/app/common"
 	"meshcart/gateway/internal/authz"
 	"meshcart/gateway/internal/middleware"
-	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
 	productpb "meshcart/kitex_gen/meshcart/product"
 )
 
 var errOwnProductRequired = common.NewBizError(common.CodeForbidden, "仅可操作自己创建的商品")
 
-func roleOf(svcCtx *svc.ServiceContext, identity *middleware.AuthIdentity) string {
+func roleOf(identity *middleware.AuthIdentity) string {
 	if identity == nil {
 		return authz.RoleGuest
 	}
-	if svcCtx != nil && svcCtx.AccessControl != nil && identity.UserID > 0 {
-		return svcCtx.AccessControl.RoleForUser(identity.UserID)
-	}
 	if identity.Role == "" {
-		return authz.RoleGuest
+		return authz.RoleUser
 	}
 	return identity.Role
 }

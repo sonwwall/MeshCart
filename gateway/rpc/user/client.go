@@ -17,6 +17,8 @@ import (
 
 var errNilLoginResponse = errors.New("user rpc returned nil login response")
 var errNilRegisterResponse = errors.New("user rpc returned nil register response")
+var errNilGetUserResponse = errors.New("user rpc returned nil get user response")
+var errNilUpdateRoleResponse = errors.New("user rpc returned nil update role response")
 
 type LoginRequest struct {
 	Username string
@@ -29,6 +31,7 @@ type LoginResponse struct {
 	UserID   int64
 	Token    string
 	Username string
+	Role     string
 }
 
 type RegisterRequest struct {
@@ -41,9 +44,34 @@ type RegisterResponse struct {
 	Message string
 }
 
+type GetUserRequest struct {
+	UserID int64
+}
+
+type GetUserResponse struct {
+	Code     int32
+	Message  string
+	UserID   int64
+	Username string
+	Role     string
+	IsLocked bool
+}
+
+type UpdateUserRoleRequest struct {
+	UserID int64
+	Role   string
+}
+
+type UpdateUserRoleResponse struct {
+	Code    int32
+	Message string
+}
+
 type Client interface {
 	Login(ctx context.Context, req *LoginRequest) (*LoginResponse, error)
 	Register(ctx context.Context, req *RegisterRequest) (*RegisterResponse, error)
+	GetUser(ctx context.Context, req *GetUserRequest) (*GetUserResponse, error)
+	UpdateUserRole(ctx context.Context, req *UpdateUserRoleRequest) (*UpdateUserRoleResponse, error)
 }
 
 type kitexClient struct {
@@ -100,6 +128,7 @@ func (c *kitexClient) Login(ctx context.Context, req *LoginRequest) (*LoginRespo
 		UserID:   resp.UserId,
 		Token:    "",
 		Username: resp.Username,
+		Role:     resp.Role,
 	}, nil
 }
 
@@ -122,6 +151,55 @@ func (c *kitexClient) Register(ctx context.Context, req *RegisterRequest) (*Regi
 		message = resp.Base.Message
 	}
 	return &RegisterResponse{
+		Code:    code,
+		Message: message,
+	}, nil
+}
+
+func (c *kitexClient) GetUser(ctx context.Context, req *GetUserRequest) (*GetUserResponse, error) {
+	resp, err := c.cli.GetUser(ctx, &user.UserGetRequest{UserId: req.UserID})
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilGetUserResponse
+	}
+
+	var code int32
+	var message string
+	if resp.Base != nil {
+		code = resp.Base.Code
+		message = resp.Base.Message
+	}
+	return &GetUserResponse{
+		Code:     code,
+		Message:  message,
+		UserID:   resp.UserId,
+		Username: resp.Username,
+		Role:     resp.Role,
+		IsLocked: resp.IsLocked,
+	}, nil
+}
+
+func (c *kitexClient) UpdateUserRole(ctx context.Context, req *UpdateUserRoleRequest) (*UpdateUserRoleResponse, error) {
+	resp, err := c.cli.UpdateUserRole(ctx, &user.UserUpdateRoleRequest{
+		UserId: req.UserID,
+		Role:   req.Role,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilUpdateRoleResponse
+	}
+
+	var code int32
+	var message string
+	if resp.Base != nil {
+		code = resp.Base.Code
+		message = resp.Base.Message
+	}
+	return &UpdateUserRoleResponse{
 		Code:    code,
 		Message: message,
 	}, nil

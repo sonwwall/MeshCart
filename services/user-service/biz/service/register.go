@@ -6,6 +6,7 @@ import (
 
 	"meshcart/app/common"
 	"meshcart/services/user-service/biz/errno"
+	bizmodel "meshcart/services/user-service/biz/model"
 	"meshcart/services/user-service/biz/repository"
 	dalmodel "meshcart/services/user-service/dal/model"
 
@@ -31,6 +32,14 @@ func (s *UserService) Register(ctx context.Context, username, password string) *
 		ID:       s.node.Generate().Int64(),
 		Username: username,
 		Password: string(hashedPassword),
+		Role:     bizmodel.RoleUser,
+	}
+	total, err := s.repo.Count(ctx)
+	if err != nil {
+		return common.ErrInternalError
+	}
+	if total == 0 {
+		newUser.Role = bizmodel.RoleSuperAdmin
 	}
 	if err := s.repo.Create(ctx, newUser); err != nil {
 		if err == repository.ErrUserAlreadyExists {

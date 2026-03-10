@@ -37,7 +37,7 @@ func (l *CreateLogic) Create(req *types.CreateProductRequest, identity *middlewa
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(common.ErrInvalidParam.Code)), attribute.String("biz.message", common.ErrInvalidParam.Msg))
 		return nil, common.ErrInvalidParam
 	}
-	if identity == nil || !l.svcCtx.AccessControl.Enforce(roleOf(l.svcCtx, identity), "product", authz.ActionCreate, 0, identity.UserID, req.Status) {
+	if identity == nil || !l.svcCtx.AccessControl.Enforce(roleOf(identity), "product", authz.ActionCreate, 0, identity.UserID, req.Status) {
 		return nil, common.ErrForbidden
 	}
 

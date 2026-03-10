@@ -55,7 +55,7 @@ func (l *DetailLogic) Get(productID int64, identity *middleware.AuthIdentity) (*
 		return nil, common.ErrNotFound
 	}
 	if product.GetStatus() != 2 {
-		if identity == nil || !l.svcCtx.AccessControl.Enforce(roleOf(l.svcCtx, identity), "product", authz.ActionReadPrivate, product.GetCreatorId(), identity.UserID, product.GetStatus()) {
+		if identity == nil || !l.svcCtx.AccessControl.Enforce(roleOf(identity), "product", authz.ActionReadPrivate, product.GetCreatorId(), identity.UserID, product.GetStatus()) {
 			return nil, common.ErrNotFound
 		}
 	}

@@ -49,7 +49,7 @@ func (l *UpdateLogic) Update(productID int64, req *types.UpdateProductRequest, i
 	if detailResp.Code != common.CodeOK || detailResp.Product == nil {
 		return common.NewBizError(detailResp.Code, detailResp.Message)
 	}
-	role := roleOf(l.svcCtx, identity)
+	role := roleOf(identity)
 	if !l.svcCtx.AccessControl.Enforce(role, "product", authz.ActionWriteOwn, detailResp.Product.GetCreatorId(), identity.UserID, detailResp.Product.GetStatus()) {
 		logx.L(ctx).Warn("product update forbidden",
 			zap.Int64("product_id", productID),

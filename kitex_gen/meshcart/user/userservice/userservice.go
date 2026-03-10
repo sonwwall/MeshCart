@@ -27,6 +27,20 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"getUser": kitex.NewMethodInfo(
+		getUserHandler,
+		newUserServiceGetUserArgs,
+		newUserServiceGetUserResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"updateUserRole": kitex.NewMethodInfo(
+		updateUserRoleHandler,
+		newUserServiceUpdateUserRoleArgs,
+		newUserServiceUpdateUserRoleResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -129,6 +143,42 @@ func newUserServiceRegisterResult() interface{} {
 	return user.NewUserServiceRegisterResult()
 }
 
+func getUserHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*user.UserServiceGetUserArgs)
+	realResult := result.(*user.UserServiceGetUserResult)
+	success, err := handler.(user.UserService).GetUser(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newUserServiceGetUserArgs() interface{} {
+	return user.NewUserServiceGetUserArgs()
+}
+
+func newUserServiceGetUserResult() interface{} {
+	return user.NewUserServiceGetUserResult()
+}
+
+func updateUserRoleHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*user.UserServiceUpdateUserRoleArgs)
+	realResult := result.(*user.UserServiceUpdateUserRoleResult)
+	success, err := handler.(user.UserService).UpdateUserRole(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newUserServiceUpdateUserRoleArgs() interface{} {
+	return user.NewUserServiceUpdateUserRoleArgs()
+}
+
+func newUserServiceUpdateUserRoleResult() interface{} {
+	return user.NewUserServiceUpdateUserRoleResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -154,6 +204,26 @@ func (p *kClient) Register(ctx context.Context, request *user.UserRegisterReques
 	_args.Request = request
 	var _result user.UserServiceRegisterResult
 	if err = p.c.Call(ctx, "register", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) GetUser(ctx context.Context, request *user.UserGetRequest) (r *user.UserGetResponse, err error) {
+	var _args user.UserServiceGetUserArgs
+	_args.Request = request
+	var _result user.UserServiceGetUserResult
+	if err = p.c.Call(ctx, "getUser", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) UpdateUserRole(ctx context.Context, request *user.UserUpdateRoleRequest) (r *user.UserUpdateRoleResponse, err error) {
+	var _args user.UserServiceUpdateUserRoleArgs
+	_args.Request = request
+	var _result user.UserServiceUpdateUserRoleResult
+	if err = p.c.Call(ctx, "updateUserRole", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

@@ -16,7 +16,11 @@ func TestLogin_UserNotFound(t *testing.T) {
 		getByUsernameFn: func(ctx context.Context, username string) (*dalmodel.User, error) {
 			return nil, repository.ErrUserNotFound
 		},
-		createFn: func(ctx context.Context, user *dalmodel.User) error { return nil },
+		getByIDFn:     func(ctx context.Context, userID int64) (*dalmodel.User, error) { return nil, nil },
+		countFn:       func(ctx context.Context) (int64, error) { return 0, nil },
+		countByRoleFn: func(ctx context.Context, role string) (int64, error) { return 0, nil },
+		createFn:      func(ctx context.Context, user *dalmodel.User) error { return nil },
+		updateRoleFn:  func(ctx context.Context, userID int64, role string) error { return nil },
 	})
 
 	result, bizErr := svc.Login(context.Background(), "tester", "123456")
@@ -32,9 +36,13 @@ func TestLogin_UserLocked(t *testing.T) {
 	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("123456"), bcrypt.DefaultCost)
 	svc := newTestUserService(t, &stubUserRepository{
 		getByUsernameFn: func(ctx context.Context, username string) (*dalmodel.User, error) {
-			return &dalmodel.User{ID: 1, Username: "tester", Password: string(hashedPassword), IsLocked: true}, nil
+			return &dalmodel.User{ID: 1, Username: "tester", Password: string(hashedPassword), Role: "user", IsLocked: true}, nil
 		},
-		createFn: func(ctx context.Context, user *dalmodel.User) error { return nil },
+		getByIDFn:     func(ctx context.Context, userID int64) (*dalmodel.User, error) { return nil, nil },
+		countFn:       func(ctx context.Context) (int64, error) { return 0, nil },
+		countByRoleFn: func(ctx context.Context, role string) (int64, error) { return 0, nil },
+		createFn:      func(ctx context.Context, user *dalmodel.User) error { return nil },
+		updateRoleFn:  func(ctx context.Context, userID int64, role string) error { return nil },
 	})
 
 	result, bizErr := svc.Login(context.Background(), "tester", "123456")
@@ -50,9 +58,13 @@ func TestLogin_PasswordInvalid(t *testing.T) {
 	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("123456"), bcrypt.DefaultCost)
 	svc := newTestUserService(t, &stubUserRepository{
 		getByUsernameFn: func(ctx context.Context, username string) (*dalmodel.User, error) {
-			return &dalmodel.User{ID: 1, Username: "tester", Password: string(hashedPassword)}, nil
+			return &dalmodel.User{ID: 1, Username: "tester", Password: string(hashedPassword), Role: "admin"}, nil
 		},
-		createFn: func(ctx context.Context, user *dalmodel.User) error { return nil },
+		getByIDFn:     func(ctx context.Context, userID int64) (*dalmodel.User, error) { return nil, nil },
+		countFn:       func(ctx context.Context) (int64, error) { return 0, nil },
+		countByRoleFn: func(ctx context.Context, role string) (int64, error) { return 0, nil },
+		createFn:      func(ctx context.Context, user *dalmodel.User) error { return nil },
+		updateRoleFn:  func(ctx context.Context, userID int64, role string) error { return nil },
 	})
 
 	result, bizErr := svc.Login(context.Background(), "tester", "wrong")
@@ -68,9 +80,13 @@ func TestLogin_Success(t *testing.T) {
 	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("123456"), bcrypt.DefaultCost)
 	svc := newTestUserService(t, &stubUserRepository{
 		getByUsernameFn: func(ctx context.Context, username string) (*dalmodel.User, error) {
-			return &dalmodel.User{ID: 99, Username: "tester", Password: string(hashedPassword)}, nil
+			return &dalmodel.User{ID: 99, Username: "tester", Password: string(hashedPassword), Role: "superadmin"}, nil
 		},
-		createFn: func(ctx context.Context, user *dalmodel.User) error { return nil },
+		getByIDFn:     func(ctx context.Context, userID int64) (*dalmodel.User, error) { return nil, nil },
+		countFn:       func(ctx context.Context) (int64, error) { return 0, nil },
+		countByRoleFn: func(ctx context.Context, role string) (int64, error) { return 0, nil },
+		createFn:      func(ctx context.Context, user *dalmodel.User) error { return nil },
+		updateRoleFn:  func(ctx context.Context, userID int64, role string) error { return nil },
 	})
 
 	result, bizErr := svc.Login(context.Background(), "tester", "123456")
@@ -79,5 +95,8 @@ func TestLogin_Success(t *testing.T) {
 	}
 	if result == nil || result.UserID != 99 || result.Username != "tester" {
 		t.Fatalf("unexpected login result: %+v", result)
+	}
+	if result.Role != "superadmin" {
+		t.Fatalf("expected role superadmin, got %s", result.Role)
 	}
 }

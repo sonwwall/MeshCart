@@ -8,6 +8,8 @@ const (
 	CodeUserLocked      int32 = 2010003
 	CodeUserExists      int32 = 2010004
 	CodePasswordIllegal int32 = 2010005
+	CodeRoleInvalid     int32 = 2010006
+	CodeLastSuperAdmin  int32 = 2010007
 )
 
 var (
@@ -16,4 +18,6 @@ var (
 	ErrUserLocked      = common.NewBizError(CodeUserLocked, "用户已被锁定")
 	ErrUserExists      = common.NewBizError(CodeUserExists, "用户名已存在")
 	ErrPasswordIllegal = common.NewBizError(CodePasswordIllegal, "密码格式不合法")
+	ErrRoleInvalid     = common.NewBizError(CodeRoleInvalid, "用户角色不合法")
+	ErrLastSuperAdmin  = common.NewBizError(CodeLastSuperAdmin, "至少保留一个 superadmin")
 )

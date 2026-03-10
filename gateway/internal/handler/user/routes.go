@@ -15,4 +15,8 @@ func RegisterRoutes(api *route.RouterGroup, svcCtx *svc.ServiceContext) {
 	authGroup := userGroup.Group("")
 	authGroup.Use(svcCtx.JWT.MiddlewareFunc())
 	authGroup.GET("/me", Me(svcCtx))
+
+	adminGroup := api.Group("/admin/users")
+	adminGroup.Use(svcCtx.JWT.MiddlewareFunc())
+	adminGroup.PUT("/:user_id/role", UpdateUserRole(svcCtx))
 }

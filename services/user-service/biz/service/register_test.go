@@ -16,7 +16,11 @@ import (
 func TestRegister_InvalidParam(t *testing.T) {
 	svc := newTestUserService(t, &stubUserRepository{
 		getByUsernameFn: func(ctx context.Context, username string) (*dalmodel.User, error) { return nil, nil },
+		getByIDFn:       func(ctx context.Context, userID int64) (*dalmodel.User, error) { return nil, nil },
+		countFn:         func(ctx context.Context) (int64, error) { return 0, nil },
+		countByRoleFn:   func(ctx context.Context, role string) (int64, error) { return 0, nil },
 		createFn:        func(ctx context.Context, user *dalmodel.User) error { return nil },
+		updateRoleFn:    func(ctx context.Context, userID int64, role string) error { return nil },
 	})
 
 	bizErr := svc.Register(context.Background(), " ", "")
@@ -28,7 +32,11 @@ func TestRegister_InvalidParam(t *testing.T) {
 func TestRegister_PasswordIllegal(t *testing.T) {
 	svc := newTestUserService(t, &stubUserRepository{
 		getByUsernameFn: func(ctx context.Context, username string) (*dalmodel.User, error) { return nil, nil },
+		getByIDFn:       func(ctx context.Context, userID int64) (*dalmodel.User, error) { return nil, nil },
+		countFn:         func(ctx context.Context) (int64, error) { return 0, nil },
+		countByRoleFn:   func(ctx context.Context, role string) (int64, error) { return 0, nil },
 		createFn:        func(ctx context.Context, user *dalmodel.User) error { return nil },
+		updateRoleFn:    func(ctx context.Context, userID int64, role string) error { return nil },
 	})
 
 	bizErr := svc.Register(context.Background(), "tester", "123")
@@ -40,9 +48,13 @@ func TestRegister_PasswordIllegal(t *testing.T) {
 func TestRegister_UserExists(t *testing.T) {
 	svc := newTestUserService(t, &stubUserRepository{
 		getByUsernameFn: func(ctx context.Context, username string) (*dalmodel.User, error) { return nil, nil },
+		getByIDFn:       func(ctx context.Context, userID int64) (*dalmodel.User, error) { return nil, nil },
+		countFn:         func(ctx context.Context) (int64, error) { return 1, nil },
+		countByRoleFn:   func(ctx context.Context, role string) (int64, error) { return 0, nil },
 		createFn: func(ctx context.Context, user *dalmodel.User) error {
 			return repository.ErrUserAlreadyExists
 		},
+		updateRoleFn: func(ctx context.Context, userID int64, role string) error { return nil },
 	})
 
 	bizErr := svc.Register(context.Background(), "tester", "123456")
@@ -54,9 +66,13 @@ func TestRegister_UserExists(t *testing.T) {
 func TestRegister_InternalError(t *testing.T) {
 	svc := newTestUserService(t, &stubUserRepository{
 		getByUsernameFn: func(ctx context.Context, username string) (*dalmodel.User, error) { return nil, nil },
+		getByIDFn:       func(ctx context.Context, userID int64) (*dalmodel.User, error) { return nil, nil },
+		countFn:         func(ctx context.Context) (int64, error) { return 1, nil },
+		countByRoleFn:   func(ctx context.Context, role string) (int64, error) { return 0, nil },
 		createFn: func(ctx context.Context, user *dalmodel.User) error {
 			return errors.New("db failed")
 		},
+		updateRoleFn: func(ctx context.Context, userID int64, role string) error { return nil },
 	})
 
 	bizErr := svc.Register(context.Background(), "tester", "123456")
@@ -69,10 +85,14 @@ func TestRegister_Success(t *testing.T) {
 	var created *dalmodel.User
 	svc := newTestUserService(t, &stubUserRepository{
 		getByUsernameFn: func(ctx context.Context, username string) (*dalmodel.User, error) { return nil, nil },
+		getByIDFn:       func(ctx context.Context, userID int64) (*dalmodel.User, error) { return nil, nil },
+		countFn:         func(ctx context.Context) (int64, error) { return 1, nil },
+		countByRoleFn:   func(ctx context.Context, role string) (int64, error) { return 0, nil },
 		createFn: func(ctx context.Context, user *dalmodel.User) error {
 			created = user
 			return nil
 		},
+		updateRoleFn: func(ctx context.Context, userID int64, role string) error { return nil },
 	})
 
 	bizErr := svc.Register(context.Background(), "tester", "123456")
@@ -88,10 +108,36 @@ func TestRegister_Success(t *testing.T) {
 	if created.Username != "tester" {
 		t.Fatalf("expected username tester, got %s", created.Username)
 	}
+	if created.Role != "user" {
+		t.Fatalf("expected role user, got %s", created.Role)
+	}
 	if created.Password == "123456" {
 		t.Fatal("expected hashed password")
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(created.Password), []byte("123456")); err != nil {
 		t.Fatalf("expected valid bcrypt password, got %v", err)
+	}
+}
+
+func TestRegister_FirstUserBecomesSuperAdmin(t *testing.T) {
+	var created *dalmodel.User
+	svc := newTestUserService(t, &stubUserRepository{
+		getByUsernameFn: func(ctx context.Context, username string) (*dalmodel.User, error) { return nil, nil },
+		getByIDFn:       func(ctx context.Context, userID int64) (*dalmodel.User, error) { return nil, nil },
+		countFn:         func(ctx context.Context) (int64, error) { return 0, nil },
+		countByRoleFn:   func(ctx context.Context, role string) (int64, error) { return 0, nil },
+		createFn: func(ctx context.Context, user *dalmodel.User) error {
+			created = user
+			return nil
+		},
+		updateRoleFn: func(ctx context.Context, userID int64, role string) error { return nil },
+	})
+
+	bizErr := svc.Register(context.Background(), "founder", "123456")
+	if bizErr != nil {
+		t.Fatalf("expected nil bizErr, got %+v", bizErr)
+	}
+	if created == nil || created.Role != "superadmin" {
+		t.Fatalf("expected first user to be superadmin, got %+v", created)
 	}
 }

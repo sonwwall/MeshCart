@@ -30,5 +30,6 @@ func (s *UserService) Login(ctx context.Context, username, password string) (*dt
 	return &dto.LoginResult{
 		UserID:   user.ID,
 		Username: user.Username,
+		Role:     user.Role,
 	}, nil
 }

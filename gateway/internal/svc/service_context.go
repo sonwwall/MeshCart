@@ -44,7 +44,7 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		panic(err)
 	}
 
-	accessController, err := authz.NewAccessController(cfg.Admin)
+	accessController, err := authz.NewAccessController()
 	if err != nil {
 		panic(err)
 	}

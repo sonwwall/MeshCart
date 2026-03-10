@@ -5,14 +5,13 @@ import (
 
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
-
-	"meshcart/gateway/config"
 )
 
 const (
-	RoleGuest = "guest"
-	RoleUser  = "user"
-	RoleAdmin = "admin"
+	RoleGuest      = "guest"
+	RoleUser       = "user"
+	RoleAdmin      = "admin"
+	RoleSuperAdmin = "superadmin"
 )
 
 const (
@@ -20,14 +19,14 @@ const (
 	ActionReadPrivate = "read_private"
 	ActionWriteOwn    = "write_own"
 	ActionCreate      = "create"
+	ActionManageRole  = "manage_role"
 )
 
 type AccessController struct {
-	enforcer     *casbin.Enforcer
-	adminUserIDs map[int64]struct{}
+	enforcer *casbin.Enforcer
 }
 
-func NewAccessController(cfg config.AdminConfig) (*AccessController, error) {
+func NewAccessController() (*AccessController, error) {
 	m, err := model.NewModelFromString(strings.TrimSpace(`
 [request_definition]
 r = sub, obj, act, owner, uid, status
@@ -39,7 +38,7 @@ p = sub, obj, act
 e = some(where (p.eft == allow))
 
 [matchers]
-m = r.sub == p.sub && r.obj == p.obj && r.act == p.act && ((r.act == "read_online" && r.status == 2) || (r.act == "read_private" && r.owner == r.uid) || (r.act == "write_own" && r.owner == r.uid) || r.act == "create")
+m = r.sub == p.sub && r.obj == p.obj && r.act == p.act && ((r.act == "read_online" && r.status == 2) || (r.act == "read_private" && (r.sub == "superadmin" || r.owner == r.uid)) || (r.act == "write_own" && (r.sub == "superadmin" || r.owner == r.uid)) || r.act == "create" || r.act == "manage_role")
 `))
 	if err != nil {
 		return nil, err
@@ -57,38 +56,19 @@ m = r.sub == p.sub && r.obj == p.obj && r.act == p.act && ((r.act == "read_onlin
 		{RoleAdmin, "product", ActionReadPrivate},
 		{RoleAdmin, "product", ActionWriteOwn},
 		{RoleAdmin, "product", ActionCreate},
+		{RoleSuperAdmin, "product", ActionReadOnline},
+		{RoleSuperAdmin, "product", ActionReadPrivate},
+		{RoleSuperAdmin, "product", ActionWriteOwn},
+		{RoleSuperAdmin, "product", ActionCreate},
+		{RoleSuperAdmin, "user", ActionManageRole},
 	}
 	for _, policy := range policies {
 		_, _ = e.AddPolicy(policy)
 	}
 
-	adminUserIDs := make(map[int64]struct{}, len(cfg.UserIDs))
-	for _, id := range cfg.UserIDs {
-		adminUserIDs[id] = struct{}{}
-	}
-
 	return &AccessController{
-		enforcer:     e,
-		adminUserIDs: adminUserIDs,
+		enforcer: e,
 	}, nil
-}
-
-func (a *AccessController) RoleForUser(userID int64) string {
-	if a == nil {
-		return RoleUser
-	}
-	if _, ok := a.adminUserIDs[userID]; ok {
-		return RoleAdmin
-	}
-	return RoleUser
-}
-
-func (a *AccessController) IsAdmin(userID int64) bool {
-	if a == nil {
-		return false
-	}
-	_, ok := a.adminUserIDs[userID]
-	return ok
 }
 
 func (a *AccessController) Enforce(role, object, action string, ownerID, userID int64, status int32) bool {

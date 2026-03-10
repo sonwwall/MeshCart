@@ -49,6 +49,7 @@ var fieldIDToName_UserLoginRequest = map[int16]string{
 type UserLoginResponse struct {
 	UserId   int64              `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
 	Username string             `thrift:"username,2" frugal:"2,default,string" json:"username"`
+	Role     string             `thrift:"role,3" frugal:"3,default,string" json:"role"`
 	Base     *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
 }
 
@@ -67,6 +68,10 @@ func (p *UserLoginResponse) GetUsername() (v string) {
 	return p.Username
 }
 
+func (p *UserLoginResponse) GetRole() (v string) {
+	return p.Role
+}
+
 var UserLoginResponse_Base_DEFAULT *base.BaseResponse
 
 func (p *UserLoginResponse) GetBase() (v *base.BaseResponse) {
@@ -80,6 +85,9 @@ func (p *UserLoginResponse) SetUserId(val int64) {
 }
 func (p *UserLoginResponse) SetUsername(val string) {
 	p.Username = val
+}
+func (p *UserLoginResponse) SetRole(val string) {
+	p.Role = val
 }
 func (p *UserLoginResponse) SetBase(val *base.BaseResponse) {
 	p.Base = val
@@ -99,6 +107,7 @@ func (p *UserLoginResponse) String() string {
 var fieldIDToName_UserLoginResponse = map[int16]string{
 	1:   "user_id",
 	2:   "username",
+	3:   "role",
 	255: "base",
 }
 
@@ -178,10 +187,193 @@ var fieldIDToName_UserRegisterResponse = map[int16]string{
 	255: "base",
 }
 
+type UserGetRequest struct {
+	UserId int64 `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
+}
+
+func NewUserGetRequest() *UserGetRequest {
+	return &UserGetRequest{}
+}
+
+func (p *UserGetRequest) InitDefault() {
+}
+
+func (p *UserGetRequest) GetUserId() (v int64) {
+	return p.UserId
+}
+func (p *UserGetRequest) SetUserId(val int64) {
+	p.UserId = val
+}
+
+func (p *UserGetRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserGetRequest(%+v)", *p)
+}
+
+var fieldIDToName_UserGetRequest = map[int16]string{
+	1: "user_id",
+}
+
+type UserGetResponse struct {
+	UserId   int64              `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
+	Username string             `thrift:"username,2" frugal:"2,default,string" json:"username"`
+	Role     string             `thrift:"role,3" frugal:"3,default,string" json:"role"`
+	IsLocked bool               `thrift:"is_locked,4" frugal:"4,default,bool" json:"is_locked"`
+	Base     *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+}
+
+func NewUserGetResponse() *UserGetResponse {
+	return &UserGetResponse{}
+}
+
+func (p *UserGetResponse) InitDefault() {
+}
+
+func (p *UserGetResponse) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *UserGetResponse) GetUsername() (v string) {
+	return p.Username
+}
+
+func (p *UserGetResponse) GetRole() (v string) {
+	return p.Role
+}
+
+func (p *UserGetResponse) GetIsLocked() (v bool) {
+	return p.IsLocked
+}
+
+var UserGetResponse_Base_DEFAULT *base.BaseResponse
+
+func (p *UserGetResponse) GetBase() (v *base.BaseResponse) {
+	if !p.IsSetBase() {
+		return UserGetResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+func (p *UserGetResponse) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *UserGetResponse) SetUsername(val string) {
+	p.Username = val
+}
+func (p *UserGetResponse) SetRole(val string) {
+	p.Role = val
+}
+func (p *UserGetResponse) SetIsLocked(val bool) {
+	p.IsLocked = val
+}
+func (p *UserGetResponse) SetBase(val *base.BaseResponse) {
+	p.Base = val
+}
+
+func (p *UserGetResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *UserGetResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserGetResponse(%+v)", *p)
+}
+
+var fieldIDToName_UserGetResponse = map[int16]string{
+	1:   "user_id",
+	2:   "username",
+	3:   "role",
+	4:   "is_locked",
+	255: "base",
+}
+
+type UserUpdateRoleRequest struct {
+	UserId int64  `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
+	Role   string `thrift:"role,2" frugal:"2,default,string" json:"role"`
+}
+
+func NewUserUpdateRoleRequest() *UserUpdateRoleRequest {
+	return &UserUpdateRoleRequest{}
+}
+
+func (p *UserUpdateRoleRequest) InitDefault() {
+}
+
+func (p *UserUpdateRoleRequest) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *UserUpdateRoleRequest) GetRole() (v string) {
+	return p.Role
+}
+func (p *UserUpdateRoleRequest) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *UserUpdateRoleRequest) SetRole(val string) {
+	p.Role = val
+}
+
+func (p *UserUpdateRoleRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserUpdateRoleRequest(%+v)", *p)
+}
+
+var fieldIDToName_UserUpdateRoleRequest = map[int16]string{
+	1: "user_id",
+	2: "role",
+}
+
+type UserUpdateRoleResponse struct {
+	Base *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+}
+
+func NewUserUpdateRoleResponse() *UserUpdateRoleResponse {
+	return &UserUpdateRoleResponse{}
+}
+
+func (p *UserUpdateRoleResponse) InitDefault() {
+}
+
+var UserUpdateRoleResponse_Base_DEFAULT *base.BaseResponse
+
+func (p *UserUpdateRoleResponse) GetBase() (v *base.BaseResponse) {
+	if !p.IsSetBase() {
+		return UserUpdateRoleResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+func (p *UserUpdateRoleResponse) SetBase(val *base.BaseResponse) {
+	p.Base = val
+}
+
+func (p *UserUpdateRoleResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *UserUpdateRoleResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserUpdateRoleResponse(%+v)", *p)
+}
+
+var fieldIDToName_UserUpdateRoleResponse = map[int16]string{
+	255: "base",
+}
+
 type UserService interface {
 	Login(ctx context.Context, request *UserLoginRequest) (r *UserLoginResponse, err error)
 
 	Register(ctx context.Context, request *UserRegisterRequest) (r *UserRegisterResponse, err error)
+
+	GetUser(ctx context.Context, request *UserGetRequest) (r *UserGetResponse, err error)
+
+	UpdateUserRole(ctx context.Context, request *UserUpdateRoleRequest) (r *UserUpdateRoleResponse, err error)
 }
 
 type UserServiceLoginArgs struct {
@@ -333,5 +525,157 @@ func (p *UserServiceRegisterResult) String() string {
 }
 
 var fieldIDToName_UserServiceRegisterResult = map[int16]string{
+	0: "success",
+}
+
+type UserServiceGetUserArgs struct {
+	Request *UserGetRequest `thrift:"request,1" frugal:"1,default,UserGetRequest" json:"request"`
+}
+
+func NewUserServiceGetUserArgs() *UserServiceGetUserArgs {
+	return &UserServiceGetUserArgs{}
+}
+
+func (p *UserServiceGetUserArgs) InitDefault() {
+}
+
+var UserServiceGetUserArgs_Request_DEFAULT *UserGetRequest
+
+func (p *UserServiceGetUserArgs) GetRequest() (v *UserGetRequest) {
+	if !p.IsSetRequest() {
+		return UserServiceGetUserArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *UserServiceGetUserArgs) SetRequest(val *UserGetRequest) {
+	p.Request = val
+}
+
+func (p *UserServiceGetUserArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *UserServiceGetUserArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserServiceGetUserArgs(%+v)", *p)
+}
+
+var fieldIDToName_UserServiceGetUserArgs = map[int16]string{
+	1: "request",
+}
+
+type UserServiceGetUserResult struct {
+	Success *UserGetResponse `thrift:"success,0,optional" frugal:"0,optional,UserGetResponse" json:"success,omitempty"`
+}
+
+func NewUserServiceGetUserResult() *UserServiceGetUserResult {
+	return &UserServiceGetUserResult{}
+}
+
+func (p *UserServiceGetUserResult) InitDefault() {
+}
+
+var UserServiceGetUserResult_Success_DEFAULT *UserGetResponse
+
+func (p *UserServiceGetUserResult) GetSuccess() (v *UserGetResponse) {
+	if !p.IsSetSuccess() {
+		return UserServiceGetUserResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *UserServiceGetUserResult) SetSuccess(x interface{}) {
+	p.Success = x.(*UserGetResponse)
+}
+
+func (p *UserServiceGetUserResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *UserServiceGetUserResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserServiceGetUserResult(%+v)", *p)
+}
+
+var fieldIDToName_UserServiceGetUserResult = map[int16]string{
+	0: "success",
+}
+
+type UserServiceUpdateUserRoleArgs struct {
+	Request *UserUpdateRoleRequest `thrift:"request,1" frugal:"1,default,UserUpdateRoleRequest" json:"request"`
+}
+
+func NewUserServiceUpdateUserRoleArgs() *UserServiceUpdateUserRoleArgs {
+	return &UserServiceUpdateUserRoleArgs{}
+}
+
+func (p *UserServiceUpdateUserRoleArgs) InitDefault() {
+}
+
+var UserServiceUpdateUserRoleArgs_Request_DEFAULT *UserUpdateRoleRequest
+
+func (p *UserServiceUpdateUserRoleArgs) GetRequest() (v *UserUpdateRoleRequest) {
+	if !p.IsSetRequest() {
+		return UserServiceUpdateUserRoleArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *UserServiceUpdateUserRoleArgs) SetRequest(val *UserUpdateRoleRequest) {
+	p.Request = val
+}
+
+func (p *UserServiceUpdateUserRoleArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *UserServiceUpdateUserRoleArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserServiceUpdateUserRoleArgs(%+v)", *p)
+}
+
+var fieldIDToName_UserServiceUpdateUserRoleArgs = map[int16]string{
+	1: "request",
+}
+
+type UserServiceUpdateUserRoleResult struct {
+	Success *UserUpdateRoleResponse `thrift:"success,0,optional" frugal:"0,optional,UserUpdateRoleResponse" json:"success,omitempty"`
+}
+
+func NewUserServiceUpdateUserRoleResult() *UserServiceUpdateUserRoleResult {
+	return &UserServiceUpdateUserRoleResult{}
+}
+
+func (p *UserServiceUpdateUserRoleResult) InitDefault() {
+}
+
+var UserServiceUpdateUserRoleResult_Success_DEFAULT *UserUpdateRoleResponse
+
+func (p *UserServiceUpdateUserRoleResult) GetSuccess() (v *UserUpdateRoleResponse) {
+	if !p.IsSetSuccess() {
+		return UserServiceUpdateUserRoleResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *UserServiceUpdateUserRoleResult) SetSuccess(x interface{}) {
+	p.Success = x.(*UserUpdateRoleResponse)
+}
+
+func (p *UserServiceUpdateUserRoleResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *UserServiceUpdateUserRoleResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserServiceUpdateUserRoleResult(%+v)", *p)
+}
+
+var fieldIDToName_UserServiceUpdateUserRoleResult = map[int16]string{
 	0: "success",
 }
