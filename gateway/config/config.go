@@ -38,7 +38,11 @@ type MetricsConfig struct {
 }
 
 type ServerConfig struct {
-	Addr string
+	Addr           string
+	ReadTimeout    time.Duration
+	WriteTimeout   time.Duration
+	IdleTimeout    time.Duration
+	RequestTimeout time.Duration
 }
 
 type UserRPCConfig struct {
@@ -85,7 +89,11 @@ func Load() Config {
 			Path: getEnv("GATEWAY_PROM_PATH", "/metrics"),
 		},
 		Server: ServerConfig{
-			Addr: getEnv("GATEWAY_ADDR", ":8080"),
+			Addr:           getEnv("GATEWAY_ADDR", ":8080"),
+			ReadTimeout:    getEnvAsDuration("GATEWAY_READ_TIMEOUT_MS", 5*time.Second),
+			WriteTimeout:   getEnvAsDuration("GATEWAY_WRITE_TIMEOUT_MS", 5*time.Second),
+			IdleTimeout:    getEnvAsDuration("GATEWAY_IDLE_TIMEOUT_MS", 60*time.Second),
+			RequestTimeout: getEnvAsDuration("GATEWAY_REQUEST_TIMEOUT_MS", 3*time.Second),
 		},
 		UserRPC: UserRPCConfig{
 			ServiceName:    getEnv("USER_RPC_SERVICE", "meshcart.user"),

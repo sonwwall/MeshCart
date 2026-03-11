@@ -86,7 +86,7 @@ gateway/
 - `Log`：日志级别、日志目录
 - `Telemetry`：OTLP 上报地址、是否 insecure
 - `Metrics`：metrics 暴露地址与路径
-- `Server`：网关 HTTP 监听地址
+- `Server`：网关 HTTP 监听地址、HTTP 入口 timeout 与 request timeout
 - `UserRPC`：下游用户服务连接与服务发现
 - `JWT`：登录态签发与刷新配置
 
@@ -220,6 +220,10 @@ gateway/
 - `GATEWAY_PROM_ADDR`：Gateway metrics 暴露地址，默认 `:9092`
 - `GATEWAY_PROM_PATH`：Gateway metrics 路径，默认 `/metrics`
 - `GATEWAY_ADDR`：网关监听地址
+- `GATEWAY_READ_TIMEOUT_MS`：网关 HTTP 读超时，默认 `5000ms`
+- `GATEWAY_WRITE_TIMEOUT_MS`：网关 HTTP 写超时，默认 `5000ms`
+- `GATEWAY_IDLE_TIMEOUT_MS`：网关 HTTP 空闲连接超时，默认 `60000ms`
+- `GATEWAY_REQUEST_TIMEOUT_MS`：网关 request-level 总超时，默认 `3000ms`
 - `USER_RPC_SERVICE`：用户服务名
 - `USER_RPC_ADDR`：用户服务地址
 - `USER_RPC_DISCOVERY`：下游服务发现模式
@@ -236,7 +240,11 @@ gateway/
 补充说明：
 
 - 当前网关已经把下游 RPC connect timeout 与 rpc timeout 收口到 `config.Config`
-- HTTP 入口超时暂未在 Hertz 启动层显式配置，后续可继续补齐
+- 当前网关已经把 HTTP 入口 read/write/idle timeout 收口到 `config.Config`
+- 当前网关已经增加 request timeout middleware，把整体请求预算下发到 `handler -> logic -> rpc` 链路
+- HTTP read/write timeout 主要作用于 Hertz 的连接与 I/O 层，不完全等于整个 handler 执行超时
+- 当前已验证的 HTTP 请求读取超时场景，会由 Hertz 直接返回框架级 `400 Bad Request`，而不是走业务统一 JSON 响应
+- request timeout middleware 是协作式超时控制：下游逻辑若尊重 `ctx.Done()`，超时后会统一返回“服务繁忙，请稍后重试”；若代码完全不理会 `ctx`，则不会被强制打断
 
 启动关系：
 

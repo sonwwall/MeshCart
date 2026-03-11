@@ -4,6 +4,7 @@ import (
 	logx "meshcart/app/log"
 	"meshcart/gateway/config"
 	"meshcart/gateway/internal/handler"
+	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -18,10 +19,16 @@ func NewGatewayServer(cfg config.Config, svcCtx *svc.ServiceContext) *server.Her
 
 	h := server.Default(
 		server.WithHostPorts(cfg.Server.Addr),
+		server.WithReadTimeout(cfg.Server.ReadTimeout),
+		server.WithWriteTimeout(cfg.Server.WriteTimeout),
+		server.WithIdleTimeout(cfg.Server.IdleTimeout),
 		serverTracer,
 		server.WithTracer(promTracer),
 	)
-	h.Use(hztrace.ServerMiddleware(traceCfg))
+	h.Use(
+		hztrace.ServerMiddleware(traceCfg),
+		middleware.RequestTimeout(cfg.Server.RequestTimeout),
+	)
 	handler.Register(h, svcCtx)
 	return h
 }
