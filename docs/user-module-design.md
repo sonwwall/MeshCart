@@ -2,10 +2,13 @@
 
 ## 1. 模块目标
 
-`user` 模块当前实现两个基础能力：
+`user` 模块当前实现以下能力：
 
 - `login`
 - `register`
+- `me`
+- `refresh_token`
+- `update user role`
 
 模块拆分遵循现有项目分层：
 
@@ -67,9 +70,25 @@
 - `password` 不能为空
 - `password` 长度至少 6 位
 - 用户名重复时返回 `用户名已存在`
+- 全新空库场景下，首个注册用户自动成为 `superadmin`
 - 成功时写入新用户记录并返回统一成功响应
 
-## 4. 用户 ID 设计
+## 4. 角色设计
+
+当前用户角色保存在 `users.role` 字段，支持：
+
+- `user`
+- `admin`
+- `superadmin`
+
+当前落地规则：
+
+- 全新空库场景下，首个注册用户自动成为 `superadmin`
+- 已有库迁移时，migration 会把最早创建的用户提升为初始 `superadmin`
+- 登录成功后，`user-service` 返回当前角色，`gateway` 将其写入 JWT claims
+- 角色变更后，旧 token 不会自动失效；需要重新登录或刷新 token 才能拿到新角色
+
+## 5. 用户 ID 设计
 
 - ID 生成库：`github.com/bwmarrin/snowflake`
 - 生成位置：`user-service` 业务层
@@ -81,7 +100,7 @@
 - 便于后续多节点部署
 - 便于在注册写库前直接拿到唯一用户 ID
 
-## 5. 密码设计
+## 6. 密码设计
 
 - 密码算法：`bcrypt`
 - 注册时：明文密码 -> `bcrypt` 哈希 -> 存库
@@ -92,15 +111,15 @@
 - 避免明文密码存储
 - 降低数据库泄露时的直接风险
 
-## 6. 可观测性设计
+## 7. 可观测性设计
 
-`login` 和 `register` 都接入了现有可观测性体系：
+`login`、`register`、`getUser`、`updateUserRole` 都接入了现有可观测性体系：
 
 - 日志：统一使用 `log.L(ctx)`
 - 链路：gateway logic 补 internal span，HTTP/RPC span 由框架插件自动生成
 - 业务属性：
   - `biz.module=user`
-  - `biz.action=login/register`
+  - `biz.action=login/register/update_role`
   - `biz.success`
   - `biz.code`
   - `biz.message`
@@ -109,14 +128,32 @@
 
 - 技术错误标记为 trace error
 - 业务失败不标红，只记录业务属性
+- `user-service` 业务层会记录底层技术错误，例如密码哈希失败、查库失败、写库失败，RPC 对外仍返回统一业务错误码
 
-## 7. 接口文档
+## 8. 数据迁移说明
 
-## 7.1 用户注册
+当前用户域 migration 目录：
+
+- `services/user-service/migrations`
+
+当前角色迁移依赖多语句 SQL：
+
+- 给 `users` 表增加 `role` 列
+- 回填初始 `superadmin`
+
+实现说明：
+
+- `user-service` 启动时自动执行 migration
+- migration 连接已单独开启 MySQL `multiStatements`
+- 如果某次 migration 中途失败，不要只把 `dirty` 清零；需要同时核对 `schema_migrations.version` 与真实表结构是否一致
+
+## 9. 接口文档
+
+## 9.1 用户注册
 
 - 方法：`POST`
 - 路径：`/api/v1/user/register`
-- Content-Type：`application/json`
+- Content-Type：`application/json`、`application/x-www-form-urlencoded`、`multipart/form-data`
 
 请求体：
 
@@ -159,11 +196,15 @@
 - `2010005`：密码格式不合法
 - `1009999`：系统内部错误
 
-## 7.2 用户登录
+说明：
+
+- 当前通过 Hertz `BindAndValidate` 同时支持 JSON 与表单提交
+
+## 9.2 用户登录
 
 - 方法：`POST`
 - 路径：`/api/v1/user/login`
-- Content-Type：`application/json`
+- Content-Type：`application/json`、`application/x-www-form-urlencoded`、`multipart/form-data`
 
 请求体：
 
@@ -188,7 +229,8 @@
   "data": {
     "user_id": 123456789012345678,
     "token": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "username": "test_user"
+    "username": "test_user",
+    "role": "user"
   },
   "trace_id": "8f2d3f..."
 }
@@ -198,6 +240,7 @@
 
 - 登录成功后由 `gateway` 使用 Hertz JWT 中间件签发访问令牌
 - `user_id` 由 `user-service` 登录成功后返回真实用户 ID
+- `role` 来自 `user-service` 返回结果，并写入 JWT claims
 - 后续受保护接口通过 `Authorization: Bearer <token>` 携带登录态
 
 失败响应示例：
@@ -218,9 +261,9 @@
 - `2010003`：用户已被锁定
 - `1009999`：系统内部错误
 
-## 7.3 当前登录态接口
+## 9.3 当前登录态接口
 
-### 7.3 获取当前用户信息
+### 9.3.1 获取当前用户信息
 
 - 方法：`GET`
 - 路径：`/api/v1/user/me`
@@ -234,7 +277,8 @@
   "message": "成功",
   "data": {
     "user_id": 123456789012345678,
-    "username": "test_user"
+    "username": "test_user",
+    "role": "user"
   },
   "trace_id": "8f2d3f..."
 }
@@ -254,8 +298,9 @@
 
 - 该接口由网关 JWT 中间件保护
 - 返回值来自当前 token 中的 claims 解析结果
+- 当前返回字段包含 `user_id`、`username`、`role`
 
-### 7.4 刷新访问令牌
+### 9.3.2 刷新访问令牌
 
 - 方法：`GET`
 - 路径：`/api/v1/user/refresh_token`
@@ -289,3 +334,72 @@
 
 - 该接口用于基于当前有效 token 刷新访问令牌
 - 返回的 `token` 已带 `Bearer ` 前缀，可直接写回 `Authorization` 头
+
+## 9.4 Superadmin 角色管理接口
+
+### 9.4.1 修改用户角色
+
+- 方法：`PUT`
+- 路径：`/api/v1/admin/users/:user_id/role`
+- Content-Type：`application/json`、`application/x-www-form-urlencoded`、`multipart/form-data`
+- 鉴权：需要在 Header 中携带 `Authorization: Bearer <token>`
+- 权限：仅 `superadmin` 可访问
+
+路径参数：
+
+- `user_id`：目标用户 ID，必填，必须大于 0
+
+请求体：
+
+```json
+{
+  "role": "admin"
+}
+```
+
+请求字段：
+
+- `role`：目标角色，必填
+
+当前支持角色：
+
+- `user`
+- `admin`
+- `superadmin`
+
+成功响应：
+
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "trace_id": "8f2d3f..."
+}
+```
+
+失败响应示例：
+
+```json
+{
+  "code": 1000003,
+  "message": "无权限访问",
+  "trace_id": "8f2d3f..."
+}
+```
+
+可能返回的错误码：
+
+- `1000001`：请求参数错误
+- `1000002`：未登录或登录已过期
+- `1000003`：无权限访问
+- `2010001`：用户不存在
+- `2010006`：用户角色不合法
+- `2010007`：至少保留一个 superadmin
+- `1009999`：系统内部错误
+
+说明：
+
+- 网关会先根据 JWT claims 中的 `role` 做 Casbin 鉴权，只有 `superadmin` 可以发起角色修改
+- 角色修改由 `user-service` 执行，并校验目标用户是否存在、目标角色是否合法
+- 不允许把系统中的最后一个 `superadmin` 降级，避免平台失去最高治理权限
+- 角色变更不会自动改写已签发的旧 token；目标用户需要重新登录或刷新 token 后才会拿到新角色

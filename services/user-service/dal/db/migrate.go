@@ -4,16 +4,21 @@ import (
 	"database/sql"
 	"errors"
 
-	_ "github.com/go-sql-driver/mysql"
+	mysql "github.com/go-sql-driver/mysql"
 	"github.com/golang-migrate/migrate/v4"
 	migratemysql "github.com/golang-migrate/migrate/v4/database/mysql"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
 func RunMigrations(dsn, sourceURL string) error {
+	migrationDSN, err := withMySQLMultiStatements(dsn)
+	if err != nil {
+		return err
+	}
+
 	// Use an isolated DB connection for migrations, so closing migrate resources
 	// does not affect GORM business connections.
-	sqlDB, err := sql.Open("mysql", dsn)
+	sqlDB, err := sql.Open("mysql", migrationDSN)
 	if err != nil {
 		return err
 	}
@@ -38,4 +43,13 @@ func RunMigrations(dsn, sourceURL string) error {
 		return err
 	}
 	return nil
+}
+
+func withMySQLMultiStatements(dsn string) (string, error) {
+	cfg, err := mysql.ParseDSN(dsn)
+	if err != nil {
+		return "", err
+	}
+	cfg.MultiStatements = true
+	return cfg.FormatDSN(), nil
 }

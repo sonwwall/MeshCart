@@ -1,13 +1,13 @@
 package types
 
 type UserLoginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username string `json:"username" form:"username"`
+	Password string `json:"password" form:"password"`
 }
 
 type UserRegisterRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username string `json:"username" form:"username"`
+	Password string `json:"password" form:"password"`
 }
 
 type UserLoginData struct {
@@ -18,5 +18,5 @@ type UserLoginData struct {
 }
 
 type UpdateUserRoleRequest struct {
-	Role string `json:"role"`
+	Role string `json:"role" form:"role"`
 }

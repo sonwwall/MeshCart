@@ -5,9 +5,12 @@ import (
 	"strings"
 
 	"meshcart/app/common"
+	logx "meshcart/app/log"
 	"meshcart/services/user-service/biz/errno"
 	bizmodel "meshcart/services/user-service/biz/model"
 	"meshcart/services/user-service/biz/repository"
+
+	"go.uber.org/zap"
 )
 
 func (s *UserService) UpdateUserRole(ctx context.Context, userID int64, role string) *common.BizError {
@@ -25,12 +28,14 @@ func (s *UserService) UpdateUserRole(ctx context.Context, userID int64, role str
 		if err == repository.ErrUserNotFound {
 			return errno.ErrUserNotFound
 		}
+		logx.L(ctx).Error("get target user failed before update role", zap.Int64("user_id", userID), zap.Error(err))
 		return common.ErrInternalError
 	}
 
 	if user.Role == bizmodel.RoleSuperAdmin && role != bizmodel.RoleSuperAdmin {
 		total, err := s.repo.CountByRole(ctx, bizmodel.RoleSuperAdmin)
 		if err != nil {
+			logx.L(ctx).Error("count superadmin users failed", zap.Error(err))
 			return common.ErrInternalError
 		}
 		if total <= 1 {
@@ -42,6 +47,11 @@ func (s *UserService) UpdateUserRole(ctx context.Context, userID int64, role str
 		if err == repository.ErrUserNotFound {
 			return errno.ErrUserNotFound
 		}
+		logx.L(ctx).Error("update user role failed",
+			zap.Int64("user_id", userID),
+			zap.String("role", role),
+			zap.Error(err),
+		)
 		return common.ErrInternalError
 	}
 	return nil

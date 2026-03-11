@@ -4,11 +4,13 @@ import (
 	"context"
 
 	"meshcart/app/common"
+	logx "meshcart/app/log"
 	"meshcart/services/user-service/biz/dto"
 	"meshcart/services/user-service/biz/errno"
 	"meshcart/services/user-service/biz/repository"
 
 	"golang.org/x/crypto/bcrypt"
+	"go.uber.org/zap"
 )
 
 func (s *UserService) Login(ctx context.Context, username, password string) (*dto.LoginResult, *common.BizError) {
@@ -17,6 +19,7 @@ func (s *UserService) Login(ctx context.Context, username, password string) (*dt
 		if err == repository.ErrUserNotFound {
 			return nil, errno.ErrUserNotFound
 		}
+		logx.L(ctx).Error("get user by username failed", zap.String("username", username), zap.Error(err))
 		return nil, common.ErrInternalError
 	}
 
