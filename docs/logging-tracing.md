@@ -64,7 +64,7 @@
   - `gateway/rpc/user/client.go`
 - User Service
   - `services/user-service/rpc/main.go`
-  - `services/user-service/rpc/handler.go`
+  - `services/user-service/rpc/handler/`
 
 ## 4. 设计说明
 
@@ -561,7 +561,7 @@ User-service 调用函数：`otelprovider.NewOpenTelemetryProvider(...)`（`kite
 ### 10.5 下游入站 span（user-service）
 
 文件：`services/user-service/rpc/main.go`  
-业务处理文件：`services/user-service/rpc/handler.go`  
+业务处理文件：`services/user-service/rpc/handler/`  
 函数：`func (s *UserServiceImpl) Login(ctx context.Context, request *user.UserLoginRequest) ...`
 
 关键调用：

@@ -1,4 +1,4 @@
-package main
+package handler
 
 import "meshcart/services/product-service/biz/service"
 

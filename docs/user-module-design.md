@@ -29,7 +29,7 @@
 - Gateway Handler：`gateway/internal/handler/user/login.go`
 - Gateway Logic：`gateway/internal/logic/user/login.go`
 - RPC Client：`gateway/rpc/user/client.go`
-- RPC Server：`services/user-service/rpc/handler.go`
+- RPC Server：`services/user-service/rpc/handler/`
 - Biz Service：`services/user-service/biz/service/service.go`
 
 ### 2.2 设计思想
@@ -54,7 +54,7 @@
 - Gateway Handler：`gateway/internal/handler/user/register.go`
 - Gateway Logic：`gateway/internal/logic/user/register.go`
 - RPC Client：`gateway/rpc/user/client.go`
-- RPC Server：`services/user-service/rpc/handler.go`
+- RPC Server：`services/user-service/rpc/handler/`
 - Biz Service：`services/user-service/biz/service/service.go`
 
 ### 3.2 设计思想
@@ -144,6 +144,9 @@
 实现说明：
 
 - `user-service` 启动时自动执行 migration
+- `services/user-service/rpc/main.go` 现在只保留 `bootstrap.Run()` 入口
+- 启动装配下沉到 `services/user-service/rpc/bootstrap/bootstrap.go`
+- RPC 入站方法按接口拆到 `services/user-service/rpc/handler/`
 - migration 连接已单独开启 MySQL `multiStatements`
 - 如果某次 migration 中途失败，不要只把 `dirty` 清零；需要同时核对 `schema_migrations.version` 与真实表结构是否一致
 

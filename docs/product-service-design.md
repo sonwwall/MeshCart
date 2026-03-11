@@ -530,14 +530,17 @@ services/product-service/
 │   ├── 000001_create_products.up.sql
 │   └── 000001_create_products.down.sql
 ├── rpc/
-│   ├── handler.go
 │   ├── main.go
-│   ├── create_product.go
-│   ├── update_product.go
-│   ├── change_product_status.go
-│   ├── get_product_detail.go
-│   ├── list_products.go
-│   └── batch_get_sku.go
+│   ├── bootstrap/
+│   │   └── bootstrap.go
+│   └── handler/
+│       ├── handler.go
+│       ├── create_product.go
+│       ├── update_product.go
+│       ├── change_product_status.go
+│       ├── get_product_detail.go
+│       ├── list_products.go
+│       └── batch_get_sku.go
 └── script/
     └── start.sh
 ```
@@ -571,14 +574,15 @@ services/product-service/
 - `migrations/000003_create_product_sku_attrs.down.sql`：回滚 SKU 属性表。
 - `migrations/000004_add_product_owner_fields.up.sql`：增加商品创建者与最后更新人字段。
 - `migrations/000004_add_product_owner_fields.down.sql`：回滚商品创建者与最后更新人字段。
-- `rpc/handler.go`：`ProductServiceImpl` 定义和构造函数。
-- `rpc/main.go`：商品服务启动入口，负责日志、OTel、配置、数据库、Snowflake、RPC Server 初始化。
-- `rpc/create_product.go`：`CreateProduct` RPC 入站处理。
-- `rpc/update_product.go`：`UpdateProduct` RPC 入站处理。
-- `rpc/change_product_status.go`：`ChangeProductStatus` RPC 入站处理。
-- `rpc/get_product_detail.go`：`GetProductDetail` RPC 入站处理。
-- `rpc/list_products.go`：`ListProducts` RPC 入站处理。
-- `rpc/batch_get_sku.go`：`BatchGetSku` RPC 入站处理。
+- `rpc/main.go`：商品服务启动入口，只保留 `bootstrap.Run()` 调用。
+- `rpc/bootstrap/bootstrap.go`：启动装配层，负责日志、OTel、配置、数据库、Snowflake、metrics、RPC Server 初始化。
+- `rpc/handler/handler.go`：`ProductServiceImpl` 定义和构造函数。
+- `rpc/handler/create_product.go`：`CreateProduct` RPC 入站处理。
+- `rpc/handler/update_product.go`：`UpdateProduct` RPC 入站处理。
+- `rpc/handler/change_product_status.go`：`ChangeProductStatus` RPC 入站处理。
+- `rpc/handler/get_product_detail.go`：`GetProductDetail` RPC 入站处理。
+- `rpc/handler/list_products.go`：`ListProducts` RPC 入站处理。
+- `rpc/handler/batch_get_sku.go`：`BatchGetSku` RPC 入站处理。
 - `script/start.sh`：本地启动脚本，统一注入环境变量并运行 `product-service`。
 
 ### 13.2 网关侧商品相关目录
@@ -700,12 +704,14 @@ gateway/
   - `list_products.go`
   - `batch_get_sku.go`
 - `rpc` 入口层也按接口拆分：
-  - `create_product.go`
-  - `update_product.go`
-  - `change_product_status.go`
-  - `get_product_detail.go`
-  - `list_products.go`
-  - `batch_get_sku.go`
+  - `rpc/handler/create_product.go`
+  - `rpc/handler/update_product.go`
+  - `rpc/handler/change_product_status.go`
+  - `rpc/handler/get_product_detail.go`
+  - `rpc/handler/list_products.go`
+  - `rpc/handler/batch_get_sku.go`
+- `rpc/main.go` 不再直接承载初始化细节，只作为进程入口
+- 启动期装配逻辑统一收敛在 `rpc/bootstrap/bootstrap.go`
 - 公共转换逻辑放在 `biz/service/mapper.go`
 - 商品写入时的模型组装与校验逻辑放在 `biz/service/build_models.go`
 
