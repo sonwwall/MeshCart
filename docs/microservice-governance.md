@@ -50,6 +50,153 @@ MeshCart 目前已经具备以下基础：
 - 先由配置统一管理 timeout，而不是散落在业务代码里
 - 读请求和写请求可以先使用不同预算，但不需要一开始就做得很细
 
+当前已落地：
+
+- `gateway -> user-service` 与 `gateway -> product-service` 的 Kitex Client 已显式配置 connect timeout 和 rpc timeout
+- `user-service` 与 `product-service` 的 repository 已统一套上数据库查询超时
+- timeout 已经进入配置层，而不是继续写死在调用点
+
+当前设计落点：
+
+- `gateway/config/config.go`
+  - `USER_RPC_CONNECT_TIMEOUT_MS`
+  - `USER_RPC_TIMEOUT_MS`
+  - `PRODUCT_RPC_CONNECT_TIMEOUT_MS`
+  - `PRODUCT_RPC_TIMEOUT_MS`
+- `gateway/rpc/user/client.go`
+  - 通过 `client.WithConnectTimeout(...)` 和 `client.WithRPCTimeout(...)` 显式配置下游用户服务调用超时
+- `gateway/rpc/product/client.go`
+  - 通过 `client.WithConnectTimeout(...)` 和 `client.WithRPCTimeout(...)` 显式配置下游商品服务调用超时
+- `services/user-service/config/config.go`
+  - `timeout.db_query_ms`
+- `services/product-service/config/config.go`
+  - `timeout.db_query_ms`
+- `services/user-service/biz/repository/repository.go`
+  - 所有 repository 读写操作统一套 `context.WithTimeout(...)`
+- `services/product-service/biz/repository/repository.go`
+  - 所有 repository 查询、更新、事务写入统一套 `context.WithTimeout(...)`
+
+当前预算口径：
+
+- RPC connect timeout：默认 `500ms`
+- RPC timeout：默认 `2000ms`
+- DB query timeout：默认 `1500ms`
+
+这样设计的目的：
+
+- 把 `gateway -> rpc -> db` 这条链路的超时预算先明确下来
+- 保证 DB timeout 小于整体 RPC timeout，避免下游数据库还在等待时，上游先完全失控
+- 先把最容易出问题的链路显式收口，再决定后续是否继续细分读写预算
+
+### 3.1.1 如何观测超时
+
+当前超时主要通过以下方式观测：
+
+- 日志
+  - `gateway` 的 logic 层会记录下游 RPC 技术错误
+  - `user-service` / `product-service` 的业务层和 repository 层在底层错误时会留下日志
+- trace
+  - `gateway` 与下游服务之间已经接入 tracing
+  - 当 RPC 超时时，span 会记录 error，并能在链路中看到失败节点
+- metrics
+  - 当前 RPC handler 已经有方法级耗时与状态观测
+  - 超时会体现在对应 RPC 方法的错误数和耗时分布上
+
+当前观测重点：
+
+- 是否是 connect timeout
+- 是否是 rpc timeout
+- 是否是 service 内部 DB query timeout
+- 是单点偶发，还是持续性故障
+
+一个实际注意点：
+
+- `ConnectTimeout` 在 Kitex 下可能会叠加其默认重试策略，因此最终总耗时不一定严格等于单次 connect timeout
+- 观察时要区分“单次建连超时”和“整体调用在重试后失败”这两个层次
+
+### 3.1.2 超时后如何返回
+
+当前超时不是直接把底层错误原文返回给前端，而是先在 `gateway` 做技术错误映射。
+
+当前映射规则：
+
+- timeout / deadline exceeded
+  - 对外返回：`服务繁忙，请稍后重试`
+- connection refused / no available / dial tcp / broken pipe 等连接阶段错误
+  - 对外返回：`下游服务暂不可用，请稍后重试`
+- 其他技术错误
+  - 对外返回：`系统内部错误`
+
+当前实现位置：
+
+- `gateway/internal/logic/logicutil/rpc_error.go`
+- `app/common/errors.go`
+
+这样做的原因：
+
+- 避免把底层网络错误和内部实现细节直接暴露给前端
+- 让前端拿到更稳定、可理解的错误口径
+- 给后续更细的技术错误分类预留空间
+
+### 3.1.3 当前怎么测试
+
+当前围绕超时治理已经补了三层测试。
+
+第一层：真实 RPC timeout 行为测试
+
+- `gateway/rpc/user/client_test.go`
+- `gateway/rpc/product/client_test.go`
+
+覆盖内容：
+
+- 下游服务处理慢时，`RPCTimeout` 会真实触发
+- 建连阶段阻塞时，`ConnectTimeout` 会真实触发
+
+测试方式：
+
+- 本地起一个测试用 Kitex server
+- 对 `RPCTimeout` 场景，服务端 handler 故意 `sleep`
+- 对 `ConnectTimeout` 场景，测试注入一个可控的 `Dialer`，在建连阶段故意阻塞到超过 connect timeout
+- 断言错误确实属于 timeout / deadline exceeded 类错误
+
+第二层：真实 DB timeout 行为测试
+
+- `services/user-service/biz/repository/repository_test.go`
+- `services/product-service/biz/repository/repository_test.go`
+
+测试方式：
+
+- 使用内存 sqlite 启动 GORM
+- 在 query callback 中故意阻塞到 `ctx.Done()`
+- 调用真实 repository 方法
+- 断言最终返回 `context deadline exceeded`
+
+第三层：错误映射测试
+
+- `gateway/internal/logic/logicutil/rpc_error_test.go`
+- `gateway/internal/logic/user/login_test.go`
+- `gateway/internal/logic/user/register_test.go`
+
+覆盖内容：
+
+- timeout 是否会映射成“服务繁忙，请稍后重试”
+- 连接失败是否会映射成“下游服务暂不可用，请稍后重试”
+- `user` 业务链路是否真正使用了这套映射
+
+当前测试结论：
+
+- `RPCTimeout`：已有真实行为测试
+- `ConnectTimeout`：已有真实行为测试
+- repository DB timeout：已有真实行为测试
+- 超时后的 gateway 对外返回：已有映射测试
+
+这意味着当前文档里“已落地”的 timeout 能力，已经具备基本可回归的测试闭环。
+
+当前暂未落地：
+
+- `gateway` HTTP 入口超时还没有在 Hertz 启动层显式配置
+- 这部分先保留为下一步补齐项，避免在不确定框架接入方式时引入额外噪音
+
 ### 3.2 网关入口限流
 
 限流是当前最值得尽快落地的第二项能力。

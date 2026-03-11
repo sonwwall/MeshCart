@@ -8,6 +8,7 @@ import (
 	logx "meshcart/app/log"
 	tracex "meshcart/app/trace"
 	"meshcart/gateway/internal/authz"
+	"meshcart/gateway/internal/logic/logicutil"
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
 	userrpc "meshcart/gateway/rpc/user"
@@ -50,7 +51,7 @@ func (l *UpdateUserRoleLogic) Update(targetUserID int64, role string, identity *
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "user rpc update role failed")
 		logx.L(ctx).Error("user rpc update role failed", zap.Error(err))
-		return common.ErrInternalError
+		return logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
 		return common.NewBizError(resp.Code, resp.Message)

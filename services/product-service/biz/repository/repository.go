@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	dalmodel "meshcart/services/product-service/dal/model"
 
@@ -60,14 +61,18 @@ type ProductRepository interface {
 }
 
 type MySQLProductRepository struct {
-	db *gorm.DB
+	db           *gorm.DB
+	queryTimeout time.Duration
 }
 
-func NewMySQLProductRepository(db *gorm.DB) *MySQLProductRepository {
-	return &MySQLProductRepository{db: db}
+func NewMySQLProductRepository(db *gorm.DB, queryTimeout time.Duration) *MySQLProductRepository {
+	return &MySQLProductRepository{db: db, queryTimeout: queryTimeout}
 }
 
 func (r *MySQLProductRepository) Create(ctx context.Context, product *dalmodel.Product, skus []*dalmodel.ProductSKU) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(product).Error; err != nil {
 			return mapSQLError(err)
@@ -88,6 +93,9 @@ func (r *MySQLProductRepository) Create(ctx context.Context, product *dalmodel.P
 }
 
 func (r *MySQLProductRepository) Update(ctx context.Context, product *dalmodel.Product, skus []*dalmodel.ProductSKU) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existingProduct dalmodel.Product
 		if err := tx.Select("id").Where("id = ?", product.ID).First(&existingProduct).Error; err != nil {
@@ -177,6 +185,9 @@ func (r *MySQLProductRepository) Update(ctx context.Context, product *dalmodel.P
 }
 
 func (r *MySQLProductRepository) ChangeStatus(ctx context.Context, productID int64, status int32, operatorID int64) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
 	result := r.db.WithContext(ctx).Model(&dalmodel.Product{}).
 		Where("id = ?", productID).
 		Updates(map[string]any{
@@ -193,6 +204,9 @@ func (r *MySQLProductRepository) ChangeStatus(ctx context.Context, productID int
 }
 
 func (r *MySQLProductRepository) GetByID(ctx context.Context, productID int64) (*dalmodel.Product, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
 	var product dalmodel.Product
 	err := r.db.WithContext(ctx).
 		Preload("Skus", func(db *gorm.DB) *gorm.DB {
@@ -213,6 +227,9 @@ func (r *MySQLProductRepository) GetByID(ctx context.Context, productID int64) (
 }
 
 func (r *MySQLProductRepository) List(ctx context.Context, filter ListFilter) ([]*dalmodel.Product, int64, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
 	query := r.db.WithContext(ctx).Model(&dalmodel.Product{})
 	if filter.Status != nil {
 		query = query.Where("status = ?", *filter.Status)
@@ -248,6 +265,8 @@ func (r *MySQLProductRepository) ListSKUsByProductIDs(ctx context.Context, produ
 	if len(productIDs) == 0 {
 		return nil, nil
 	}
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
 
 	var skus []*dalmodel.ProductSKU
 	if err := r.db.WithContext(ctx).
@@ -263,6 +282,8 @@ func (r *MySQLProductRepository) GetSKUsByIDs(ctx context.Context, skuIDs []int6
 	if len(skuIDs) == 0 {
 		return nil, nil
 	}
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
 
 	var skus []*dalmodel.ProductSKU
 	err := r.db.WithContext(ctx).
@@ -312,4 +333,11 @@ func duplicateKeyName(message string) string {
 	keyPart := strings.TrimSpace(message[idx+len("for key "):])
 	keyPart = strings.Trim(keyPart, "'` ")
 	return keyPart
+}
+
+func withQueryTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
 }

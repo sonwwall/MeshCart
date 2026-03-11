@@ -7,6 +7,7 @@ import (
 	"meshcart/app/common"
 	logx "meshcart/app/log"
 	tracex "meshcart/app/trace"
+	"meshcart/gateway/internal/logic/logicutil"
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
 	userrpc "meshcart/gateway/rpc/user"
@@ -56,7 +57,7 @@ func (l *RegisterLogic) Register(req *types.UserRegisterRequest) *common.BizErro
 		)
 		span.SetStatus(codes.Error, "user rpc register failed")
 		logx.L(ctx).Error("user rpc register failed", zap.Error(err))
-		return common.ErrInternalError
+		return logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
 		span.SetAttributes(

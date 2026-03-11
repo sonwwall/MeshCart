@@ -82,6 +82,38 @@ func TestLogin_RPCError(t *testing.T) {
 	}
 }
 
+func TestLogin_RPCTimeoutError(t *testing.T) {
+	logic := NewLoginLogic(context.Background(), newTestServiceContext(t, &stubUserClient{
+		loginFn: func(ctx context.Context, req *userrpc.LoginRequest) (*userrpc.LoginResponse, error) {
+			return nil, context.DeadlineExceeded
+		},
+	}))
+
+	data, bizErr := logic.Login(&types.UserLoginRequest{Username: "tester", Password: "123456"})
+	if data != nil {
+		t.Fatalf("expected nil data, got %+v", data)
+	}
+	if bizErr != common.ErrServiceBusy {
+		t.Fatalf("expected ErrServiceBusy, got %+v", bizErr)
+	}
+}
+
+func TestLogin_RPCServiceUnavailable(t *testing.T) {
+	logic := NewLoginLogic(context.Background(), newTestServiceContext(t, &stubUserClient{
+		loginFn: func(ctx context.Context, req *userrpc.LoginRequest) (*userrpc.LoginResponse, error) {
+			return nil, errors.New("dial tcp 127.0.0.1:8888: connect: connection refused")
+		},
+	}))
+
+	data, bizErr := logic.Login(&types.UserLoginRequest{Username: "tester", Password: "123456"})
+	if data != nil {
+		t.Fatalf("expected nil data, got %+v", data)
+	}
+	if bizErr != common.ErrServiceUnavailable {
+		t.Fatalf("expected ErrServiceUnavailable, got %+v", bizErr)
+	}
+}
+
 func TestLogin_BusinessError(t *testing.T) {
 	logic := NewLoginLogic(context.Background(), newTestServiceContext(t, &stubUserClient{
 		loginFn: func(ctx context.Context, req *userrpc.LoginRequest) (*userrpc.LoginResponse, error) {

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"time"
 )
 
 type Config struct {
@@ -41,17 +42,21 @@ type ServerConfig struct {
 }
 
 type UserRPCConfig struct {
-	ServiceName   string
-	Address       string
-	DiscoveryType string
-	ConsulAddress string
+	ServiceName    string
+	Address        string
+	DiscoveryType  string
+	ConsulAddress  string
+	ConnectTimeout time.Duration
+	RPCTimeout     time.Duration
 }
 
 type ProductRPCConfig struct {
-	ServiceName   string
-	Address       string
-	DiscoveryType string
-	ConsulAddress string
+	ServiceName    string
+	Address        string
+	DiscoveryType  string
+	ConsulAddress  string
+	ConnectTimeout time.Duration
+	RPCTimeout     time.Duration
 }
 
 type JWTConfig struct {
@@ -83,16 +88,20 @@ func Load() Config {
 			Addr: getEnv("GATEWAY_ADDR", ":8080"),
 		},
 		UserRPC: UserRPCConfig{
-			ServiceName:   getEnv("USER_RPC_SERVICE", "meshcart.user"),
-			Address:       getEnv("USER_RPC_ADDR", "127.0.0.1:8888"),
-			DiscoveryType: getEnv("USER_RPC_DISCOVERY", "direct"),
-			ConsulAddress: getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
+			ServiceName:    getEnv("USER_RPC_SERVICE", "meshcart.user"),
+			Address:        getEnv("USER_RPC_ADDR", "127.0.0.1:8888"),
+			DiscoveryType:  getEnv("USER_RPC_DISCOVERY", "direct"),
+			ConsulAddress:  getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
+			ConnectTimeout: getEnvAsDuration("USER_RPC_CONNECT_TIMEOUT_MS", 500*time.Millisecond),
+			RPCTimeout:     getEnvAsDuration("USER_RPC_TIMEOUT_MS", 2*time.Second),
 		},
 		ProductRPC: ProductRPCConfig{
-			ServiceName:   getEnv("PRODUCT_RPC_SERVICE", "meshcart.product"),
-			Address:       getEnv("PRODUCT_RPC_ADDR", "127.0.0.1:8889"),
-			DiscoveryType: getEnv("PRODUCT_RPC_DISCOVERY", "direct"),
-			ConsulAddress: getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
+			ServiceName:    getEnv("PRODUCT_RPC_SERVICE", "meshcart.product"),
+			Address:        getEnv("PRODUCT_RPC_ADDR", "127.0.0.1:8889"),
+			DiscoveryType:  getEnv("PRODUCT_RPC_DISCOVERY", "direct"),
+			ConsulAddress:  getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
+			ConnectTimeout: getEnvAsDuration("PRODUCT_RPC_CONNECT_TIMEOUT_MS", 500*time.Millisecond),
+			RPCTimeout:     getEnvAsDuration("PRODUCT_RPC_TIMEOUT_MS", 2*time.Second),
 		},
 		JWT: JWTConfig{
 			Secret:            getEnv("JWT_SECRET", "meshcart-dev-secret-change-me"),
@@ -132,4 +141,16 @@ func getEnvAsBool(key string, fallback bool) bool {
 		return fallback
 	}
 	return parsed
+}
+
+func getEnvAsDuration(key string, fallback time.Duration) time.Duration {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return time.Duration(parsed) * time.Millisecond
 }

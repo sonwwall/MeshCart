@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/kitex/client"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
@@ -78,10 +79,20 @@ type kitexClient struct {
 	cli userservice.Client
 }
 
-func NewClient(serviceName, hostPort, discoveryType, consulAddress string) (Client, error) {
+func NewClient(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration) (Client, error) {
+	return newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout)
+}
+
+func newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (Client, error) {
 	opts := []client.Option{
 		client.WithSuite(kitextrace.NewClientSuite()),
 		client.WithClientBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "gateway"}),
+	}
+	if connectTimeout > 0 {
+		opts = append(opts, client.WithConnectTimeout(connectTimeout))
+	}
+	if rpcTimeout > 0 {
+		opts = append(opts, client.WithRPCTimeout(rpcTimeout))
 	}
 
 	switch strings.ToLower(discoveryType) {
@@ -96,6 +107,7 @@ func NewClient(serviceName, hostPort, discoveryType, consulAddress string) (Clie
 	default:
 		return nil, fmt.Errorf("unsupported user rpc discovery type: %s", discoveryType)
 	}
+	opts = append(opts, extraOpts...)
 
 	cli, err := userservice.NewClient(serviceName, opts...)
 	if err != nil {

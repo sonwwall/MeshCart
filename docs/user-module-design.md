@@ -130,7 +130,26 @@
 - 业务失败不标红，只记录业务属性
 - `user-service` 业务层会记录底层技术错误，例如密码哈希失败、查库失败、写库失败，RPC 对外仍返回统一业务错误码
 
-## 8. 数据迁移说明
+## 8. 超时治理
+
+当前 `user-service` 已补齐数据库查询超时配置：
+
+- 配置位置：`services/user-service/config/config.go`
+- 本地配置示例：`services/user-service/config/user-service.local.yaml`
+- 当前字段：`timeout.db_query_ms`
+
+当前落点：
+
+- `gateway` 调 `user-service` 的 Kitex Client 已显式设置 connect timeout 和 rpc timeout
+- `user-service` repository 在执行 GORM 查询和更新时，会基于传入 `ctx` 统一套上 DB query timeout
+
+这样做的目的：
+
+- 避免下游数据库操作无限等待
+- 让 RPC 超时预算和服务内查询超时预算可同时收口到配置层
+- 为后续熔断、重试、排障提供稳定前提
+
+## 9. 数据迁移说明
 
 当前用户域 migration 目录：
 
@@ -150,9 +169,9 @@
 - migration 连接已单独开启 MySQL `multiStatements`
 - 如果某次 migration 中途失败，不要只把 `dirty` 清零；需要同时核对 `schema_migrations.version` 与真实表结构是否一致
 
-## 9. 接口文档
+## 10. 接口文档
 
-## 9.1 用户注册
+## 10.1 用户注册
 
 - 方法：`POST`
 - 路径：`/api/v1/user/register`
@@ -203,7 +222,7 @@
 
 - 当前通过 Hertz `BindAndValidate` 同时支持 JSON 与表单提交
 
-## 9.2 用户登录
+## 10.2 用户登录
 
 - 方法：`POST`
 - 路径：`/api/v1/user/login`
@@ -264,7 +283,7 @@
 - `2010003`：用户已被锁定
 - `1009999`：系统内部错误
 
-## 9.3 当前登录态接口
+## 10.3 当前登录态接口
 
 ### 9.3.1 获取当前用户信息
 
@@ -338,7 +357,7 @@
 - 该接口用于基于当前有效 token 刷新访问令牌
 - 返回的 `token` 已带 `Bearer ` 前缀，可直接写回 `Authorization` 头
 
-## 9.4 Superadmin 角色管理接口
+## 10.4 Superadmin 角色管理接口
 
 ### 9.4.1 修改用户角色
 

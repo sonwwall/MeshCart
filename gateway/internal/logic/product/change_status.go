@@ -7,6 +7,7 @@ import (
 	logx "meshcart/app/log"
 	tracex "meshcart/app/trace"
 	"meshcart/gateway/internal/authz"
+	"meshcart/gateway/internal/logic/logicutil"
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
 	productpb "meshcart/kitex_gen/meshcart/product"
@@ -41,7 +42,7 @@ func (l *ChangeStatusLogic) Change(productID int64, status int32, identity *midd
 	detailResp, err := l.svcCtx.ProductClient.GetProductDetail(ctx, &productpb.GetProductDetailRequest{ProductId: productID})
 	if err != nil {
 		logx.L(ctx).Error("product rpc detail before status change failed", zap.Error(err))
-		return common.ErrInternalError
+		return logicutil.MapRPCError(err)
 	}
 	if detailResp.Code != common.CodeOK || detailResp.Product == nil {
 		return common.NewBizError(detailResp.Code, detailResp.Message)
@@ -71,7 +72,7 @@ func (l *ChangeStatusLogic) Change(productID int64, status int32, identity *midd
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "technical"))
 		span.SetStatus(codes.Error, "product rpc change status failed")
 		logx.L(ctx).Error("product rpc change status failed", zap.Error(err))
-		return common.ErrInternalError
+		return logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(resp.Code)), attribute.String("biz.message", resp.Message))

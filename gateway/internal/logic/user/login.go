@@ -7,6 +7,7 @@ import (
 	"meshcart/app/common"
 	logx "meshcart/app/log"
 	tracex "meshcart/app/trace"
+	"meshcart/gateway/internal/logic/logicutil"
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
@@ -59,7 +60,7 @@ func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *
 		)
 		span.SetStatus(codes.Error, "user rpc login failed")
 		logx.L(ctx).Error("user rpc login failed", zap.Error(err))
-		return nil, common.ErrInternalError
+		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
 		span.SetAttributes(

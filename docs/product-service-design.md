@@ -652,7 +652,26 @@ gateway/
 - `biz.success`
 - `biz.code`
 
-## 15. 错误码设计
+## 15. 超时治理
+
+当前 `product-service` 已补齐数据库查询超时配置：
+
+- 配置入口：`services/product-service/config/config.go`
+- 本地配置示例：`services/product-service/config/product-service.local.yaml`
+- 当前字段：`timeout.db_query_ms`
+
+当前落点：
+
+- `gateway` 调 `product-service` 的 Kitex Client 已显式设置 connect timeout 和 rpc timeout
+- `product-service` repository 在商品查询、列表、状态变更和事务写入时，会统一套上 DB query timeout
+
+这样做的目的：
+
+- 避免商品查询和写入链路无限等待
+- 让 `gateway -> rpc -> db` 这条调用链开始具备基础超时预算
+- 为后续限流、重试和熔断提供更稳定的前提
+
+## 16. 错误码设计
 
 商品域当前已经使用独立错误码段：
 
@@ -668,7 +687,7 @@ gateway/
 - SKU 不可售
 - 商品价格非法
 
-## 16. 当前实现说明
+## 17. 当前实现说明
 
 当前代码已经实现以下模块：
 
@@ -725,7 +744,7 @@ gateway/
   - `0=inactive`
   - `1=active`
 
-## 17. HTTP 接口文档
+## 18. HTTP 接口文档
 
 说明：
 
@@ -1080,7 +1099,7 @@ GET /api/v1/products/detail/192000000000000001
 }
 ```
 
-## 18. RPC 接口文档
+## 19. RPC 接口文档
 
 IDL：`idl/product.thrift`
 
@@ -1176,7 +1195,7 @@ IDL：`idl/product.thrift`
 - 与请求 SKU ID 对应的 SKU 明细
 - 每个 SKU 携带属性列表，便于订单服务直接生成商品快照
 
-## 19. 未来设计设想
+## 20. 未来设计设想
 
 当前版本已经能支撑商品基础管理、列表详情查询和订单链路的 SKU 批量读取，但后续还有几个明确的演进方向。
 

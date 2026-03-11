@@ -7,6 +7,7 @@ import (
 	logx "meshcart/app/log"
 	tracex "meshcart/app/trace"
 	"meshcart/gateway/internal/authz"
+	"meshcart/gateway/internal/logic/logicutil"
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
@@ -43,7 +44,7 @@ func (l *DetailLogic) Get(productID int64, identity *middleware.AuthIdentity) (*
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "technical"))
 		span.SetStatus(codes.Error, "product rpc detail failed")
 		logx.L(ctx).Error("product rpc detail failed", zap.Error(err))
-		return nil, common.ErrInternalError
+		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(resp.Code)), attribute.String("biz.message", resp.Message))

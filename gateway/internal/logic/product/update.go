@@ -8,6 +8,7 @@ import (
 	logx "meshcart/app/log"
 	tracex "meshcart/app/trace"
 	"meshcart/gateway/internal/authz"
+	"meshcart/gateway/internal/logic/logicutil"
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
@@ -44,7 +45,7 @@ func (l *UpdateLogic) Update(productID int64, req *types.UpdateProductRequest, i
 	detailResp, err := l.svcCtx.ProductClient.GetProductDetail(ctx, &productpb.GetProductDetailRequest{ProductId: productID})
 	if err != nil {
 		logx.L(ctx).Error("product rpc detail before update failed", zap.Error(err))
-		return common.ErrInternalError
+		return logicutil.MapRPCError(err)
 	}
 	if detailResp.Code != common.CodeOK || detailResp.Product == nil {
 		return common.NewBizError(detailResp.Code, detailResp.Message)
@@ -80,7 +81,7 @@ func (l *UpdateLogic) Update(productID int64, req *types.UpdateProductRequest, i
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "technical"))
 		span.SetStatus(codes.Error, "product rpc update failed")
 		logx.L(ctx).Error("product rpc update failed", zap.Error(err))
-		return common.ErrInternalError
+		return logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(resp.Code)), attribute.String("biz.message", resp.Message))

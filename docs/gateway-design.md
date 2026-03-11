@@ -223,11 +223,20 @@ gateway/
 - `USER_RPC_SERVICE`：用户服务名
 - `USER_RPC_ADDR`：用户服务地址
 - `USER_RPC_DISCOVERY`：下游服务发现模式
+- `USER_RPC_CONNECT_TIMEOUT_MS`：用户服务 RPC 建连超时，默认 `500ms`
+- `USER_RPC_TIMEOUT_MS`：用户服务 RPC 调用超时，默认 `2000ms`
+- `PRODUCT_RPC_CONNECT_TIMEOUT_MS`：商品服务 RPC 建连超时，默认 `500ms`
+- `PRODUCT_RPC_TIMEOUT_MS`：商品服务 RPC 调用超时，默认 `2000ms`
 - `CONSUL_ADDR`：Consul 地址
 - `JWT_SECRET`：JWT 签名密钥
 - `JWT_ISSUER`：JWT 签发者
 - `JWT_TIMEOUT_MINUTES`：访问令牌过期时间（分钟）
 - `JWT_MAX_REFRESH_MINUTES`：刷新窗口（分钟）
+
+补充说明：
+
+- 当前网关已经把下游 RPC connect timeout 与 rpc timeout 收口到 `config.Config`
+- HTTP 入口超时暂未在 Hertz 启动层显式配置，后续可继续补齐
 
 启动关系：
 

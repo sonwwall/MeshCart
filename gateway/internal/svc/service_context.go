@@ -24,6 +24,8 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		cfg.UserRPC.Address,
 		cfg.UserRPC.DiscoveryType,
 		cfg.UserRPC.ConsulAddress,
+		cfg.UserRPC.ConnectTimeout,
+		cfg.UserRPC.RPCTimeout,
 	)
 	if err != nil {
 		panic(err)
@@ -34,6 +36,8 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		cfg.ProductRPC.Address,
 		cfg.ProductRPC.DiscoveryType,
 		cfg.ProductRPC.ConsulAddress,
+		cfg.ProductRPC.ConnectTimeout,
+		cfg.ProductRPC.RPCTimeout,
 	)
 	if err != nil {
 		panic(err)

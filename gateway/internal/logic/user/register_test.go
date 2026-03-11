@@ -32,6 +32,32 @@ func TestRegister_RPCError(t *testing.T) {
 	}
 }
 
+func TestRegister_RPCTimeoutError(t *testing.T) {
+	logic := NewRegisterLogic(context.Background(), newTestServiceContext(t, &stubUserClient{
+		registerFn: func(ctx context.Context, req *userrpc.RegisterRequest) (*userrpc.RegisterResponse, error) {
+			return nil, context.DeadlineExceeded
+		},
+	}))
+
+	bizErr := logic.Register(&types.UserRegisterRequest{Username: "tester", Password: "123456"})
+	if bizErr != common.ErrServiceBusy {
+		t.Fatalf("expected ErrServiceBusy, got %+v", bizErr)
+	}
+}
+
+func TestRegister_RPCServiceUnavailable(t *testing.T) {
+	logic := NewRegisterLogic(context.Background(), newTestServiceContext(t, &stubUserClient{
+		registerFn: func(ctx context.Context, req *userrpc.RegisterRequest) (*userrpc.RegisterResponse, error) {
+			return nil, errors.New("dial tcp 127.0.0.1:8888: connect: connection refused")
+		},
+	}))
+
+	bizErr := logic.Register(&types.UserRegisterRequest{Username: "tester", Password: "123456"})
+	if bizErr != common.ErrServiceUnavailable {
+		t.Fatalf("expected ErrServiceUnavailable, got %+v", bizErr)
+	}
+}
+
 func TestRegister_BusinessError(t *testing.T) {
 	logic := NewRegisterLogic(context.Background(), newTestServiceContext(t, &stubUserClient{
 		registerFn: func(ctx context.Context, req *userrpc.RegisterRequest) (*userrpc.RegisterResponse, error) {

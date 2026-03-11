@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	dalmodel "meshcart/services/user-service/dal/model"
 
@@ -23,14 +24,18 @@ type UserRepository interface {
 }
 
 type MySQLUserRepository struct {
-	db *gorm.DB
+	db           *gorm.DB
+	queryTimeout time.Duration
 }
 
-func NewMySQLUserRepository(db *gorm.DB) *MySQLUserRepository {
-	return &MySQLUserRepository{db: db}
+func NewMySQLUserRepository(db *gorm.DB, queryTimeout time.Duration) *MySQLUserRepository {
+	return &MySQLUserRepository{db: db, queryTimeout: queryTimeout}
 }
 
 func (r *MySQLUserRepository) GetByUsername(ctx context.Context, username string) (*dalmodel.User, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
 	user := &dalmodel.User{}
 	err := r.db.WithContext(ctx).
 		Where("username = ?", username).
@@ -46,6 +51,9 @@ func (r *MySQLUserRepository) GetByUsername(ctx context.Context, username string
 }
 
 func (r *MySQLUserRepository) GetByID(ctx context.Context, userID int64) (*dalmodel.User, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
 	user := &dalmodel.User{}
 	err := r.db.WithContext(ctx).
 		Where("id = ?", userID).
@@ -61,6 +69,9 @@ func (r *MySQLUserRepository) GetByID(ctx context.Context, userID int64) (*dalmo
 }
 
 func (r *MySQLUserRepository) Count(ctx context.Context) (int64, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
 	var total int64
 	if err := r.db.WithContext(ctx).Model(&dalmodel.User{}).Count(&total).Error; err != nil {
 		return 0, err
@@ -69,6 +80,9 @@ func (r *MySQLUserRepository) Count(ctx context.Context) (int64, error) {
 }
 
 func (r *MySQLUserRepository) CountByRole(ctx context.Context, role string) (int64, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
 	var total int64
 	if err := r.db.WithContext(ctx).Model(&dalmodel.User{}).Where("role = ?", role).Count(&total).Error; err != nil {
 		return 0, err
@@ -77,6 +91,9 @@ func (r *MySQLUserRepository) CountByRole(ctx context.Context, role string) (int
 }
 
 func (r *MySQLUserRepository) Create(ctx context.Context, user *dalmodel.User) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
 	err := r.db.WithContext(ctx).Create(user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
@@ -92,6 +109,9 @@ func (r *MySQLUserRepository) Create(ctx context.Context, user *dalmodel.User) e
 }
 
 func (r *MySQLUserRepository) UpdateRole(ctx context.Context, userID int64, role string) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
 	result := r.db.WithContext(ctx).Model(&dalmodel.User{}).Where("id = ?", userID).Update("role", role)
 	if result.Error != nil {
 		return result.Error
@@ -100,4 +120,11 @@ func (r *MySQLUserRepository) UpdateRole(ctx context.Context, userID int64, role
 		return ErrUserNotFound
 	}
 	return nil
+}
+
+func withQueryTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
 }

@@ -13,6 +13,7 @@ type Config struct {
 	MySQL     MySQLConfig     `mapstructure:"mysql"`
 	Migration MigrationConfig `mapstructure:"migration"`
 	Snowflake SnowflakeConfig `mapstructure:"snowflake"`
+	Timeout   TimeoutConfig   `mapstructure:"timeout"`
 }
 
 type MySQLConfig struct {
@@ -32,6 +33,10 @@ type MigrationConfig struct {
 
 type SnowflakeConfig struct {
 	Node int64 `mapstructure:"node"`
+}
+
+type TimeoutConfig struct {
+	DBQueryMS int `mapstructure:"db_query_ms"`
 }
 
 type ApolloLoader interface {
@@ -82,6 +87,7 @@ func Load() (Config, error) {
 	v.SetDefault("migration.enabled", true)
 	v.SetDefault("migration.source", "file://services/user-service/migrations")
 	v.SetDefault("snowflake.node", 1)
+	v.SetDefault("timeout.db_query_ms", 1500)
 
 	if err := v.ReadInConfig(); err != nil {
 		return Config{}, err

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
@@ -103,7 +104,7 @@ func initMySQL(cfg config.Config) *gorm.DB {
 }
 
 func initService(mysqlDB *gorm.DB, cfg config.Config) *bizservice.ProductService {
-	repo := repository.NewMySQLProductRepository(mysqlDB)
+	repo := repository.NewMySQLProductRepository(mysqlDB, time.Duration(cfg.Timeout.DBQueryMS)*time.Millisecond)
 	node, err := snowflake.NewNode(cfg.Snowflake.Node)
 	if err != nil {
 		logx.L(nil).Fatal("init snowflake node failed", zap.Error(err), zap.Int64("node", cfg.Snowflake.Node))

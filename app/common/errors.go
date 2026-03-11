@@ -24,9 +24,11 @@ const (
 )
 
 var (
-	ErrInvalidParam  = NewBizError(CodeInvalidParam, "请求参数错误")
-	ErrUnauthorized  = NewBizError(CodeUnauthorized, "未登录或登录已过期")
-	ErrForbidden     = NewBizError(CodeForbidden, "无权限访问")
-	ErrNotFound      = NewBizError(CodeNotFound, "资源不存在")
-	ErrInternalError = NewBizError(CodeInternalError, "系统内部错误")
+	ErrInvalidParam       = NewBizError(CodeInvalidParam, "请求参数错误")
+	ErrUnauthorized       = NewBizError(CodeUnauthorized, "未登录或登录已过期")
+	ErrForbidden          = NewBizError(CodeForbidden, "无权限访问")
+	ErrNotFound           = NewBizError(CodeNotFound, "资源不存在")
+	ErrInternalError      = NewBizError(CodeInternalError, "系统内部错误")
+	ErrServiceBusy        = NewBizError(CodeInternalError, "服务繁忙，请稍后重试")
+	ErrServiceUnavailable = NewBizError(CodeInternalError, "下游服务暂不可用，请稍后重试")
 )

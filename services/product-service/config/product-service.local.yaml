@@ -13,3 +13,6 @@ migration:
 
 snowflake:
   node: 2
+
+timeout:
+  db_query_ms: 1500

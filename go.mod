@@ -8,6 +8,7 @@ require (
 	github.com/cloudwego/kitex v0.16.1
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/hertz-contrib/jwt v1.0.4
+	gorm.io/driver/sqlite v1.6.0
 )
 
 require (
