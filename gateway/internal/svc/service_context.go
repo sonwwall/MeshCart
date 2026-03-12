@@ -16,6 +16,7 @@ type ServiceContext struct {
 	ProductClient productrpc.Client
 	AccessControl *authz.AccessController
 	JWT           *jwtmw.HertzJWTMiddleware
+	RateLimiter   *middleware.RateLimitStore
 }
 
 func NewServiceContext(cfg config.Config) *ServiceContext {
@@ -59,5 +60,6 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		ProductClient: productClient,
 		AccessControl: accessController,
 		JWT:           jwtMiddleware,
+		RateLimiter:   middleware.NewRateLimitStore(cfg.RateLimit),
 	}
 }

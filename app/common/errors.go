@@ -20,6 +20,7 @@ const (
 	CodeUnauthorized  int32 = 1000002
 	CodeForbidden     int32 = 1000003
 	CodeNotFound      int32 = 1000004
+	CodeTooManyReq    int32 = 1000005
 	CodeInternalError int32 = 1009999
 )
 
@@ -28,6 +29,7 @@ var (
 	ErrUnauthorized       = NewBizError(CodeUnauthorized, "未登录或登录已过期")
 	ErrForbidden          = NewBizError(CodeForbidden, "无权限访问")
 	ErrNotFound           = NewBizError(CodeNotFound, "资源不存在")
+	ErrTooManyRequests    = NewBizError(CodeTooManyReq, "请求过于频繁，请稍后再试")
 	ErrInternalError      = NewBizError(CodeInternalError, "系统内部错误")
 	ErrServiceBusy        = NewBizError(CodeInternalError, "服务繁忙，请稍后重试")
 	ErrServiceUnavailable = NewBizError(CodeInternalError, "下游服务暂不可用，请稍后重试")

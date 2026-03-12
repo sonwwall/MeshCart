@@ -287,6 +287,7 @@ services/<service>-service/
 - `Telemetry`
 - `Metrics`
 - `Server`
+- `RateLimit`
 - `MySQL`
 - `Redis`
 - `Migration`
@@ -420,8 +421,47 @@ internal span 命名建议：
 
 - HTTP 入口 read/write/idle timeout
 - HTTP request-level 协作式 timeout
+- 网关入口限流第一阶段实现
 - `gateway -> rpc` 的 connect timeout / rpc timeout
 - `service -> db` 的 query timeout
+
+当前网关限流约定：
+
+- 第一阶段只在 `gateway` 落地，不在 RPC 层重复实现一套限流
+- 第一阶段使用单机内存 limiter store，不依赖 Redis
+- 当前对整个 `/api/v1` 先挂一层宽松的全局 IP 限流
+- 当前已保护的入口包括：
+  - `/api/v1/*`
+  - `POST /api/v1/user/login`
+  - `POST /api/v1/user/register`
+  - 商品管理写接口
+- 对写接口优先按用户限流，对匿名入口优先按 IP 限流
+- 限流 key 应优先使用稳定路由模板，不直接使用带路径参数的原始 URL
+
+当前限流配置字段含义：
+
+- `GATEWAY_RATE_LIMIT_ENABLED`
+  - 网关限流总开关
+- `GATEWAY_RATE_LIMIT_ENTRY_TTL_MS`
+  - 单个 limiter key 在内存中的保留时间
+- `GATEWAY_RATE_LIMIT_CLEANUP_INTERVAL_MS`
+  - 过期限流桶的清理周期
+- `GATEWAY_GLOBAL_IP_RATE_LIMIT_RPS` / `GATEWAY_GLOBAL_IP_RATE_LIMIT_BURST`
+  - 整个 `/api/v1` 按 IP 维度的全局宽松限流速率和突发容量
+- `GATEWAY_LOGIN_IP_RATE_LIMIT_RPS` / `GATEWAY_LOGIN_IP_RATE_LIMIT_BURST`
+  - 登录接口按 IP 限流的持续速率和突发容量
+- `GATEWAY_REGISTER_IP_RATE_LIMIT_RPS` / `GATEWAY_REGISTER_IP_RATE_LIMIT_BURST`
+  - 注册接口按 IP 限流的持续速率和突发容量
+- `GATEWAY_ADMIN_WRITE_USER_RATE_LIMIT_RPS` / `GATEWAY_ADMIN_WRITE_USER_RATE_LIMIT_BURST`
+  - 商品管理写接口按用户限流的持续速率和突发容量
+- `GATEWAY_ADMIN_WRITE_ROUTE_RATE_LIMIT_RPS` / `GATEWAY_ADMIN_WRITE_ROUTE_RATE_LIMIT_BURST`
+  - 商品管理写接口按路由限流的持续速率和突发容量
+
+使用约束：
+
+- `RPS` 控制持续吞吐上限
+- `Burst` 控制短时间可容忍的峰值
+- 调大 `Burst` 不等于长期吞吐变高，只表示允许更大的瞬时波峰
 
 ### 9.2 预算关系
 
@@ -459,10 +499,16 @@ internal span 命名建议：
 
 当前未落地但未来可能统一接入的能力：
 
-- 网关限流
 - 重试
 - 熔断
 - 隔离
+- RPC 层自保护限流
+
+约束：
+
+- 新增网关写接口时，应评估是否需要挂入现有限流中间件
+- 不要在某个服务里单独引入另一套限流框架或 Redis 限流实现
+- 如果后续需要分布式限流，应在当前中间件抽象上扩展 store，而不是重写路由接线
 
 新增服务时不要自行引入另一套治理框架，优先等仓库统一方案。
 

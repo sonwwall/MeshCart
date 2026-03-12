@@ -19,7 +19,6 @@ MeshCart 目前已经具备以下基础：
 
 当前阶段的核心问题不是“服务能不能继续拆”，而是：
 
-- 限流还没有落地
 - 故障时的排障入口还不够清晰
 - 服务虽然已经拆开，但治理能力还主要停留在“能注册、能调用”
 - 超时治理虽然已经补齐，但仍需持续用业务链路验证预算是否合理
@@ -264,33 +263,154 @@ MeshCart 目前已经具备以下基础：
 - 强制型的 HTTP 整体处理超时
 - 当前已配置的是 Hertz 连接与 I/O 层 timeout，加上一层协作式 request timeout，还不是“能强杀任意阻塞 handler”的最终形态
 
+### 3.2 网关入口限流
+
+网关入口限流已经完成第一阶段落地，当前采用“全局宽松兜底 + 重点接口严格限流”的两层策略。
+
+当前已完成：
+
+- `/api/v1/*`
+  - 按 IP 维度做全局宽松限流
+  - 用于给所有网关接口提供第一层兜底保护
+- `POST /api/v1/user/login`
+  - 按 IP + 路由维度限流
+- `POST /api/v1/user/register`
+  - 按 IP + 路由维度限流
+- 商品管理写接口
+  - 按用户 + 路由维度限流
+  - 按接口 + 路由维度限流
+
+设计落点：
+
+- `gateway/config/config.go`
+  - `GATEWAY_RATE_LIMIT_ENABLED`
+  - `GATEWAY_RATE_LIMIT_ENTRY_TTL_MS`
+  - `GATEWAY_RATE_LIMIT_CLEANUP_INTERVAL_MS`
+  - `GATEWAY_GLOBAL_IP_RATE_LIMIT_RPS`
+  - `GATEWAY_GLOBAL_IP_RATE_LIMIT_BURST`
+  - `GATEWAY_LOGIN_IP_RATE_LIMIT_RPS`
+  - `GATEWAY_LOGIN_IP_RATE_LIMIT_BURST`
+  - `GATEWAY_REGISTER_IP_RATE_LIMIT_RPS`
+  - `GATEWAY_REGISTER_IP_RATE_LIMIT_BURST`
+  - `GATEWAY_ADMIN_WRITE_USER_RATE_LIMIT_RPS`
+  - `GATEWAY_ADMIN_WRITE_USER_RATE_LIMIT_BURST`
+  - `GATEWAY_ADMIN_WRITE_ROUTE_RATE_LIMIT_RPS`
+  - `GATEWAY_ADMIN_WRITE_ROUTE_RATE_LIMIT_BURST`
+- `gateway/internal/middleware/ratelimit.go`
+  - 提供通用限流中间件
+  - 提供按 IP、按 IP + 路由、按用户、按接口的 key 生成策略
+  - 使用进程内存维护 limiter store，并按 TTL 做过期清理
+- `gateway/internal/handler/routes.go`
+  - 在 `/api/v1` 分组上接入全局 IP 限流
+- `gateway/internal/handler/user/routes.go`
+  - 在 `login/register` 路由级接入限流
+- `gateway/internal/handler/product/routes.go`
+  - 在商品管理写接口分组上接入用户限流和接口限流
+
+字段说明：
+
+- `GATEWAY_RATE_LIMIT_ENABLED`
+  - 是否开启网关限流总开关
+  - 关闭后所有第一阶段限流规则都不生效
+- `GATEWAY_RATE_LIMIT_ENTRY_TTL_MS`
+  - 单个限流 key 在内存 store 中的存活时间
+  - 超过该时间未再访问的 IP / 用户 / 路由桶会被视为过期并清理
+- `GATEWAY_RATE_LIMIT_CLEANUP_INTERVAL_MS`
+  - 后台执行过期清理的最小间隔
+  - 用于避免每次请求都遍历整个 limiter map
+- `GATEWAY_GLOBAL_IP_RATE_LIMIT_RPS`
+  - 所有 `/api/v1` 接口共享的单个 IP 每秒放行速率
+  - 用于给整个网关入口提供宽松兜底保护
+- `GATEWAY_GLOBAL_IP_RATE_LIMIT_BURST`
+  - 所有 `/api/v1` 接口共享的单个 IP 瞬时突发容量
+  - 用于容忍单个 IP 的短时访问峰值
+- `GATEWAY_LOGIN_IP_RATE_LIMIT_RPS`
+  - 登录接口单个 IP 的每秒放行速率
+  - 用于控制 `POST /api/v1/user/login` 的持续请求速度
+- `GATEWAY_LOGIN_IP_RATE_LIMIT_BURST`
+  - 登录接口单个 IP 的瞬时突发容量
+  - 允许短时间内超过 RPS 的小波峰流量
+- `GATEWAY_REGISTER_IP_RATE_LIMIT_RPS`
+  - 注册接口单个 IP 的每秒放行速率
+  - 通常应比登录更严格
+- `GATEWAY_REGISTER_IP_RATE_LIMIT_BURST`
+  - 注册接口单个 IP 的瞬时突发容量
+  - 控制注册接口短时间爆发流量
+- `GATEWAY_ADMIN_WRITE_USER_RATE_LIMIT_RPS`
+  - 商品管理写接口单个用户的每秒放行速率
+  - 用于限制同一管理员连续高频写操作
+- `GATEWAY_ADMIN_WRITE_USER_RATE_LIMIT_BURST`
+  - 商品管理写接口单个用户的瞬时突发容量
+  - 允许管理员在短时间内执行少量连续写请求
+- `GATEWAY_ADMIN_WRITE_ROUTE_RATE_LIMIT_RPS`
+  - 商品管理写接口单个路由的每秒放行速率
+  - 用于保护某个写接口被整体打爆
+- `GATEWAY_ADMIN_WRITE_ROUTE_RATE_LIMIT_BURST`
+  - 商品管理写接口单个路由的瞬时突发容量
+  - 用于给单个写接口保留有限的短时峰值承载能力
+
+口径说明：
+
+- `RPS`
+  - 表示 steady-state 的持续通过速率
+- `Burst`
+  - 表示桶容量，也就是允许短时间透支的请求数
+- `Entry TTL`
+  - 只影响 limiter 状态在内存里的保留时间，不影响单次请求的超时或缓存语义
+
+当前设计原则：
+
+- 只在 `gateway` 做第一层入口保护，不在 RPC 层同步引入第二套限流
+- 所有 `/api/v1` 先挂一层宽松的全局 IP 限流，再对重点接口叠加更严格规则
+- 先做单机内存版，不在当前阶段引入 Redis 分布式限流
+- 限流 key 使用稳定路由模板，而不是原始 URL，避免路径参数把桶打散
+- 对外继续沿用统一 JSON 错误包装，命中限流时返回“请求过于频繁，请稍后再试”
+
+### 3.2.1 测试覆盖
+
+- `gateway/internal/middleware/ratelimit_test.go`
+
+覆盖内容：
+
+- 同一个 key 在短时间内超过桶容量后会被拒绝
+- 不同 key 的限流桶互不影响
+- 全局 IP 限流会在不同路由之间共享同一个 IP 桶
+- 内存 store 会清理长时间不再访问的 limiter，避免 map 持续增长
+
+### 3.2.2 以后要做的限流
+
+当前第一阶段已经把网关入口的基础护栏补上，但后续限流仍有几项值得逐步推进。
+
+后续可考虑：
+
+- 分布式限流
+  - 当 `gateway` 进入多实例部署后，把当前内存 store 替换为 Redis 等共享存储
+  - 目标是让同一个 IP / 用户在不同网关实例之间共享同一份配额
+- 更细粒度的用户限流
+  - 当前主要保护登录、注册和商品管理写接口
+  - 后续可扩展到 `refresh_token`、用户管理写接口、订单相关写接口
+- 热点接口专项限流
+  - 对访问量明显偏高的单个接口设置独立配额
+  - 避免全局限流过松而热点接口仍被打爆
+- 按租户 / 角色 / 业务动作限流
+  - 当系统出现租户隔离、多角色运营、不同业务动作优先级时再引入
+  - 例如管理员写操作、普通用户下单、后台批量导入可使用不同配额
+- RPC 层自保护限流
+  - 当前不在 RPC 层重复做一套限流
+  - 后续当订单、库存、支付等核心服务出现明显资源争抢时，再在服务侧补自保护限流
+- 观测与告警
+  - 后续应补“限流命中次数、命中接口、命中 key 类型”的 metrics 和日志口径
+  - 让限流从“只能拦请求”变成“可观测、可调参”
+
+当前不急着做这些能力的原因：
+
+- 现阶段服务数量和实例规模还不大
+- 当前更需要先验证现有限流阈值是否合理
+- 过早引入分布式限流和复杂维度规则，会明显增加配置与排障复杂度
+
 ## 4. 当前应该先做的
 
-### 4.1 网关入口限流
-
-限流是当前最值得尽快落地的第二项能力。
-
-原因：
-
-- `gateway` 是统一对外入口
-- 登录、商品管理等接口已经具备被滥用或打爆的基础条件
-- 相比在每个服务分别补限流，网关限流的收益更直接
-
-建议先做：
-
-- 按 IP 限流
-- 按用户限流
-- 按接口限流
-
-建议先保护的接口：
-
-- `POST /api/v1/user/login`
-- `POST /api/v1/user/register`
-- 商品管理写接口
-
-当前阶段不必一开始就做分布式限流，本地令牌桶或固定窗口已经足够。
-
-### 4.2 运行与排障手册
+### 4.1 运行与排障手册
 
 这项能力看起来不像“治理代码”，但实际上是当前最缺的治理基础设施之一。
 
@@ -309,7 +429,7 @@ MeshCart 目前已经具备以下基础：
 - 没有统一 runbook 时，故障定位成本会明显上升
 - 后面继续加服务时，排障复杂度会继续放大
 
-### 4.3 最小验收测试
+### 4.2 最小验收测试
 
 严格来说这属于稳定性建设，但应该和治理基线一起推进。
 
@@ -321,6 +441,36 @@ MeshCart 目前已经具备以下基础：
 - 超时和异常响应的关键路径测试
 
 目标不是一次性把测试做满，而是保证治理相关能力不是“只写了配置，没有回归验证”。
+
+### 4.3 服务生命周期治理
+
+这项能力当前文档还没有单独展开，但它应该进入最小治理基线。
+
+建议补齐：
+
+- 服务启动期 health / readiness 检查
+- 服务关闭前的优雅停机
+- Consul 注销与实例摘流顺序
+- 发布、重启、异常退出时的最小运维约定
+
+原因：
+
+- 当前已经有 `gateway + user-service + product-service`，实例重启和发布不再只是“进程起停”问题
+- 如果实例还未 ready 就接流量，或者进程即将退出时仍继续接流量，会直接放大 5xx、timeout 和连接失败
+- 这类问题会表现成“偶发调用失败”，排查成本很高，但本质上属于生命周期治理缺失
+
+当前阶段建议先做到：
+
+- 对外暴露可用于存活与就绪判断的检查入口
+- 服务收到退出信号后，先停止接收新流量，再等待在途请求结束
+- 使用 Consul 时，明确“先摘流再停进程”还是“先停进程再注销”的统一约定，并写入 runbook
+- 让 `gateway` 和下游 RPC 服务都遵循同一套关闭流程，避免不同服务各写一套
+
+当前阶段先不追求：
+
+- 复杂的发布编排平台
+- 多批次灰度摘流
+- 自动化弹性伸缩联动
 
 ## 5. 当前可以先不做的
 
@@ -428,8 +578,9 @@ MeshCart 目前已经具备以下基础：
 1. 增加网关基础限流
 2. 补全运行与排障手册
 3. 增加最小联调与治理验收测试
-4. 继续推进下一个核心业务模块
-5. 根据真实调用链问题，再决定是否补重试、熔断、隔离
+4. 补服务生命周期治理
+5. 继续推进下一个核心业务模块
+6. 根据真实调用链问题，再决定是否补重试、熔断、隔离
 
 ## 9. 对下一步业务的建议
 
@@ -454,9 +605,9 @@ MeshCart 目前已经具备以下基础：
 
 当前应该先做的：
 
-- 网关入口限流
 - 运行与排障手册
 - 最小验收测试
+- 服务生命周期治理
 
 当前暂时不急着做的：
 

@@ -12,6 +12,7 @@ type Config struct {
 	Telemetry  TelemetryConfig
 	Metrics    MetricsConfig
 	Server     ServerConfig
+	RateLimit  RateLimitConfig
 	UserRPC    UserRPCConfig
 	ProductRPC ProductRPCConfig
 	JWT        JWTConfig
@@ -43,6 +44,22 @@ type ServerConfig struct {
 	WriteTimeout   time.Duration
 	IdleTimeout    time.Duration
 	RequestTimeout time.Duration
+}
+
+type RateLimitConfig struct {
+	Enabled         bool
+	EntryTTL        time.Duration
+	CleanupInterval time.Duration
+	GlobalIP        RateLimitRuleConfig
+	LoginIP         RateLimitRuleConfig
+	RegisterIP      RateLimitRuleConfig
+	AdminWriteUser  RateLimitRuleConfig
+	AdminWriteRoute RateLimitRuleConfig
+}
+
+type RateLimitRuleConfig struct {
+	RatePerSecond int
+	Burst         int
 }
 
 type UserRPCConfig struct {
@@ -94,6 +111,31 @@ func Load() Config {
 			WriteTimeout:   getEnvAsDuration("GATEWAY_WRITE_TIMEOUT_MS", 5*time.Second),
 			IdleTimeout:    getEnvAsDuration("GATEWAY_IDLE_TIMEOUT_MS", 60*time.Second),
 			RequestTimeout: getEnvAsDuration("GATEWAY_REQUEST_TIMEOUT_MS", 3*time.Second),
+		},
+		RateLimit: RateLimitConfig{
+			Enabled:         getEnvAsBool("GATEWAY_RATE_LIMIT_ENABLED", true),
+			EntryTTL:        getEnvAsDuration("GATEWAY_RATE_LIMIT_ENTRY_TTL_MS", 10*time.Minute),
+			CleanupInterval: getEnvAsDuration("GATEWAY_RATE_LIMIT_CLEANUP_INTERVAL_MS", time.Minute),
+			GlobalIP: RateLimitRuleConfig{
+				RatePerSecond: getEnvAsInt("GATEWAY_GLOBAL_IP_RATE_LIMIT_RPS", 50),
+				Burst:         getEnvAsInt("GATEWAY_GLOBAL_IP_RATE_LIMIT_BURST", 100),
+			},
+			LoginIP: RateLimitRuleConfig{
+				RatePerSecond: getEnvAsInt("GATEWAY_LOGIN_IP_RATE_LIMIT_RPS", 5),
+				Burst:         getEnvAsInt("GATEWAY_LOGIN_IP_RATE_LIMIT_BURST", 10),
+			},
+			RegisterIP: RateLimitRuleConfig{
+				RatePerSecond: getEnvAsInt("GATEWAY_REGISTER_IP_RATE_LIMIT_RPS", 2),
+				Burst:         getEnvAsInt("GATEWAY_REGISTER_IP_RATE_LIMIT_BURST", 5),
+			},
+			AdminWriteUser: RateLimitRuleConfig{
+				RatePerSecond: getEnvAsInt("GATEWAY_ADMIN_WRITE_USER_RATE_LIMIT_RPS", 3),
+				Burst:         getEnvAsInt("GATEWAY_ADMIN_WRITE_USER_RATE_LIMIT_BURST", 6),
+			},
+			AdminWriteRoute: RateLimitRuleConfig{
+				RatePerSecond: getEnvAsInt("GATEWAY_ADMIN_WRITE_ROUTE_RATE_LIMIT_RPS", 20),
+				Burst:         getEnvAsInt("GATEWAY_ADMIN_WRITE_ROUTE_RATE_LIMIT_BURST", 40),
+			},
 		},
 		UserRPC: UserRPCConfig{
 			ServiceName:    getEnv("USER_RPC_SERVICE", "meshcart.user"),
