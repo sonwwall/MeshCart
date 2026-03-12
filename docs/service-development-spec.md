@@ -553,6 +553,7 @@ internal span 命名建议：
 - repository 单测
 - 关键 RPC 行为测试
 - 关键治理行为测试
+- 关键链路验收测试
 
 ### 11.2 当前已形成的测试风格
 
@@ -568,6 +569,15 @@ internal span 命名建议：
   - 中间件行为测试验证 request-level timeout
 - 错误映射测试
   - 验证 timeout/unavailable 到对外文案的统一映射
+- Gateway 验收测试
+  - 放在 `gateway/integration`
+  - 起真实网关路由，替换下游 client 为测试桩
+  - 验证 `gateway -> service` 关键链路和治理接线是否真实生效
+- Consul 发现验收测试
+  - 放在 `gateway/integration`
+  - 起临时 Kitex 服务并注册到 Consul
+  - 用 `gateway/rpc/<module>` 的 Consul 模式 client 验证真实发现和调用
+  - 在本地 Consul 不可用时允许自动跳过
 
 ### 11.3 新增治理能力时的要求
 
