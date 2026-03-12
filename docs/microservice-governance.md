@@ -414,6 +414,10 @@ MeshCart 目前已经具备以下基础：
 
 这项能力看起来不像“治理代码”，但实际上是当前最缺的治理基础设施之一。
 
+当前落点：
+
+- [docs/runbook.md](/Users/ruitong/GolandProjects/MeshCart/docs/runbook.md)
+
 建议补齐：
 
 - 本地启动顺序
