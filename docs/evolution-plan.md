@@ -33,6 +33,9 @@
   - `gateway` 已提供 `/healthz`、`/readyz`
   - `user-service`、`product-service` 已在 admin 端口暴露 `/metrics`、`/healthz`、`/readyz`
   - `gateway`、`user-service`、`product-service` 已接入信号驱动的优雅停机
+  - 已补远程依赖场景下的启动前 TCP 连通性自检
+  - 已补 draining 窗口与停机前 `readyz` 摘流顺序
+  - 已补 Consul 停机后实例摘注册验收验证
 - 可观测性
   - 日志：Zap 结构化日志
   - 指标：Prometheus
@@ -84,20 +87,20 @@
 - `user-service` / `product-service` 在 admin 端口统一暴露 `/metrics`、`/healthz`、`/readyz`
 - 三个主服务都支持信号驱动的优雅停机
 - 宿主机启动脚本已统一补充 shutdown timeout 和探针入口提示
+- `gateway`、`user-service`、`product-service` 已补 preflight timeout 与远程依赖 TCP 连通性自检
 
 但还没有完全收口的部分包括：
 
-- 远程 MySQL / Redis 场景下的启动前自检
-- Consul 摘流与停机顺序的进一步文档化
 - 新服务复用同一套生命周期模板
 - 更细的 readiness 判定标准
+- Redis 接入主链路后的 preflight 收口
 
 ### 5.2 下一步建议
 
 优先补齐：
 
 - 宿主机启动契约的继续统一
-- 远程依赖检查与排障闭环
+- 远程依赖检查与排障闭环的继续细化
 - 服务停机流程的 runbook 固化
 - 新服务复用同一套健康检查与 shutdown 模板
 

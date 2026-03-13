@@ -61,6 +61,7 @@ func TestConsulAcceptance_UserRPCDiscovery(t *testing.T) {
 
 	t.Cleanup(func() {
 		_ = svr.Stop()
+		waitForConsulServiceGone(t, consulClient, serviceName)
 		select {
 		case err := <-serverErrCh:
 			if err != nil {
@@ -158,4 +159,19 @@ func waitForConsulService(t *testing.T, client *consulapi.Client, serviceName st
 	}
 
 	t.Fatalf("service %s did not become healthy in consul", serviceName)
+}
+
+func waitForConsulServiceGone(t *testing.T, client *consulapi.Client, serviceName string) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		entries, _, err := client.Health().Service(serviceName, "", true, nil)
+		if err == nil && len(entries) == 0 {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Fatalf("service %s did not deregister from consul in time", serviceName)
 }

@@ -6,6 +6,7 @@ import (
 	"meshcart/gateway/internal/middleware"
 	productrpc "meshcart/gateway/rpc/product"
 	userrpc "meshcart/gateway/rpc/user"
+	"sync/atomic"
 
 	jwtmw "github.com/hertz-contrib/jwt"
 )
@@ -17,6 +18,7 @@ type ServiceContext struct {
 	AccessControl *authz.AccessController
 	JWT           *jwtmw.HertzJWTMiddleware
 	RateLimiter   *middleware.RateLimitStore
+	Draining      *atomic.Bool
 }
 
 func NewServiceContext(cfg config.Config) *ServiceContext {
@@ -61,5 +63,6 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		AccessControl: accessController,
 		JWT:           jwtMiddleware,
 		RateLimiter:   middleware.NewRateLimitStore(cfg.RateLimit),
+		Draining:      &atomic.Bool{},
 	}
 }

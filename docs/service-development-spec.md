@@ -424,6 +424,12 @@ internal span 命名建议：
 - 网关入口限流第一阶段实现
 - `gateway -> rpc` 的 connect timeout / rpc timeout
 - `service -> db` 的 query timeout
+- 生命周期探针
+  - `/healthz`
+  - `/readyz`
+  - `/metrics`
+- 启动前 preflight
+- draining + 优雅停机
 
 当前网关限流约定：
 
@@ -495,7 +501,82 @@ internal span 命名建议：
 - repository 基于 `ctx` 做 DB timeout
 - 下游 RPC 调用保持 `ctx` 透传
 
-### 9.4 后续治理扩展
+### 9.4 新服务最小治理模板
+
+后续新增服务时，默认应直接复用当前 `gateway`、`user-service`、`product-service` 的治理接法，不要再单独发明一套。
+
+#### 9.4.1 Gateway 类服务
+
+至少应具备：
+
+- 主 HTTP 端口提供：
+  - `/healthz`
+  - `/readyz`
+- 启动前 preflight
+  - 当前至少检查注册中心等关键基础依赖
+- draining 状态
+  - 收到退出信号后先让 `readyz` 失败
+- drain timeout + shutdown timeout
+- 启动脚本打印：
+  - 关键地址
+  - timeout 配置
+  - probe 访问入口
+
+#### 9.4.2 RPC 服务
+
+至少应具备：
+
+- 独立 admin 端口
+  - `/metrics`
+  - `/healthz`
+  - `/readyz`
+- 启动前 preflight
+  - 当前至少检查 MySQL
+  - 使用 Consul 注册时还应检查 `CONSUL_ADDR`
+- `readyz` 应至少覆盖：
+  - draining 状态
+  - 关键依赖可用性
+- 停机流程统一为：
+  1. 收到退出信号
+  2. 进入 draining
+  3. `readyz` 失败
+  4. 等待 drain timeout
+  5. 调用 `server.Stop()`
+- 启动脚本打印：
+  - admin 地址
+  - probe 入口
+  - preflight timeout
+  - drain timeout
+  - shutdown timeout
+
+#### 9.4.3 配置命名约定
+
+新增服务时，生命周期配置建议保持统一命名风格：
+
+- `<SERVICE>_PREFLIGHT_TIMEOUT_MS`
+- `<SERVICE>_DRAIN_TIMEOUT_MS`
+- `<SERVICE>_SHUTDOWN_TIMEOUT_MS`
+
+其中 `<SERVICE>` 使用统一的大写服务前缀，例如：
+
+- `USER_SERVICE_*`
+- `PRODUCT_SERVICE_*`
+- `GATEWAY_*`
+
+#### 9.4.4 文档与测试要求
+
+新增服务完成最小治理接入后，至少还应同步：
+
+- `runbook`
+  - 启动方式
+  - probe 入口
+  - 常见排障
+- 服务设计文档
+  - admin/probe/preflight 约定
+- 最小测试
+  - 至少一条真实行为测试或集成验证
+
+### 9.5 后续治理扩展
 
 当前未落地但未来可能统一接入的能力：
 
@@ -599,11 +680,13 @@ internal span 命名建议：
 3. `rpc/handler` 是否按接口拆文件
 4. 配置是否进入 `config.Config`
 5. 是否接入日志、trace、metrics
-6. 是否接入 Consul 服务发现约定
-7. 是否接入当前 timeout 治理
-8. 是否定义服务私有错误码
-9. 是否补最小行为测试
-10. 是否同步更新文档
+6. 是否提供 `/healthz`、`/readyz`
+7. 是否接入 preflight、drain、shutdown timeout
+8. 是否接入 Consul 服务发现约定
+9. 是否接入当前 timeout 治理
+10. 是否定义服务私有错误码
+11. 是否补最小行为测试
+12. 是否同步更新文档
 
 ## 13. 文档同步规范
 

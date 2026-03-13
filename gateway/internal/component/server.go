@@ -33,16 +33,22 @@ func NewGatewayServer(cfg config.Config, svcCtx *svc.ServiceContext) *server.Her
 		hztrace.ServerMiddleware(traceCfg),
 		middleware.RequestTimeout(cfg.Server.RequestTimeout),
 	)
-	registerLifecycleRoutes(h)
+	registerLifecycleRoutes(h, svcCtx)
 	handler.Register(h, svcCtx)
 	return h
 }
 
-func StartServer(h *server.Hertz, cfg config.Config) {
+func StartServer(h *server.Hertz, cfg config.Config, svcCtx *svc.ServiceContext) {
 	logx.L(nil).Info("gateway starting", zap.String("addr", cfg.Server.Addr))
 	err := lifecycle.RunUntilSignal(
 		h.Run,
 		func(ctx context.Context) error {
+			if svcCtx != nil && svcCtx.Draining != nil {
+				svcCtx.Draining.Store(true)
+			}
+			if err := lifecycle.WaitForDrainWindow(ctx, cfg.Server.DrainTimeout); err != nil {
+				return err
+			}
 			logx.L(nil).Info("gateway shutting down", zap.Duration("timeout", cfg.Server.ShutdownTimeout))
 			return h.Shutdown(ctx)
 		},
@@ -53,11 +59,15 @@ func StartServer(h *server.Hertz, cfg config.Config) {
 	}
 }
 
-func registerLifecycleRoutes(h *server.Hertz) {
+func registerLifecycleRoutes(h *server.Hertz, svcCtx *svc.ServiceContext) {
 	h.GET("/healthz", func(_ context.Context, c *app.RequestContext) {
 		c.String(200, "ok service=gateway\n")
 	})
 	h.GET("/readyz", func(_ context.Context, c *app.RequestContext) {
+		if svcCtx != nil && svcCtx.Draining != nil && svcCtx.Draining.Load() {
+			c.String(503, "not ready service=gateway err=service is draining\n")
+			return
+		}
 		c.String(200, "ready service=gateway\n")
 	})
 }

@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -43,4 +44,23 @@ func RunUntilSignal(run func() error, stop StopFunc, timeout time.Duration) erro
 	}
 
 	return <-errCh
+}
+
+func WaitForDrainWindow(ctx context.Context, timeout time.Duration) error {
+	if timeout <= 0 {
+		return nil
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return ctx.Err()
+		}
+		return ctx.Err()
+	}
 }

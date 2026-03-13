@@ -42,6 +42,7 @@ func Run() {
 	defer initOpenTelemetry()()
 
 	cfg := loadConfig()
+	runPreflight(cfg)
 	runMigrations(cfg)
 	mysqlDB := initMySQL(cfg)
 	sqlDB, err := mysqlDB.DB()
@@ -61,6 +62,9 @@ func Run() {
 		svr.Run,
 		func(ctx context.Context) error {
 			draining.Store(true)
+			if err := lifecycle.WaitForDrainWindow(ctx, drainTimeout("USER_SERVICE_DRAIN_TIMEOUT_MS")); err != nil {
+				return err
+			}
 			logx.L(nil).Info("user-service shutting down", zap.Duration("timeout", shutdownTimeout()))
 			if adminServer != nil {
 				if err := adminServer.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -102,6 +106,26 @@ func loadConfig() config.Config {
 		logx.L(nil).Fatal("load config failed", zap.Error(err))
 	}
 	return cfg
+}
+
+func runPreflight(cfg config.Config) {
+	timeout := lifecycle.TimeoutFromMS(getEnvAsInt("USER_SERVICE_PREFLIGHT_TIMEOUT_MS", 1500), 1500*time.Millisecond)
+	checks := []lifecycle.PreflightCheck{
+		{Name: "mysql", Address: cfg.MySQL.Address},
+	}
+	if strings.EqualFold(getEnv("USER_SERVICE_REGISTRY", "consul"), "consul") {
+		checks = append(checks, lifecycle.PreflightCheck{
+			Name:    "consul",
+			Address: getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
+		})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := lifecycle.RunTCPPreflight(ctx, checks...); err != nil {
+		logx.L(nil).Fatal("user-service preflight failed", zap.Error(err), zap.Duration("timeout", timeout))
+	}
+	logx.L(nil).Info("user-service preflight passed", zap.Duration("timeout", timeout))
 }
 
 func runMigrations(cfg config.Config) {
@@ -216,6 +240,10 @@ func buildConsulCheck(serviceName string, serviceAddr *net.TCPAddr) *consulapi.A
 
 func shutdownTimeout() time.Duration {
 	return time.Duration(getEnvAsInt("USER_SERVICE_SHUTDOWN_TIMEOUT_MS", 5000)) * time.Millisecond
+}
+
+func drainTimeout(key string) time.Duration {
+	return time.Duration(getEnvAsInt(key, 500)) * time.Millisecond
 }
 
 func getEnvAsInt(key string, fallback int) int {
