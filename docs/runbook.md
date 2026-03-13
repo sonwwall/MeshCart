@@ -21,13 +21,16 @@
 
 - `gateway`
   - 对外提供 HTTP
+  - 提供 `healthz` / `readyz`
   - 通过 Consul 发现 `meshcart.user`、`meshcart.product`
 - `user-service`
   - 提供用户注册、登录、角色治理 RPC
   - 依赖 MySQL、Consul、OTel Collector
+  - 在 admin 端口同时暴露 `metrics` / `healthz` / `readyz`
 - `product-service`
   - 提供商品查询、商品管理 RPC
   - 依赖 MySQL、Consul、OTel Collector
+  - 在 admin 端口同时暴露 `metrics` / `healthz` / `readyz`
 - Docker 依赖
   - Consul
   - Prometheus
@@ -51,6 +54,7 @@
 启动前建议先确认：
 
 - MySQL 地址可连通
+- 如果使用远程 Redis，网络与鉴权信息可用
 - `docker compose` 可正常启动依赖容器
 - 项目根目录下 `logs/` 可写
 
@@ -110,9 +114,11 @@ docker compose logs --tail=120 promtail
 - 读取 `services/user-service/config/user-service.local.yaml`
 - RPC 监听地址默认 `127.0.0.1:8888`
 - 默认注册到 Consul：`127.0.0.1:8500`
-- 默认 metrics 地址：`:9091`
+- 默认 admin 地址：`:9091`
+- admin 端口暴露 `/metrics`、`/healthz`、`/readyz`
 - 默认使用 Consul TTL 健康检查
 - 启动时自动执行 migration
+- 收到退出信号时按统一 shutdown timeout 优雅停机
 
 常用环境变量：
 
@@ -123,6 +129,7 @@ export USER_SERVICE_ADDR=127.0.0.1:8888
 export USER_SERVICE_REGISTRY=consul
 export USER_SERVICE_CONSUL_TCP_CHECK=false
 export USER_METRICS_ADDR=:9091
+export USER_SERVICE_SHUTDOWN_TIMEOUT_MS=5000
 export CONSUL_ADDR=127.0.0.1:8500
 ```
 
@@ -131,6 +138,8 @@ export CONSUL_ADDR=127.0.0.1:8500
 - 控制台出现 `user-service starting`
 - Consul 中出现 `meshcart.user`
 - `http://127.0.0.1:9091/metrics` 可访问
+- `http://127.0.0.1:9091/healthz` 返回 `200`
+- `http://127.0.0.1:9091/readyz` 返回 `200`
 
 ### 6.2 启动 `product-service`
 
@@ -143,9 +152,11 @@ export CONSUL_ADDR=127.0.0.1:8500
 - 读取 `services/product-service/config/product-service.local.yaml`
 - RPC 监听地址默认 `127.0.0.1:8889`
 - 默认注册到 Consul：`127.0.0.1:8500`
-- 默认 metrics 地址：`:9093`
+- 默认 admin 地址：`:9093`
+- admin 端口暴露 `/metrics`、`/healthz`、`/readyz`
 - 默认使用 Consul TTL 健康检查
 - 启动时自动执行 migration
+- 收到退出信号时按统一 shutdown timeout 优雅停机
 
 常用环境变量：
 
@@ -156,6 +167,7 @@ export PRODUCT_SERVICE_ADDR=127.0.0.1:8889
 export PRODUCT_SERVICE_REGISTRY=consul
 export PRODUCT_SERVICE_CONSUL_TCP_CHECK=false
 export PRODUCT_METRICS_ADDR=:9093
+export PRODUCT_SERVICE_SHUTDOWN_TIMEOUT_MS=5000
 export CONSUL_ADDR=127.0.0.1:8500
 ```
 
@@ -164,6 +176,8 @@ export CONSUL_ADDR=127.0.0.1:8500
 - 控制台出现 `product-service starting`
 - Consul 中出现 `meshcart.product`
 - `http://127.0.0.1:9093/metrics` 可访问
+- `http://127.0.0.1:9093/healthz` 返回 `200`
+- `http://127.0.0.1:9093/readyz` 返回 `200`
 
 ### 6.3 启动 `gateway`
 
@@ -176,8 +190,10 @@ export CONSUL_ADDR=127.0.0.1:8500
 - HTTP 监听默认 `:8080`
 - 默认通过 Consul 发现 `meshcart.user`、`meshcart.product`
 - 默认 metrics 地址 `:9092/metrics`
+- 主业务端口额外暴露 `/healthz`、`/readyz`
 - 默认启用 JWT
 - 默认启用第一阶段网关限流
+- 收到退出信号时按统一 shutdown timeout 优雅停机
 
 常用环境变量：
 
@@ -202,6 +218,7 @@ export JWT_SECRET=meshcart-dev-secret-change-me
 export JWT_ISSUER=meshcart.gateway
 export JWT_TIMEOUT_MINUTES=120
 export JWT_MAX_REFRESH_MINUTES=720
+export GATEWAY_SHUTDOWN_TIMEOUT_MS=5000
 ```
 
 限流相关环境变量：
@@ -220,6 +237,8 @@ export GATEWAY_REGISTER_IP_RATE_LIMIT_BURST=5
 
 - 控制台出现 `gateway starting`
 - `http://127.0.0.1:9092/metrics` 可访问
+- `http://127.0.0.1:8080/healthz` 返回 `200`
+- `http://127.0.0.1:8080/readyz` 返回 `200`
 - 访问 `gateway` 接口时能返回 JSON 响应
 
 ## 7. 最小功能验证
@@ -277,6 +296,22 @@ curl http://127.0.0.1:8080/api/v1/products/detail/<product_id>
 - 如果列表和详情都能走通，说明 `gateway -> product-service` 基础链路正常
 - 如果注册、登录、`me` 能走通，说明 `gateway -> user-service` 基础链路正常
 
+### 7.7 生命周期探针检查
+
+```bash
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/readyz
+curl http://127.0.0.1:9091/healthz
+curl http://127.0.0.1:9091/readyz
+curl http://127.0.0.1:9093/healthz
+curl http://127.0.0.1:9093/readyz
+```
+
+预期：
+
+- 正常启动完成后全部返回 `200`
+- 服务进入停机流程后，`user-service` / `product-service` 的 `readyz` 会先转为非 `200`
+
 ## 8. 运行状态检查
 
 ### 8.1 Consul
@@ -294,10 +329,16 @@ curl http://127.0.0.1:8080/api/v1/products/detail/<product_id>
 
 ### 8.2 Metrics
 
-检查指标端点：
+检查 admin / 指标端点：
 
+- Gateway health：`http://127.0.0.1:8080/healthz`
+- Gateway ready：`http://127.0.0.1:8080/readyz`
 - Gateway：`http://127.0.0.1:9092/metrics`
+- User-service health：`http://127.0.0.1:9091/healthz`
+- User-service ready：`http://127.0.0.1:9091/readyz`
 - User-service：`http://127.0.0.1:9091/metrics`
+- Product-service health：`http://127.0.0.1:9093/healthz`
+- Product-service ready：`http://127.0.0.1:9093/readyz`
 - Product-service：`http://127.0.0.1:9093/metrics`
 
 再打开：
@@ -433,7 +474,23 @@ export PRODUCT_RPC_ADDR=127.0.0.1:8889
 
 如果服务端点有数据但 Prometheus 没抓到，优先看 Prometheus 配置或网络连通性。
 
-### 9.7 Jaeger 中查不到链路
+### 9.7 `readyz` 失败但进程仍在
+
+这通常不是“服务没启动”，而是“服务正在 drain 或依赖不可用”。
+
+优先检查：
+
+1. 是否正在执行优雅停机
+2. 对应服务的 MySQL 是否还能连通
+3. 是否刚收到退出信号，服务已进入摘流阶段
+
+当前实现里：
+
+- `healthz` 代表进程存活
+- `readyz` 代表当前可继续接流量
+- `user-service` / `product-service` 的 `readyz` 会检查数据库连通性，并在停机阶段主动返回失败
+
+### 9.8 Jaeger 中查不到链路
 
 排查顺序：
 
@@ -444,7 +501,7 @@ export PRODUCT_RPC_ADDR=127.0.0.1:8889
 
 如果只有 `gateway` 有 span、下游没有，优先怀疑 RPC 调用、下游服务启动状态或 trace 上报链路。
 
-### 9.8 Loki / Grafana 查不到业务日志
+### 9.9 Loki / Grafana 查不到业务日志
 
 排查顺序：
 
@@ -474,7 +531,19 @@ export PRODUCT_RPC_ADDR=127.0.0.1:8889
 
 这样能避免一开始就跳进监控面板里盲查。
 
-## 11. 常用回归测试
+## 11. 优雅停机约定
+
+当前阶段统一约定：
+
+1. 给进程发送 `SIGINT` 或 `SIGTERM`
+2. 服务先进入 shutdown 流程
+3. `user-service` / `product-service` 先让 `readyz` 失败，再调用 server stop
+4. Kitex server 停止接收新请求，并触发 Consul 注销
+5. metrics / health admin server 随后关闭
+
+本地手工停止时，推荐直接在前台进程里 `Ctrl+C`，不要用强制 kill。
+
+## 12. 常用回归测试
 
 当前建议优先运行：
 
@@ -490,7 +559,7 @@ go test ./services/product-service/...
 go test ./gateway/internal/middleware ./gateway/internal/component ./gateway/rpc/user ./gateway/rpc/product
 ```
 
-## 12. 相关文档
+## 13. 相关文档
 
 - [微服务治理规划](./microservice-governance.md)
 - [服务开发设计规范](./service-development-spec.md)

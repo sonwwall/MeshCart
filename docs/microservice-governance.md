@@ -545,6 +545,136 @@ MeshCart 目前已经具备以下基础：
 
 这项能力当前文档还没有单独展开，但它应该进入最小治理基线。
 
+当前第一阶段已经完成：
+
+- `gateway` 已提供 `/healthz`、`/readyz`
+- `user-service` / `product-service` 已在 admin 端口统一暴露 `/metrics`、`/healthz`、`/readyz`
+- `gateway`、`user-service`、`product-service` 已接入基于信号的优雅停机
+- 宿主机启动脚本已统一补充 shutdown timeout 与探针入口提示
+
+当前仍需继续补的部分：
+
+- runbook 中的远程 MySQL / Redis 启动前自检细节
+- 更明确的 Consul 摘流顺序说明
+- 新服务模板化复用
+
+#### 4.1.1 生命周期探针的含义
+
+当前第一阶段里新增的 `/healthz`、`/readyz`、`/metrics` 都是运维和治理接口，不是业务接口。
+
+它们的职责分别是：
+
+- `/healthz`
+  - 判断“进程是否还活着”
+  - 适合做存活检查
+- `/readyz`
+  - 判断“服务当前是否还能继续接收新流量”
+  - 适合做就绪检查和摘流判断
+- `/metrics`
+  - 暴露 Prometheus 可抓取的运行指标
+  - 用于监控，不用于健康判断
+
+可以把它们简单理解为：
+
+- `/healthz`：我还活着吗
+- `/readyz`：我现在能接新请求吗
+- `/metrics`：我运行得怎么样
+
+为什么要把 `/healthz` 和 `/readyz` 分开：
+
+- 一个服务可能“还活着”，但已经不适合继续接流量
+- 例如服务正在停机、正在摘流、关键依赖不可用
+- 这时 `healthz` 仍然可以成功，而 `readyz` 应该失败
+
+当前这些接口既可以手工访问，也可以被系统自动访问：
+
+- 手工访问
+  - 适合本地开发和排障时用 `curl` 检查
+- 系统自动访问
+  - 适合未来被发布脚本、调度系统、负载均衡或容器编排系统复用
+
+当前项目还没有完整的平台自动化持续调用这组接口，因此现阶段主要价值是：
+
+- 给开发和排障使用
+- 给 runbook 和后续自动化预留稳定入口
+
+#### 4.1.2 优雅停机的含义
+
+当前第一阶段里新增的“收到 `SIGINT` / `SIGTERM` 后执行优雅停机”，不是 HTTP 接口，而是服务主进程的统一退出流程。
+
+其中：
+
+- `SIGINT`
+  - 常见于前台运行服务时按 `Ctrl+C`
+- `SIGTERM`
+  - 常见于脚本、进程管理器或部署系统通知服务正常退出
+
+优雅停机的目标不是“立刻退出”，而是：
+
+1. 收到退出信号
+2. 先停止接收新流量
+3. 让在途请求尽量处理完成
+4. 再关闭 HTTP / RPC server
+5. 最后退出进程
+
+这样做的原因：
+
+- 避免正在处理的请求被直接打断
+- 避免出现偶发的连接重置、超时和下游调用失败
+- 让实例状态和 Consul / probe 状态更一致
+
+当前统一抽出的运行器，作用就是把这套信号处理和退出流程收口成公共逻辑，避免每个服务各写一套。
+
+#### 4.1.3 当前第一阶段的具体设计
+
+当前项目中的落地方式如下：
+
+- `gateway`
+  - 在主 HTTP 端口暴露 `/healthz`、`/readyz`
+  - 当前 `readyz` 表示网关进程处于可接流量状态
+- `user-service`
+  - 在 admin 端口暴露 `/metrics`、`/healthz`、`/readyz`
+  - 当前 `readyz` 会同时检查：
+    - 服务是否处于 draining
+    - MySQL 是否可连接
+- `product-service`
+  - 在 admin 端口暴露 `/metrics`、`/healthz`、`/readyz`
+  - 当前 `readyz` 同样会检查 draining 状态和 MySQL 连通性
+
+这意味着当前状态判断口径是：
+
+- `healthz` 成功
+  - 代表进程存活
+- `readyz` 成功
+  - 代表当前仍适合接新流量
+- `readyz` 失败但 `healthz` 成功
+  - 代表服务还没死，但不应继续接流量
+  - 常见于：
+    - 服务正在优雅停机
+    - 数据库不可用
+
+当前访问入口：
+
+- `gateway`
+  - `http://127.0.0.1:8080/healthz`
+  - `http://127.0.0.1:8080/readyz`
+- `user-service`
+  - `http://127.0.0.1:9091/healthz`
+  - `http://127.0.0.1:9091/readyz`
+  - `http://127.0.0.1:9091/metrics`
+- `product-service`
+  - `http://127.0.0.1:9093/healthz`
+  - `http://127.0.0.1:9093/readyz`
+  - `http://127.0.0.1:9093/metrics`
+
+当前停机流程约定：
+
+1. 服务收到 `SIGINT` / `SIGTERM`
+2. 服务进入 shutdown 流程
+3. `user-service` / `product-service` 先进入 draining，使 `readyz` 失败
+4. 服务停止接收新请求
+5. 在 shutdown timeout 内等待退出
+
 建议补齐：
 
 - 统一宿主机启动契约

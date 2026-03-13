@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ func TestNewGatewayServer_AppliesHTTPTimeouts(t *testing.T) {
 	cfg := gatewayconfig.Config{
 		Metrics: gatewayconfig.MetricsConfig{
 			Addr: ":0",
-			Path: "/metrics",
+			Path: "/metrics-lifecycle",
 		},
 		Server: gatewayconfig.ServerConfig{
 			Addr:         "127.0.0.1:0",
@@ -93,6 +94,51 @@ func TestHTTPReadTimeoutReturnsFrameworkBadRequest(t *testing.T) {
 	}
 	if !strings.Contains(string(resp), "Error when parsing request") {
 		t.Fatalf("expected framework parse error body, got %q", string(resp))
+	}
+}
+
+func TestNewGatewayServer_RegistersLifecycleRoutes(t *testing.T) {
+	addr := reserveTCPAddr(t)
+	cfg := gatewayconfig.Config{
+		Metrics: gatewayconfig.MetricsConfig{
+			Addr: ":0",
+			Path: "/metrics",
+		},
+		Server: gatewayconfig.ServerConfig{
+			Addr:            addr,
+			ReadTimeout:     time.Second,
+			WriteTimeout:    time.Second,
+			IdleTimeout:     time.Second,
+			RequestTimeout:  time.Second,
+			ShutdownTimeout: time.Second,
+		},
+	}
+
+	h := NewGatewayServer(cfg, &svc.ServiceContext{})
+	go func() {
+		_ = h.Run()
+	}()
+	waitForServer(t, addr)
+
+	t.Cleanup(func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = h.Shutdown(shutdownCtx)
+	})
+
+	for _, path := range []string{"/healthz", "/readyz"} {
+		resp, err := http.Get("http://" + addr + path)
+		if err != nil {
+			t.Fatalf("get %s: %v", path, err)
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			t.Fatalf("read %s body: %v", path, readErr)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d body=%q", path, resp.StatusCode, string(body))
+		}
 	}
 }
 

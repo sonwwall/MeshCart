@@ -2,11 +2,15 @@ package bootstrap
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/snowflake"
@@ -17,6 +21,7 @@ import (
 	kitextrace "github.com/kitex-contrib/obs-opentelemetry/tracing"
 	consul "github.com/kitex-contrib/registry-consul"
 
+	"meshcart/app/lifecycle"
 	logx "meshcart/app/log"
 	metricsx "meshcart/app/metrics"
 	productservice "meshcart/kitex_gen/meshcart/product/productservice"
@@ -45,13 +50,27 @@ func Run() {
 	}
 	defer sqlDB.Close()
 
-	startMetricsServer()
+	var draining atomic.Bool
+	adminServer := startAdminServer(sqlDB, &draining)
 
 	svc := initService(mysqlDB, cfg)
 	svr := newServer(cfg, svc)
 
 	logx.L(nil).Info("product-service starting")
-	if err := svr.Run(); err != nil {
+	if err := lifecycle.RunUntilSignal(
+		svr.Run,
+		func(ctx context.Context) error {
+			draining.Store(true)
+			logx.L(nil).Info("product-service shutting down", zap.Duration("timeout", shutdownTimeout()))
+			if adminServer != nil {
+				if err := adminServer.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					return err
+				}
+			}
+			return svr.Stop()
+		},
+		shutdownTimeout(),
+	); err != nil {
 		logx.L(nil).Error("product-service stopped with error", zap.Error(err))
 	}
 }
@@ -112,16 +131,27 @@ func initService(mysqlDB *gorm.DB, cfg config.Config) *bizservice.ProductService
 	return bizservice.NewProductService(repo, node)
 }
 
-func startMetricsServer() {
+func startAdminServer(sqlDB *sql.DB, draining *atomic.Bool) *http.Server {
 	metricsAddr := getEnv("PRODUCT_METRICS_ADDR", ":9093")
+	srv := &http.Server{
+		Addr: metricsAddr,
+		Handler: lifecycle.NewHTTPMux("product-service", metricsx.PromHandler(), func(ctx context.Context) error {
+			if draining != nil && draining.Load() {
+				return errors.New("service is draining")
+			}
+			pingCtx, cancel := context.WithTimeout(ctx, time.Second)
+			defer cancel()
+			return sqlDB.PingContext(pingCtx)
+		}),
+	}
+
 	go func() {
-		mux := http.NewServeMux()
-		mux.Handle("/metrics", metricsx.PromHandler())
-		logx.L(nil).Info("product-service metrics server starting", zap.String("addr", metricsAddr))
-		if err := http.ListenAndServe(metricsAddr, mux); err != nil {
-			logx.L(nil).Error("product-service metrics server stopped with error", zap.Error(err))
+		logx.L(nil).Info("product-service admin server starting", zap.String("addr", metricsAddr))
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logx.L(nil).Error("product-service admin server stopped with error", zap.Error(err))
 		}
 	}()
+	return srv
 }
 
 func newServer(cfg config.Config, svc *bizservice.ProductService) server.Server {
@@ -182,4 +212,20 @@ func buildConsulCheck(serviceName string, serviceAddr *net.TCPAddr) *consulapi.A
 		TTL:                            "10s",
 		DeregisterCriticalServiceAfter: "1m",
 	}
+}
+
+func shutdownTimeout() time.Duration {
+	return time.Duration(getEnvAsInt("PRODUCT_SERVICE_SHUTDOWN_TIMEOUT_MS", 5000)) * time.Millisecond
+}
+
+func getEnvAsInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
