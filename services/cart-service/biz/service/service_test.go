@@ -93,3 +93,63 @@ func TestCartService_UpdateCartItem_NotFound(t *testing.T) {
 		t.Fatalf("expected business error, got %+v", bizErr)
 	}
 }
+
+func TestCartService_GetCart_Success(t *testing.T) {
+	node, _ := snowflake.NewNode(1)
+	svc := NewCartService(&stubCartRepository{
+		listByUserIDFn: func(context.Context, int64) ([]*dalmodel.CartItem, error) {
+			return []*dalmodel.CartItem{
+				{
+					ID:                1,
+					UserID:            101,
+					ProductID:         2001,
+					SKUID:             3001,
+					Quantity:          2,
+					Checked:           true,
+					TitleSnapshot:     "MeshCart Tee",
+					SKUTitleSnapshot:  "Blue XL",
+					SalePriceSnapshot: 1999,
+					CoverURLSnapshot:  "cover.png",
+				},
+			}, nil
+		},
+	}, node)
+
+	items, bizErr := svc.GetCart(context.Background(), 101)
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if len(items) != 1 || items[0].GetSkuId() != 3001 {
+		t.Fatalf("unexpected items: %+v", items)
+	}
+}
+
+func TestCartService_RemoveAndClearCart(t *testing.T) {
+	node, _ := snowflake.NewNode(1)
+	var removed bool
+	var cleared bool
+	svc := NewCartService(&stubCartRepository{
+		deleteByIDFn: func(context.Context, int64, int64) error {
+			removed = true
+			return nil
+		},
+		clearByUserIDFn: func(context.Context, int64) error {
+			cleared = true
+			return nil
+		},
+	}, node)
+
+	if bizErr := svc.RemoveCartItem(context.Background(), 101, 1); bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if !removed {
+		t.Fatal("expected delete repository to be called")
+	}
+
+	if bizErr := svc.ClearCart(context.Background(), 101); bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if !cleared {
+		t.Fatal("expected clear repository to be called")
+	}
+}
