@@ -1,0 +1,18 @@
+mysql:
+  address: "49.235.163.191:13306"
+  username: "root"
+  password: "2FaJkFtkMkC3yeBK"
+  database: "meshcart_cart"
+  charset: "utf8mb4"
+  parse_time: true
+  loc: "Local"
+
+migration:
+  enabled: true
+  source: "file://services/cart-service/migrations"
+
+snowflake:
+  node: 3
+
+timeout:
+  db_query_ms: 1500

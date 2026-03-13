@@ -4,6 +4,7 @@ import (
 	"meshcart/gateway/config"
 	"meshcart/gateway/internal/authz"
 	"meshcart/gateway/internal/middleware"
+	cartrpc "meshcart/gateway/rpc/cart"
 	productrpc "meshcart/gateway/rpc/product"
 	userrpc "meshcart/gateway/rpc/user"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 type ServiceContext struct {
 	Config        config.Config
 	UserClient    userrpc.Client
+	CartClient    cartrpc.Client
 	ProductClient productrpc.Client
 	AccessControl *authz.AccessController
 	JWT           *jwtmw.HertzJWTMiddleware
@@ -29,6 +31,18 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		cfg.UserRPC.ConsulAddress,
 		cfg.UserRPC.ConnectTimeout,
 		cfg.UserRPC.RPCTimeout,
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	cartClient, err := cartrpc.NewClient(
+		cfg.CartRPC.ServiceName,
+		cfg.CartRPC.Address,
+		cfg.CartRPC.DiscoveryType,
+		cfg.CartRPC.ConsulAddress,
+		cfg.CartRPC.ConnectTimeout,
+		cfg.CartRPC.RPCTimeout,
 	)
 	if err != nil {
 		panic(err)
@@ -59,6 +73,7 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 	return &ServiceContext{
 		Config:        cfg,
 		UserClient:    userClient,
+		CartClient:    cartClient,
 		ProductClient: productClient,
 		AccessControl: accessController,
 		JWT:           jwtMiddleware,

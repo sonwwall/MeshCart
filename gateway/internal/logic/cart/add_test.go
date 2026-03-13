@@ -1,0 +1,196 @@
+package cart
+
+import (
+	"context"
+	"testing"
+
+	"meshcart/app/common"
+	"meshcart/gateway/config"
+	"meshcart/gateway/internal/authz"
+	"meshcart/gateway/internal/middleware"
+	"meshcart/gateway/internal/svc"
+	"meshcart/gateway/internal/types"
+	cartrpc "meshcart/gateway/rpc/cart"
+	productrpc "meshcart/gateway/rpc/product"
+	cartpb "meshcart/kitex_gen/meshcart/cart"
+	productpb "meshcart/kitex_gen/meshcart/product"
+)
+
+type stubCartClient struct {
+	getCartFn        func(context.Context, *cartpb.GetCartRequest) (*cartrpc.GetCartResponse, error)
+	addCartItemFn    func(context.Context, *cartpb.AddCartItemRequest) (*cartrpc.AddCartItemResponse, error)
+	updateCartItemFn func(context.Context, *cartpb.UpdateCartItemRequest) (*cartrpc.UpdateCartItemResponse, error)
+	removeCartItemFn func(context.Context, *cartpb.RemoveCartItemRequest) (*cartrpc.RemoveCartItemResponse, error)
+	clearCartFn      func(context.Context, *cartpb.ClearCartRequest) (*cartrpc.ClearCartResponse, error)
+}
+
+func (s *stubCartClient) GetCart(ctx context.Context, req *cartpb.GetCartRequest) (*cartrpc.GetCartResponse, error) {
+	if s.getCartFn != nil {
+		return s.getCartFn(ctx, req)
+	}
+	return &cartrpc.GetCartResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubCartClient) AddCartItem(ctx context.Context, req *cartpb.AddCartItemRequest) (*cartrpc.AddCartItemResponse, error) {
+	if s.addCartItemFn != nil {
+		return s.addCartItemFn(ctx, req)
+	}
+	return &cartrpc.AddCartItemResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubCartClient) UpdateCartItem(ctx context.Context, req *cartpb.UpdateCartItemRequest) (*cartrpc.UpdateCartItemResponse, error) {
+	if s.updateCartItemFn != nil {
+		return s.updateCartItemFn(ctx, req)
+	}
+	return &cartrpc.UpdateCartItemResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubCartClient) RemoveCartItem(ctx context.Context, req *cartpb.RemoveCartItemRequest) (*cartrpc.RemoveCartItemResponse, error) {
+	if s.removeCartItemFn != nil {
+		return s.removeCartItemFn(ctx, req)
+	}
+	return &cartrpc.RemoveCartItemResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubCartClient) ClearCart(ctx context.Context, req *cartpb.ClearCartRequest) (*cartrpc.ClearCartResponse, error) {
+	if s.clearCartFn != nil {
+		return s.clearCartFn(ctx, req)
+	}
+	return &cartrpc.ClearCartResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+type stubProductClient struct {
+	createProductFn    func(context.Context, *productpb.CreateProductRequest) (*productrpc.CreateProductResponse, error)
+	updateProductFn    func(context.Context, *productpb.UpdateProductRequest) (*productrpc.UpdateProductResponse, error)
+	changeStatusFn     func(context.Context, *productpb.ChangeProductStatusRequest) (*productrpc.ChangeProductStatusResponse, error)
+	getProductDetailFn func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error)
+	listProductsFn     func(context.Context, *productpb.ListProductsRequest) (*productrpc.ListProductsResponse, error)
+}
+
+func (s *stubProductClient) CreateProduct(ctx context.Context, req *productpb.CreateProductRequest) (*productrpc.CreateProductResponse, error) {
+	if s.createProductFn != nil {
+		return s.createProductFn(ctx, req)
+	}
+	return &productrpc.CreateProductResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubProductClient) UpdateProduct(ctx context.Context, req *productpb.UpdateProductRequest) (*productrpc.UpdateProductResponse, error) {
+	if s.updateProductFn != nil {
+		return s.updateProductFn(ctx, req)
+	}
+	return &productrpc.UpdateProductResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubProductClient) ChangeProductStatus(ctx context.Context, req *productpb.ChangeProductStatusRequest) (*productrpc.ChangeProductStatusResponse, error) {
+	if s.changeStatusFn != nil {
+		return s.changeStatusFn(ctx, req)
+	}
+	return &productrpc.ChangeProductStatusResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubProductClient) GetProductDetail(ctx context.Context, req *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+	if s.getProductDetailFn != nil {
+		return s.getProductDetailFn(ctx, req)
+	}
+	return &productrpc.GetProductDetailResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubProductClient) ListProducts(ctx context.Context, req *productpb.ListProductsRequest) (*productrpc.ListProductsResponse, error) {
+	if s.listProductsFn != nil {
+		return s.listProductsFn(ctx, req)
+	}
+	return &productrpc.ListProductsResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func newCartTestServiceContext(t *testing.T, cartClient cartrpc.Client, productClient productrpc.Client) *svc.ServiceContext {
+	t.Helper()
+
+	jwtMiddleware, err := middleware.NewJWT(config.JWTConfig{
+		Secret:            "test-secret",
+		Issuer:            "meshcart.gateway",
+		TimeoutMinutes:    120,
+		MaxRefreshMinutes: 720,
+	})
+	if err != nil {
+		t.Fatalf("create jwt middleware: %v", err)
+	}
+	accessController, err := authz.NewAccessController()
+	if err != nil {
+		t.Fatalf("create access controller: %v", err)
+	}
+
+	return &svc.ServiceContext{
+		CartClient:    cartClient,
+		ProductClient: productClient,
+		JWT:           jwtMiddleware,
+		AccessControl: accessController,
+	}
+}
+
+func TestAddLogic_ProductOffline(t *testing.T) {
+	logic := NewAddLogic(context.Background(), newCartTestServiceContext(t, &stubCartClient{}, &stubProductClient{
+		getProductDetailFn: func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+			return &productrpc.GetProductDetailResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Product: &productpb.Product{Id: 2001, Status: 1},
+			}, nil
+		},
+	}))
+
+	item, bizErr := logic.Add(101, &types.AddCartItemRequest{ProductID: 2001, SKUID: 3001, Quantity: 1})
+	if item != nil {
+		t.Fatalf("expected nil item, got %+v", item)
+	}
+	if bizErr != common.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %+v", bizErr)
+	}
+}
+
+func TestAddLogic_Success(t *testing.T) {
+	logic := NewAddLogic(context.Background(), newCartTestServiceContext(t, &stubCartClient{
+		addCartItemFn: func(_ context.Context, req *cartpb.AddCartItemRequest) (*cartrpc.AddCartItemResponse, error) {
+			if req.GetTitleSnapshot() != "MeshCart Tee" || req.GetSkuTitleSnapshot() != "Blue XL" {
+				t.Fatalf("unexpected snapshots: %+v", req)
+			}
+			return &cartrpc.AddCartItemResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Item: &cartpb.CartItem{
+					Id:                1,
+					ProductId:         req.GetProductId(),
+					SkuId:             req.GetSkuId(),
+					Quantity:          req.GetQuantity(),
+					Checked:           true,
+					TitleSnapshot:     req.GetTitleSnapshot(),
+					SkuTitleSnapshot:  req.GetSkuTitleSnapshot(),
+					SalePriceSnapshot: req.GetSalePriceSnapshot(),
+					CoverUrlSnapshot:  req.GetCoverUrlSnapshot(),
+				},
+			}, nil
+		},
+	}, &stubProductClient{
+		getProductDetailFn: func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+			return &productrpc.GetProductDetailResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Product: &productpb.Product{
+					Id:     2001,
+					Title:  "MeshCart Tee",
+					Status: 2,
+					Skus: []*productpb.ProductSku{
+						{Id: 3001, Title: "Blue XL", SalePrice: 1999, Status: 1, CoverUrl: "https://example.test/cover.png"},
+					},
+				},
+			}, nil
+		},
+	}))
+
+	item, bizErr := logic.Add(101, &types.AddCartItemRequest{ProductID: 2001, SKUID: 3001, Quantity: 2})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if item == nil || item.Quantity != 2 || item.SKUTitleSnapshot != "Blue XL" {
+		t.Fatalf("unexpected item: %+v", item)
+	}
+}

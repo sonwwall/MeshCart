@@ -11,10 +11,11 @@
 截至当前代码状态，项目已经完成的基础能力包括：
 
 - 架构基线
-  - `gateway + user-service + product-service` 已形成最小可用链路
+  - `gateway + user-service + product-service + cart-service` 已形成下一阶段业务主链路
   - `order-service`、`inventory-service`、`payment-service` 已有目录骨架，但仍未进入完整联调阶段
 - 服务发现
   - `gateway -> user-service`
+  - `gateway -> cart-service`
   - `gateway -> product-service`
   - 已支持 `Consul` 发现与 `direct` 直连回退
   - 已补充最小 Consul 验收测试
@@ -48,6 +49,7 @@
 - 测试
   - 已有 gateway 逻辑单测
   - 已有 user-service / product-service 仓储与服务层单测
+  - 已补 cart-service service 层与 gateway cart logic 单测
   - 已有 gateway 验收测试
   - 已有 Consul 服务发现验收测试
 
@@ -76,6 +78,11 @@
 5. 配置、安全与发布治理
 6. 新业务服务实装与统一治理复用
 7. 项目基本完成后，再推进业务服务容器化与 Compose 化
+
+补充判断：
+
+- `cart-service` 已经可以作为“治理模板复用”的第一条业务线继续完善
+- 下一条更合适的业务线仍然是 `inventory-service`，而不是直接进入 `order-service / payment-service`
 
 ## 5. P0：服务生命周期治理收口
 
