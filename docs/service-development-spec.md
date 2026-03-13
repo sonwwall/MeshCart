@@ -36,6 +36,7 @@ MeshCart 当前采用：
 - `gateway` 对外提供 HTTP
 - `services/*-service` 对内提供 Kitex RPC
 - `gateway` 通过 RPC 调用下游服务
+- 网关侧统一承担对外认证与授权
 - 服务内部按 `biz + dal + rpc` 分层
 - 可观测性统一复用 `app/log`、`app/trace`、`app/metrics`
 - 服务发现统一复用 Consul 约定
@@ -73,6 +74,9 @@ gateway/
   - 网关配置结构、环境变量解析
 - `internal/component`
   - 日志、OTel、HTTP Server、metrics 等组件装配
+- `internal/authz`
+  - 网关侧统一授权能力
+  - 当前主要承载 Casbin 模型与授权判定
 - `internal/handler`
   - HTTP 参数绑定、调用 logic、统一响应
 - `internal/logic`
@@ -94,6 +98,7 @@ gateway/
 - 不要把业务逻辑写进 `handler`
 - 不要让 `handler` 直接调下游 RPC client
 - `gateway/rpc` 只做 client 封装和协议转换，不写业务判断
+- 对外 HTTP 授权优先统一收口在 `gateway/internal/authz`
 
 ### 4.2 RPC 服务
 
@@ -217,11 +222,13 @@ services/<service>-service/
 - 调用一个或多个 RPC client
 - 对技术错误做统一映射
 - 组装最终返回对象
+- 在必要时结合资源数据做授权编排
 
 禁止：
 
 - 直接访问 `dal`
 - 承担长事务逻辑
+- 在各业务模块里分散复制角色判断 if/else
 
 ### 5.3 RPC Handler
 
@@ -430,6 +437,8 @@ internal span 命名建议：
   - `/metrics`
 - 启动前 preflight
 - draining + 优雅停机
+- 网关侧统一授权
+  - 当前使用 Casbin 做角色、资源、动作判定
 
 当前网关限流约定：
 
@@ -468,6 +477,58 @@ internal span 命名建议：
 - `RPS` 控制持续吞吐上限
 - `Burst` 控制短时间可容忍的峰值
 - 调大 `Burst` 不等于长期吞吐变高，只表示允许更大的瞬时波峰
+
+### 9.1.1 授权规范
+
+当前仓库已经落地 Casbin，后续新增模块默认应遵循以下授权约定：
+
+- Casbin 统一放在 `gateway` 层
+- 对外 HTTP 访问控制由网关统一执行
+- 下游 RPC 服务默认不直接承载 Casbin 策略执行
+- 角色来源统一来自用户域
+- JWT 中的 `role` 只作为登录态快照参与网关授权
+
+当前角色基线：
+
+- `guest`
+- `user`
+- `admin`
+- `superadmin`
+
+当前授权抽象方式：
+
+- `sub`
+  - 角色
+- `obj`
+  - 资源
+- `act`
+  - 动作
+- 动态属性
+  - 如 `owner`、`uid`、`status`
+
+新增模块接入授权时，优先遵循以下原则：
+
+- 不在 handler 中手写散落的角色判断
+- 不把“管理员万能”作为默认假设
+- 先定义资源和动作，再决定 matcher 需要哪些动态属性
+- 资源归属、资源状态、租户归属等动态条件应作为授权输入，而不是写死在多个业务 if/else 中
+- 平台治理权限与业务操作权限应尽量分离
+
+当前已验证模式：
+
+- 商品模块
+  - 公开读
+  - 私有读
+  - 创建
+  - 修改自己创建的资源
+- 用户角色管理
+  - 仅 `superadmin` 可修改角色
+
+如果后续新增模块需要授权，建议同步更新：
+
+- [casbin-design.md](./casbin-design.md)
+- 对应服务设计文档
+- 本文档中与通用规范相关的部分
 
 ### 9.2 预算关系
 
