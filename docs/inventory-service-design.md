@@ -274,9 +274,14 @@ services/inventory-service/
 - `user`
   - 不直接访问库存接口
 - `admin`
-  - 可访问后台库存查询和库存调整接口
+  - 可访问自己创建商品对应的库存查询和库存调整接口
 - `superadmin`
   - 可访问后台库存查询和库存调整接口
+
+补充约定：
+
+- `admin` 不能修改其他管理员创建商品对应的库存
+- `gateway` 会先通过商品服务查询 `sku_id` 对应商品归属，再决定是否放行库存读写
 
 ## 9. 接口设计
 
@@ -599,6 +604,12 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 3. 商品和 SKU 创建成功后，`gateway` 拿到新生成的 `sku_id`
 4. `gateway` 调用 `inventory-service.InitSkuStocks`
 5. `inventory-service` 为每个 `sku_id` 创建对应库存记录
+
+补充约定：
+
+- 即使请求中没有传 `initial_stock`，也会为该 SKU 创建库存记录
+- 未传时默认按 `0` 初始化
+- 因此当前设计保证“商品侧有 SKU，就应有对应库存记录”
 
 这个设计的核心原则是：
 

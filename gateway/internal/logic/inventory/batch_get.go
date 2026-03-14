@@ -35,6 +35,9 @@ func (l *BatchGetLogic) BatchGet(req *types.InventoryBatchGetRequest, identity *
 			return nil, common.ErrInvalidParam
 		}
 	}
+	if bizErr := ensureInventoryOwnership(l.ctx, l.svcCtx, req.SKUIDs, identity, false); bizErr != nil {
+		return nil, bizErr
+	}
 
 	resp, err := l.svcCtx.InventoryClient.BatchGetSkuStock(l.ctx, &inventorypb.BatchGetSkuStockRequest{SkuIds: req.SKUIDs})
 	if err != nil {

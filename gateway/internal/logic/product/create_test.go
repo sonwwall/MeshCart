@@ -22,6 +22,7 @@ type stubProductClient struct {
 	changeStatusFn     func(context.Context, *productpb.ChangeProductStatusRequest) (*productrpc.ChangeProductStatusResponse, error)
 	getProductDetailFn func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error)
 	listProductsFn     func(context.Context, *productpb.ListProductsRequest) (*productrpc.ListProductsResponse, error)
+	batchGetSkuFn      func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error)
 }
 
 func (s *stubProductClient) CreateProduct(ctx context.Context, req *productpb.CreateProductRequest) (*productrpc.CreateProductResponse, error) {
@@ -41,6 +42,12 @@ func (s *stubProductClient) GetProductDetail(ctx context.Context, req *productpb
 }
 func (s *stubProductClient) ListProducts(ctx context.Context, req *productpb.ListProductsRequest) (*productrpc.ListProductsResponse, error) {
 	return s.listProductsFn(ctx, req)
+}
+func (s *stubProductClient) BatchGetSKU(ctx context.Context, req *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
+	if s.batchGetSkuFn != nil {
+		return s.batchGetSkuFn(ctx, req)
+	}
+	return &productrpc.BatchGetSKUResponse{Code: common.CodeOK, Message: "成功"}, nil
 }
 
 type stubInventoryClient struct {
@@ -123,6 +130,45 @@ func TestCreateLogic_InitStocksAfterCreate(t *testing.T) {
 		t.Fatalf("expected nil error, got %+v", bizErr)
 	}
 	if data == nil || len(data.SKUs) != 1 || data.SKUs[0].ID != 3001 {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+}
+
+func TestCreateLogic_DefaultInitialStockToZero(t *testing.T) {
+	logic := NewCreateLogic(context.Background(), newCreateProductSvcCtx(t, &stubProductClient{
+		createProductFn: func(context.Context, *productpb.CreateProductRequest) (*productrpc.CreateProductResponse, error) {
+			return &productrpc.CreateProductResponse{
+				Code:      common.CodeOK,
+				Message:   "成功",
+				ProductID: 2002,
+				Skus: []*productpb.ProductSku{
+					{Id: 3002, SkuCode: "white-m"},
+				},
+			}, nil
+		},
+	}, &stubInventoryClient{
+		initSkuStocksFn: func(_ context.Context, req *inventorypb.InitSkuStocksRequest) (*inventoryrpc.InitSkuStocksResponse, error) {
+			if len(req.GetStocks()) != 1 {
+				t.Fatalf("expected one init stock item, got %+v", req.GetStocks())
+			}
+			if req.GetStocks()[0].GetSkuId() != 3002 || req.GetStocks()[0].GetTotalStock() != 0 {
+				t.Fatalf("expected default zero stock, got %+v", req.GetStocks()[0])
+			}
+			return &inventoryrpc.InitSkuStocksResponse{Code: common.CodeOK, Message: "成功"}, nil
+		},
+	}))
+
+	data, bizErr := logic.Create(&types.CreateProductRequest{
+		Title:  "Tee",
+		Status: productStatusOffline,
+		SKUs: []types.ProductSkuInput{
+			{SKUCode: "white-m", Title: "White M", SalePrice: 100, Status: 1},
+		},
+	}, &middleware.AuthIdentity{UserID: 1, Role: authz.RoleAdmin})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if data == nil || len(data.SKUs) != 1 || data.SKUs[0].ID != 3002 {
 		t.Fatalf("unexpected data: %+v", data)
 	}
 }

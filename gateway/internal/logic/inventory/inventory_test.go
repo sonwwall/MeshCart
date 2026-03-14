@@ -11,7 +11,9 @@ import (
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
 	inventoryrpc "meshcart/gateway/rpc/inventory"
+	productrpc "meshcart/gateway/rpc/product"
 	inventorypb "meshcart/kitex_gen/meshcart/inventory"
+	productpb "meshcart/kitex_gen/meshcart/product"
 )
 
 type stubInventoryClient struct {
@@ -20,6 +22,34 @@ type stubInventoryClient struct {
 	checkSaleableStockFn func(context.Context, *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error)
 	initSkuStocksFn      func(context.Context, *inventorypb.InitSkuStocksRequest) (*inventoryrpc.InitSkuStocksResponse, error)
 	adjustStockFn        func(context.Context, *inventorypb.AdjustStockRequest) (*inventoryrpc.AdjustStockResponse, error)
+}
+
+type stubProductClient struct {
+	createProductFn    func(context.Context, *productpb.CreateProductRequest) (*productrpc.CreateProductResponse, error)
+	updateProductFn    func(context.Context, *productpb.UpdateProductRequest) (*productrpc.UpdateProductResponse, error)
+	changeStatusFn     func(context.Context, *productpb.ChangeProductStatusRequest) (*productrpc.ChangeProductStatusResponse, error)
+	getProductDetailFn func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error)
+	listProductsFn     func(context.Context, *productpb.ListProductsRequest) (*productrpc.ListProductsResponse, error)
+	batchGetSkuFn      func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error)
+}
+
+func (s *stubProductClient) CreateProduct(ctx context.Context, req *productpb.CreateProductRequest) (*productrpc.CreateProductResponse, error) {
+	return s.createProductFn(ctx, req)
+}
+func (s *stubProductClient) UpdateProduct(ctx context.Context, req *productpb.UpdateProductRequest) (*productrpc.UpdateProductResponse, error) {
+	return s.updateProductFn(ctx, req)
+}
+func (s *stubProductClient) ChangeProductStatus(ctx context.Context, req *productpb.ChangeProductStatusRequest) (*productrpc.ChangeProductStatusResponse, error) {
+	return s.changeStatusFn(ctx, req)
+}
+func (s *stubProductClient) GetProductDetail(ctx context.Context, req *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+	return s.getProductDetailFn(ctx, req)
+}
+func (s *stubProductClient) ListProducts(ctx context.Context, req *productpb.ListProductsRequest) (*productrpc.ListProductsResponse, error) {
+	return s.listProductsFn(ctx, req)
+}
+func (s *stubProductClient) BatchGetSKU(ctx context.Context, req *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
+	return s.batchGetSkuFn(ctx, req)
 }
 
 func (s *stubInventoryClient) GetSkuStock(ctx context.Context, req *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error) {
@@ -70,8 +100,15 @@ func newInventorySvcCtx(t *testing.T, client inventoryrpc.Client) *svc.ServiceCo
 	}
 }
 
+func newInventorySvcCtxWithProduct(t *testing.T, inventoryClient inventoryrpc.Client, productClient productrpc.Client) *svc.ServiceContext {
+	t.Helper()
+	ctx := newInventorySvcCtx(t, inventoryClient)
+	ctx.ProductClient = productClient
+	return ctx
+}
+
 func TestGetLogic_Success(t *testing.T) {
-	logic := NewGetLogic(context.Background(), newInventorySvcCtx(t, &stubInventoryClient{
+	logic := NewGetLogic(context.Background(), newInventorySvcCtxWithProduct(t, &stubInventoryClient{
 		getSkuStockFn: func(context.Context, *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error) {
 			return &inventoryrpc.GetSkuStockResponse{
 				Code: common.CodeOK,
@@ -83,6 +120,13 @@ func TestGetLogic_Success(t *testing.T) {
 					SaleableStock:  9,
 				},
 			}, nil
+		},
+	}, &stubProductClient{
+		batchGetSkuFn: func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
+			return &productrpc.BatchGetSKUResponse{Code: common.CodeOK, Skus: []*productpb.ProductSku{{Id: 3001, SpuId: 2001}}}, nil
+		},
+		getProductDetailFn: func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+			return &productrpc.GetProductDetailResponse{Code: common.CodeOK, Product: &productpb.Product{Id: 2001, CreatorId: 1}}, nil
 		},
 	}))
 
@@ -96,7 +140,7 @@ func TestGetLogic_Success(t *testing.T) {
 }
 
 func TestAdjustLogic_Success(t *testing.T) {
-	logic := NewAdjustLogic(context.Background(), newInventorySvcCtx(t, &stubInventoryClient{
+	logic := NewAdjustLogic(context.Background(), newInventorySvcCtxWithProduct(t, &stubInventoryClient{
 		adjustStockFn: func(_ context.Context, req *inventorypb.AdjustStockRequest) (*inventoryrpc.AdjustStockResponse, error) {
 			if req.GetSkuId() != 3001 || req.GetTotalStock() != 20 {
 				t.Fatalf("unexpected adjust request: %+v", req)
@@ -112,6 +156,13 @@ func TestAdjustLogic_Success(t *testing.T) {
 				},
 			}, nil
 		},
+	}, &stubProductClient{
+		batchGetSkuFn: func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
+			return &productrpc.BatchGetSKUResponse{Code: common.CodeOK, Skus: []*productpb.ProductSku{{Id: 3001, SpuId: 2001}}}, nil
+		},
+		getProductDetailFn: func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+			return &productrpc.GetProductDetailResponse{Code: common.CodeOK, Product: &productpb.Product{Id: 2001, CreatorId: 1}}, nil
+		},
 	}))
 
 	data, bizErr := logic.Adjust(3001, &types.AdjustInventoryStockRequest{TotalStock: 20, Reason: "fix"}, &middleware.AuthIdentity{UserID: 1, Role: authz.RoleAdmin})
@@ -119,6 +170,60 @@ func TestAdjustLogic_Success(t *testing.T) {
 		t.Fatalf("expected nil error, got %+v", bizErr)
 	}
 	if data == nil || data.TotalStock != 20 {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+}
+
+func TestAdjustLogic_ForbiddenForOtherAdminProduct(t *testing.T) {
+	logic := NewAdjustLogic(context.Background(), newInventorySvcCtxWithProduct(t, &stubInventoryClient{
+		adjustStockFn: func(_ context.Context, _ *inventorypb.AdjustStockRequest) (*inventoryrpc.AdjustStockResponse, error) {
+			t.Fatal("adjust stock should not be called when ownership check fails")
+			return nil, nil
+		},
+	}, &stubProductClient{
+		batchGetSkuFn: func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
+			return &productrpc.BatchGetSKUResponse{Code: common.CodeOK, Skus: []*productpb.ProductSku{{Id: 3001, SpuId: 2001}}}, nil
+		},
+		getProductDetailFn: func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+			return &productrpc.GetProductDetailResponse{Code: common.CodeOK, Product: &productpb.Product{Id: 2001, CreatorId: 2}}, nil
+		},
+	}))
+
+	data, bizErr := logic.Adjust(3001, &types.AdjustInventoryStockRequest{TotalStock: 20, Reason: "fix"}, &middleware.AuthIdentity{UserID: 1, Role: authz.RoleAdmin})
+	if data != nil {
+		t.Fatalf("expected nil data, got %+v", data)
+	}
+	if bizErr != errOwnInventoryRequired {
+		t.Fatalf("expected errOwnInventoryRequired, got %+v", bizErr)
+	}
+}
+
+func TestGetLogic_SuperAdminCanReadAnyInventory(t *testing.T) {
+	logic := NewGetLogic(context.Background(), newInventorySvcCtxWithProduct(t, &stubInventoryClient{
+		getSkuStockFn: func(context.Context, *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error) {
+			return &inventoryrpc.GetSkuStockResponse{
+				Code: common.CodeOK,
+				Stock: &inventorypb.SkuStock{
+					SkuId:          3001,
+					TotalStock:     10,
+					ReservedStock:  1,
+					AvailableStock: 9,
+					SaleableStock:  9,
+				},
+			}, nil
+		},
+	}, &stubProductClient{
+		batchGetSkuFn: func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
+			t.Fatal("superadmin should bypass ownership lookup")
+			return nil, nil
+		},
+	}))
+
+	data, bizErr := logic.Get(3001, &middleware.AuthIdentity{UserID: 99, Role: authz.RoleSuperAdmin})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if data == nil || data.SKUID != 3001 {
 		t.Fatalf("unexpected data: %+v", data)
 	}
 }

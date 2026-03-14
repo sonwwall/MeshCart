@@ -67,6 +67,7 @@ type stubProductClient struct {
 	changeStatusFn     func(context.Context, *productpb.ChangeProductStatusRequest) (*productrpc.ChangeProductStatusResponse, error)
 	getProductDetailFn func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error)
 	listProductsFn     func(context.Context, *productpb.ListProductsRequest) (*productrpc.ListProductsResponse, error)
+	batchGetSkuFn      func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error)
 }
 
 func (s *stubProductClient) CreateProduct(ctx context.Context, req *productpb.CreateProductRequest) (*productrpc.CreateProductResponse, error) {
@@ -102,6 +103,13 @@ func (s *stubProductClient) ListProducts(ctx context.Context, req *productpb.Lis
 		return s.listProductsFn(ctx, req)
 	}
 	return &productrpc.ListProductsResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubProductClient) BatchGetSKU(ctx context.Context, req *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
+	if s.batchGetSkuFn != nil {
+		return s.batchGetSkuFn(ctx, req)
+	}
+	return &productrpc.BatchGetSKUResponse{Code: common.CodeOK, Message: "成功"}, nil
 }
 
 type stubInventoryClient struct {

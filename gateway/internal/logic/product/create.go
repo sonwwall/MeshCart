@@ -118,13 +118,10 @@ func validateInitialStocks(items []types.ProductSkuInput) *common.BizError {
 
 func (l *CreateLogic) initStocksAfterProductCreate(ctx context.Context, req *types.CreateProductRequest, resp *productrpc.CreateProductResponse, operatorID int64) *common.BizError {
 	initItems := buildInitStockItems(req.SKUs, resp.Skus)
-	if len(initItems) != countRequestedInitialStocks(req.SKUs) {
+	if len(initItems) != len(resp.Skus) {
 		logx.L(ctx).Error("created sku ids do not match requested initial stocks", zap.Int64("product_id", resp.ProductID))
 		l.bestEffortDemoteProduct(ctx, resp.ProductID, req.Status, operatorID)
 		return common.ErrInternalError
-	}
-	if len(initItems) == 0 {
-		return nil
 	}
 
 	initResp, err := l.svcCtx.InventoryClient.InitSkuStocks(ctx, &inventorypb.InitSkuStocksRequest{Stocks: initItems})
@@ -146,10 +143,11 @@ func buildInitStockItems(requestSKUs []types.ProductSkuInput, createdSKUs []*pro
 	}
 	stockByCode := make(map[string]int64, len(requestSKUs))
 	for _, sku := range requestSKUs {
-		if sku.InitialStock == nil {
-			continue
+		stock := int64(0)
+		if sku.InitialStock != nil {
+			stock = *sku.InitialStock
 		}
-		stockByCode[strings.TrimSpace(sku.SKUCode)] = *sku.InitialStock
+		stockByCode[strings.TrimSpace(sku.SKUCode)] = stock
 	}
 	result := make([]*inventorypb.InitSkuStockItem, 0, len(stockByCode))
 	for _, sku := range createdSKUs {
@@ -163,16 +161,6 @@ func buildInitStockItems(requestSKUs []types.ProductSkuInput, createdSKUs []*pro
 		})
 	}
 	return result
-}
-
-func countRequestedInitialStocks(items []types.ProductSkuInput) int {
-	count := 0
-	for _, item := range items {
-		if item.InitialStock != nil {
-			count++
-		}
-	}
-	return count
 }
 
 func (l *CreateLogic) bestEffortDemoteProduct(ctx context.Context, productID int64, requestedStatus int32, operatorID int64) {

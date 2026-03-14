@@ -30,6 +30,9 @@ func (l *GetLogic) Get(skuID int64, identity *middleware.AuthIdentity) (*types.I
 	if bizErr := requireInventoryRead(identity, l.svcCtx.AccessControl); bizErr != nil {
 		return nil, bizErr
 	}
+	if bizErr := ensureInventoryOwnership(l.ctx, l.svcCtx, []int64{skuID}, identity, false); bizErr != nil {
+		return nil, bizErr
+	}
 
 	resp, err := l.svcCtx.InventoryClient.GetSkuStock(l.ctx, &inventorypb.GetSkuStockRequest{SkuId: skuID})
 	if err != nil {

@@ -928,6 +928,7 @@ GET /api/v1/products/detail/192000000000000001
 
 - `initial_stock` 是管理端创建商品时可选携带的初始库存
 - 该字段只作为 `gateway` 编排库存初始化的输入，不会落到 `product-service` 自己的库表中
+- 如果不传 `initial_stock`，当前按 `0` 处理，并仍然会在库存服务中创建对应库存记录
 
 成功响应示例：
 

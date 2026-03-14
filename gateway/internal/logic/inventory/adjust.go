@@ -30,6 +30,9 @@ func (l *AdjustLogic) Adjust(skuID int64, req *types.AdjustInventoryStockRequest
 	if bizErr := requireInventoryWrite(identity, l.svcCtx.AccessControl); bizErr != nil {
 		return nil, bizErr
 	}
+	if bizErr := ensureInventoryOwnership(l.ctx, l.svcCtx, []int64{skuID}, identity, true); bizErr != nil {
+		return nil, bizErr
+	}
 
 	resp, err := l.svcCtx.InventoryClient.AdjustStock(l.ctx, &inventorypb.AdjustStockRequest{
 		SkuId:      skuID,
