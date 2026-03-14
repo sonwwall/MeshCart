@@ -53,13 +53,15 @@ func (s *ProductService) buildModelsForWrite(
 		skuCode := strings.TrimSpace(sku.SkuCode)
 		skuTitle := strings.TrimSpace(sku.Title)
 		coverURL := strings.TrimSpace(sku.CoverUrl)
-		if skuCode == "" || skuTitle == "" || sku.SalePrice < 0 || sku.MarketPrice < 0 || !isValidSKUStatus(sku.Status) {
+		if skuTitle == "" || sku.SalePrice < 0 || sku.MarketPrice < 0 || !isValidSKUStatus(sku.Status) {
 			return nil, nil, common.ErrInvalidParam
 		}
-		if _, exists := skuCodeSet[skuCode]; exists {
-			return nil, nil, mapRepositoryError(repository.ErrSKUCodeExists)
+		if skuCode != "" {
+			if _, exists := skuCodeSet[skuCode]; exists {
+				return nil, nil, mapRepositoryError(repository.ErrSKUCodeExists)
+			}
+			skuCodeSet[skuCode] = struct{}{}
 		}
-		skuCodeSet[skuCode] = struct{}{}
 
 		skuID := int64(0)
 		providedID := sku.IsSetId()

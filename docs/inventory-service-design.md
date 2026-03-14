@@ -610,6 +610,8 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 - 即使请求中没有传 `initial_stock`，也会为该 SKU 创建库存记录
 - 未传时默认按 `0` 初始化
 - 因此当前设计保证“商品侧有 SKU，就应有对应库存记录”
+- 商品创建时的 `sku_code` 现在只是可选业务编码，不参与库存初始化映射
+- `gateway` 按创建返回的 `sku_id` 顺序调用 `InitSkuStocks`，库存域只依赖 `sku_id`
 
 这个设计的核心原则是：
 

@@ -137,6 +137,8 @@ SKU 表示具体可售卖单元，例如颜色、规格的组合。
 
 - `sale_price` 使用最小货币单位存储，即“分”
 - 如果后续支持多币种，再单独引入 `currency`
+- `sku_id` 才是系统内部真实标识，`sku_code` 当前只保留为可选业务编码
+- `sku_code` 不再要求全局唯一；如果管理端不传，系统按空串处理
 
 ### 4.3 SKU 销售属性
 
@@ -226,7 +228,7 @@ CREATE TABLE `products` (
 CREATE TABLE `product_skus` (
   `id` BIGINT NOT NULL,
   `spu_id` BIGINT NOT NULL,
-  `sku_code` VARCHAR(64) NOT NULL,
+  `sku_code` VARCHAR(64) NOT NULL DEFAULT '',
   `title` VARCHAR(255) NOT NULL,
   `sale_price` BIGINT NOT NULL,
   `market_price` BIGINT NOT NULL DEFAULT 0,
@@ -235,7 +237,7 @@ CREATE TABLE `product_skus` (
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_sku_code` (`sku_code`),
+  KEY `idx_sku_code` (`sku_code`),
   KEY `idx_spu_id` (`spu_id`),
   KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -245,7 +247,7 @@ CREATE TABLE `product_skus` (
 
 - `id`：SKU 主键
 - `spu_id`：所属 SPU ID
-- `sku_code`：SKU 编码，对外系统应保持稳定
+- `sku_code`：可选业务编码，主要给商家侧对账、ERP 或人工识别使用
 - `title`：SKU 展示标题
 - `sale_price`：销售价，单位分
 - `market_price`：划线价或市场价
@@ -257,7 +259,7 @@ CREATE TABLE `product_skus` (
 关键约束：
 
 - 主键：`id`
-- 唯一索引：`uk_sku_code`
+- 普通索引：`idx_sku_code`
 - 索引：`idx_spu_id`
 - 索引：`idx_status`
 
@@ -265,6 +267,9 @@ CREATE TABLE `product_skus` (
 
 - 一个 `products` 可以对应多个 `product_skus`
 - 下游交易链路通常更关心 SKU，而不是 SPU
+- 商品、库存、购物车、订单等内部协作统一使用 `sku_id`
+- `sku_code` 当前不是系统内部主键，也不要求商家必须填写
+- 当前仅在“同一次创建/更新请求”内限制非空 `sku_code` 不可重复，用于避免单商品内编码混淆
 - 商品创建成功后，SKU ID 也会作为库存服务初始化库存记录的关联键
 - 订单落库时建议保存 `sku_id`、`sku_code`、`title`、`sale_price` 等快照字段
 
@@ -556,7 +561,7 @@ services/product-service/
 各文件说明如下：
 
 - `biz/dto/dto.go`：当前仍是预留文件，后续如果商品域出现独立 DTO，可在这里定义。
-- `biz/errno/errors.go`：商品域业务错误码定义，如商品不存在、SKU 不存在、SKU 编码重复。
+- `biz/errno/errors.go`：商品域业务错误码定义，如商品不存在、SKU 不存在、SKU 编码冲突。
 - `biz/handler/handler.go`：当前仍是预留文件；如果后续引入 service 内部适配层，可在这里承接。
 - `biz/model/model.go`：当前仍是预留文件；如果后续需要独立领域模型，可放在这里。
 - `biz/repository/repository.go`：仓储接口和 MySQL 实现，负责商品聚合的读写、事务更新、列表查询、SKU 查询。
@@ -582,6 +587,8 @@ services/product-service/
 - `migrations/000003_create_product_sku_attrs.down.sql`：回滚 SKU 属性表。
 - `migrations/000004_add_product_owner_fields.up.sql`：增加商品创建者与最后更新人字段。
 - `migrations/000004_add_product_owner_fields.down.sql`：回滚商品创建者与最后更新人字段。
+- `migrations/000005_relax_product_sku_code_constraint.up.sql`：放宽 SKU 编码约束，取消全局唯一并补普通索引。
+- `migrations/000005_relax_product_sku_code_constraint.down.sql`：回滚 SKU 编码约束变更。
 - `rpc/main.go`：商品服务启动入口，只保留 `bootstrap.Run()` 调用。
 - `rpc/bootstrap/bootstrap.go`：启动装配层，负责日志、OTel、配置、数据库、Snowflake、metrics、RPC Server 初始化。
 - `rpc/handler/handler.go`：`ProductServiceImpl` 定义和构造函数。
@@ -685,7 +692,7 @@ gateway/
 
 - `2020001`：商品不存在
 - `2020002`：SKU 不存在
-- `2020005`：SKU 编码已存在
+- `2020005`：SKU 编码冲突
 - `1000001`：请求参数错误
 - `1009999`：系统内部错误
 
@@ -929,6 +936,8 @@ GET /api/v1/products/detail/192000000000000001
 - `initial_stock` 是管理端创建商品时可选携带的初始库存
 - 该字段只作为 `gateway` 编排库存初始化的输入，不会落到 `product-service` 自己的库表中
 - 如果不传 `initial_stock`，当前按 `0` 处理，并仍然会在库存服务中创建对应库存记录
+- `sku_code` 当前为可选字段；如果不传，系统仍会创建商品和库存记录
+- 库存初始化当前按创建返回的 `sku_id` 顺序执行，不依赖 `sku_code` 做映射
 
 成功响应示例：
 
@@ -969,6 +978,8 @@ GET /api/v1/products/detail/192000000000000001
 - 当前删除 SKU 只会影响商品侧数据
 - 不会自动删除库存服务中的库存记录
 - 后续更合理的设计是：SKU 删除或失效时，同步把库存状态收口为 `frozen`
+- `sku_code` 在更新接口中同样为可选字段；不传或传空表示该 SKU 没有业务编码
+- 当前只校验同一次请求里的非空 `sku_code` 不重复，不再要求全局唯一
 
 推荐调用顺序：
 

@@ -172,3 +172,51 @@ func TestCreateLogic_DefaultInitialStockToZero(t *testing.T) {
 		t.Fatalf("unexpected data: %+v", data)
 	}
 }
+
+func TestCreateLogic_AllowsEmptySKUCodeAndInitializesByOrder(t *testing.T) {
+	initial := int64(8)
+	logic := NewCreateLogic(context.Background(), newCreateProductSvcCtx(t, &stubProductClient{
+		createProductFn: func(_ context.Context, req *productpb.CreateProductRequest) (*productrpc.CreateProductResponse, error) {
+			if len(req.GetSkus()) != 2 || req.GetSkus()[0].GetSkuCode() != "" || req.GetSkus()[1].GetSkuCode() != "" {
+				t.Fatalf("expected empty sku_code values to be allowed, got %+v", req.GetSkus())
+			}
+			return &productrpc.CreateProductResponse{
+				Code:      common.CodeOK,
+				Message:   "成功",
+				ProductID: 2003,
+				Skus: []*productpb.ProductSku{
+					{Id: 3003, SkuCode: ""},
+					{Id: 3004, SkuCode: ""},
+				},
+			}, nil
+		},
+	}, &stubInventoryClient{
+		initSkuStocksFn: func(_ context.Context, req *inventorypb.InitSkuStocksRequest) (*inventoryrpc.InitSkuStocksResponse, error) {
+			if len(req.GetStocks()) != 2 {
+				t.Fatalf("expected two init stock items, got %+v", req.GetStocks())
+			}
+			if req.GetStocks()[0].GetSkuId() != 3003 || req.GetStocks()[0].GetTotalStock() != 0 {
+				t.Fatalf("unexpected first init stock item: %+v", req.GetStocks()[0])
+			}
+			if req.GetStocks()[1].GetSkuId() != 3004 || req.GetStocks()[1].GetTotalStock() != 8 {
+				t.Fatalf("unexpected second init stock item: %+v", req.GetStocks()[1])
+			}
+			return &inventoryrpc.InitSkuStocksResponse{Code: common.CodeOK, Message: "成功"}, nil
+		},
+	}))
+
+	data, bizErr := logic.Create(&types.CreateProductRequest{
+		Title:  "Tee",
+		Status: productStatusOffline,
+		SKUs: []types.ProductSkuInput{
+			{Title: "Blue M", SalePrice: 100, Status: 1},
+			{Title: "Blue L", SalePrice: 120, Status: 1, InitialStock: &initial},
+		},
+	}, &middleware.AuthIdentity{UserID: 1, Role: authz.RoleAdmin})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if data == nil || len(data.SKUs) != 2 || data.SKUs[0].ID != 3003 || data.SKUs[1].ID != 3004 {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+}

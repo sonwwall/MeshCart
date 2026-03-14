@@ -24,7 +24,7 @@ func (Product) TableName() string {
 type ProductSKU struct {
 	ID          int64            `gorm:"column:id;primaryKey"`
 	SPUID       int64            `gorm:"column:spu_id;index:idx_spu_id;not null"`
-	SKUCode     string           `gorm:"column:sku_code;type:varchar(64);uniqueIndex:uk_sku_code;not null"`
+	SKUCode     string           `gorm:"column:sku_code;type:varchar(64);not null;default:'';index:idx_sku_code"`
 	Title       string           `gorm:"column:title;type:varchar(255);not null"`
 	SalePrice   int64            `gorm:"column:sale_price;not null"`
 	MarketPrice int64            `gorm:"column:market_price;not null;default:0"`

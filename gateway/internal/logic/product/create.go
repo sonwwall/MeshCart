@@ -138,25 +138,17 @@ func (l *CreateLogic) initStocksAfterProductCreate(ctx context.Context, req *typ
 }
 
 func buildInitStockItems(requestSKUs []types.ProductSkuInput, createdSKUs []*productpb.ProductSku) []*inventorypb.InitSkuStockItem {
-	if len(requestSKUs) == 0 || len(createdSKUs) == 0 {
+	if len(requestSKUs) == 0 || len(createdSKUs) == 0 || len(requestSKUs) != len(createdSKUs) {
 		return nil
 	}
-	stockByCode := make(map[string]int64, len(requestSKUs))
-	for _, sku := range requestSKUs {
+	result := make([]*inventorypb.InitSkuStockItem, 0, len(createdSKUs))
+	for idx, sku := range requestSKUs {
 		stock := int64(0)
 		if sku.InitialStock != nil {
 			stock = *sku.InitialStock
 		}
-		stockByCode[strings.TrimSpace(sku.SKUCode)] = stock
-	}
-	result := make([]*inventorypb.InitSkuStockItem, 0, len(stockByCode))
-	for _, sku := range createdSKUs {
-		stock, ok := stockByCode[strings.TrimSpace(sku.GetSkuCode())]
-		if !ok {
-			continue
-		}
 		result = append(result, &inventorypb.InitSkuStockItem{
-			SkuId:      sku.GetId(),
+			SkuId:      createdSKUs[idx].GetId(),
 			TotalStock: stock,
 		})
 	}
