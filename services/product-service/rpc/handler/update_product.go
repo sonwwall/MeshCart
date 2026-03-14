@@ -19,11 +19,14 @@ func (s *ProductServiceImpl) UpdateProduct(ctx context.Context, request *product
 		metricsx.ObserveRPC("product-service", "update_product", code, time.Since(start))
 	}()
 
-	bizErr := s.svc.UpdateProduct(ctx, request)
+	skus, bizErr := s.svc.UpdateProduct(ctx, request)
 	if bizErr != nil {
 		code = bizErr.Code
 		logx.L(ctx).Warn("update product failed", zap.Int64("product_id", request.ProductId), zap.Int32("code", bizErr.Code), zap.String("message", bizErr.Msg))
 		return &productpb.UpdateProductResponse{Base: &base.BaseResponse{Code: bizErr.Code, Message: bizErr.Msg}}, nil
 	}
-	return &productpb.UpdateProductResponse{Base: &base.BaseResponse{Code: 0, Message: "成功"}}, nil
+	return &productpb.UpdateProductResponse{
+		Skus: skus,
+		Base: &base.BaseResponse{Code: 0, Message: "成功"},
+	}, nil
 }

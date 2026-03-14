@@ -29,7 +29,10 @@ func (s *stubProductClient) CreateProduct(ctx context.Context, req *productpb.Cr
 	return s.createProductFn(ctx, req)
 }
 func (s *stubProductClient) UpdateProduct(ctx context.Context, req *productpb.UpdateProductRequest) (*productrpc.UpdateProductResponse, error) {
-	return s.updateProductFn(ctx, req)
+	if s.updateProductFn != nil {
+		return s.updateProductFn(ctx, req)
+	}
+	return &productrpc.UpdateProductResponse{Code: common.CodeOK, Message: "成功"}, nil
 }
 func (s *stubProductClient) ChangeProductStatus(ctx context.Context, req *productpb.ChangeProductStatusRequest) (*productrpc.ChangeProductStatusResponse, error) {
 	if s.changeStatusFn != nil {

@@ -93,6 +93,7 @@ struct UpdateProductRequest {
 }
 
 struct UpdateProductResponse {
+    1: list<ProductSku> skus
     255: base.BaseResponse base
 }
 

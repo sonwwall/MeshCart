@@ -36,6 +36,7 @@ type CreateProductResponse struct {
 type UpdateProductResponse struct {
 	Code    int32
 	Message string
+	Skus    []*productpb.ProductSku
 }
 
 type ChangeProductStatusResponse struct {
@@ -133,7 +134,7 @@ func (c *kitexClient) UpdateProduct(ctx context.Context, req *productpb.UpdatePr
 		return nil, errNilUpdateResponse
 	}
 	code, message := baseCodeMessage(resp.Base)
-	return &UpdateProductResponse{Code: code, Message: message}, nil
+	return &UpdateProductResponse{Code: code, Message: message, Skus: resp.Skus}, nil
 }
 
 func (c *kitexClient) ChangeProductStatus(ctx context.Context, req *productpb.ChangeProductStatusRequest) (*ChangeProductStatusResponse, error) {

@@ -12,6 +12,8 @@ import (
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
+	productrpc "meshcart/gateway/rpc/product"
+	inventorypb "meshcart/kitex_gen/meshcart/inventory"
 	productpb "meshcart/kitex_gen/meshcart/product"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -37,6 +39,9 @@ func (l *UpdateLogic) Update(productID int64, req *types.UpdateProductRequest, i
 	if productID <= 0 || strings.TrimSpace(req.Title) == "" || len(req.SKUs) == 0 {
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(common.ErrInvalidParam.Code)), attribute.String("biz.message", common.ErrInvalidParam.Msg))
 		return common.ErrInvalidParam
+	}
+	if bizErr := validateUpdateInitialStocks(req.SKUs); bizErr != nil {
+		return bizErr
 	}
 
 	if identity == nil {
@@ -87,8 +92,79 @@ func (l *UpdateLogic) Update(productID int64, req *types.UpdateProductRequest, i
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(resp.Code)), attribute.String("biz.message", resp.Message))
 		return common.NewBizError(resp.Code, resp.Message)
 	}
+	if bizErr := l.initStocksAfterProductUpdate(ctx, req, resp); bizErr != nil {
+		return bizErr
+	}
 
 	span.SetAttributes(attribute.Bool("biz.success", true))
 	span.SetStatus(codes.Ok, "ok")
 	return nil
+}
+
+func (l *UpdateLogic) initStocksAfterProductUpdate(ctx context.Context, req *types.UpdateProductRequest, resp *productrpc.UpdateProductResponse) *common.BizError {
+	expectedNewSKUCount := countNewSKUs(req.SKUs)
+	if expectedNewSKUCount == 0 {
+		return nil
+	}
+	if len(req.SKUs) != len(resp.Skus) {
+		logx.L(ctx).Error("updated sku ids do not match requested skus", zap.Int("request_sku_count", len(req.SKUs)), zap.Int("response_sku_count", len(resp.Skus)))
+		return common.ErrInternalError
+	}
+
+	initItems := buildInitStockItemsForNewSKUs(req.SKUs, resp.Skus)
+	if len(initItems) != expectedNewSKUCount {
+		logx.L(ctx).Error("updated new sku ids do not match requested initial stocks", zap.Int("expected_new_sku_count", expectedNewSKUCount), zap.Int("actual_init_stock_count", len(initItems)))
+		return common.ErrInternalError
+	}
+
+	initResp, err := l.svcCtx.InventoryClient.InitSkuStocks(ctx, &inventorypb.InitSkuStocksRequest{Stocks: initItems})
+	if err != nil {
+		logx.L(ctx).Error("inventory rpc init sku stocks failed after update product", zap.Error(err))
+		return logicutil.MapRPCError(err)
+	}
+	if initResp.Code != common.CodeOK {
+		return common.NewBizError(initResp.Code, initResp.Message)
+	}
+	return nil
+}
+
+func buildInitStockItemsForNewSKUs(requestSKUs []types.ProductSkuInput, updatedSKUs []*productpb.ProductSku) []*inventorypb.InitSkuStockItem {
+	if len(requestSKUs) == 0 || len(updatedSKUs) == 0 || len(requestSKUs) != len(updatedSKUs) {
+		return nil
+	}
+
+	result := make([]*inventorypb.InitSkuStockItem, 0, len(updatedSKUs))
+	for idx, sku := range requestSKUs {
+		if sku.ID != nil && *sku.ID > 0 {
+			continue
+		}
+		stock := int64(0)
+		if sku.InitialStock != nil {
+			stock = *sku.InitialStock
+		}
+		result = append(result, &inventorypb.InitSkuStockItem{
+			SkuId:      updatedSKUs[idx].GetId(),
+			TotalStock: stock,
+		})
+	}
+	return result
+}
+
+func countNewSKUs(items []types.ProductSkuInput) int {
+	count := 0
+	for _, sku := range items {
+		if sku.ID == nil || *sku.ID == 0 {
+			count++
+		}
+	}
+	return count
+}
+
+func validateUpdateInitialStocks(items []types.ProductSkuInput) *common.BizError {
+	for _, sku := range items {
+		if sku.InitialStock != nil && sku.ID != nil && *sku.ID > 0 {
+			return common.ErrInvalidParam
+		}
+	}
+	return validateInitialStocks(items)
 }

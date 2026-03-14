@@ -774,6 +774,7 @@ var fieldIDToName_UpdateProductRequest = map[int16]string{
 }
 
 type UpdateProductResponse struct {
+	Skus []*ProductSku      `thrift:"skus,1" frugal:"1,default,list<ProductSku>" json:"skus"`
 	Base *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
 }
 
@@ -784,6 +785,10 @@ func NewUpdateProductResponse() *UpdateProductResponse {
 func (p *UpdateProductResponse) InitDefault() {
 }
 
+func (p *UpdateProductResponse) GetSkus() (v []*ProductSku) {
+	return p.Skus
+}
+
 var UpdateProductResponse_Base_DEFAULT *base.BaseResponse
 
 func (p *UpdateProductResponse) GetBase() (v *base.BaseResponse) {
@@ -791,6 +796,9 @@ func (p *UpdateProductResponse) GetBase() (v *base.BaseResponse) {
 		return UpdateProductResponse_Base_DEFAULT
 	}
 	return p.Base
+}
+func (p *UpdateProductResponse) SetSkus(val []*ProductSku) {
+	p.Skus = val
 }
 func (p *UpdateProductResponse) SetBase(val *base.BaseResponse) {
 	p.Base = val
@@ -808,6 +816,7 @@ func (p *UpdateProductResponse) String() string {
 }
 
 var fieldIDToName_UpdateProductResponse = map[int16]string{
+	1:   "skus",
 	255: "base",
 }
 

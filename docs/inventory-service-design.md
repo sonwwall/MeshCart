@@ -131,6 +131,15 @@
 5. `inventory-service` 写入每个 SKU 对应的库存记录
 6. 若库存初始化失败，`gateway` 对在线商品执行最佳努力降级到 `offline`
 
+#### 商品更新新增 SKU 后的库存初始化
+
+1. 管理端调用更新商品接口，并在新增 SKU 上可选提交 `initial_stock`
+2. `gateway` 调用 `product-service.UpdateProduct`
+3. `product-service` 返回更新后的 SKU 列表
+4. `gateway` 识别本次新增的 SKU
+5. `gateway` 调用 `inventory-service.InitSkuStocks`
+6. `inventory-service` 为新增 SKU 写入库存记录
+
 ### 4.4 当前调用方视角
 
 从“谁会调用库存服务”这个问题看，当前和后续可分为两层：
@@ -167,6 +176,7 @@
 - 库存记录不存在时，当前按不可售处理
 - 库存服务不负责判断商品是否在线，也不判断 SKU 是否 active
 - 商品创建时可以携带 `initial_stock`，但库存真实落库仍由库存服务负责
+- 商品更新新增 SKU 时，也会沿用同一套库存初始化规则
 
 ## 6. 数据模型设计
 

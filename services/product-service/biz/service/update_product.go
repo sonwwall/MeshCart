@@ -10,9 +10,9 @@ import (
 	"go.uber.org/zap"
 )
 
-func (s *ProductService) UpdateProduct(ctx context.Context, req *productpb.UpdateProductRequest) *common.BizError {
+func (s *ProductService) UpdateProduct(ctx context.Context, req *productpb.UpdateProductRequest) ([]*productpb.ProductSku, *common.BizError) {
 	if req.ProductId <= 0 {
-		return common.ErrInvalidParam
+		return nil, common.ErrInvalidParam
 	}
 
 	productModel, skuModels, bizErr := s.buildModelsForWrite(
@@ -28,7 +28,7 @@ func (s *ProductService) UpdateProduct(ctx context.Context, req *productpb.Updat
 		req.OperatorId,
 	)
 	if bizErr != nil {
-		return bizErr
+		return nil, bizErr
 	}
 
 	if err := s.repo.Update(ctx, productModel, skuModels); err != nil {
@@ -36,7 +36,7 @@ func (s *ProductService) UpdateProduct(ctx context.Context, req *productpb.Updat
 			zap.Error(err),
 			zap.Int64("product_id", productModel.ID),
 		)
-		return mapRepositoryError(err)
+		return nil, mapRepositoryError(err)
 	}
-	return nil
+	return toProductSkusForCreate(skuModels), nil
 }

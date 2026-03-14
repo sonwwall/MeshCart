@@ -1032,6 +1032,9 @@ GET /api/v1/products/detail/192000000000000001
 - 后续更合理的设计是：SKU 删除或失效时，同步把库存状态收口为 `frozen`
 - `sku_code` 在更新接口中同样为可选字段；不传或传空表示该 SKU 没有业务编码
 - 当前只校验同一次请求里的非空 `sku_code` 不重复，不再要求全局唯一
+- 如果本次更新新增了 SKU，`gateway` 会在商品更新成功后为新增 SKU 初始化库存
+- 新增 SKU 的 `initial_stock` 为可选；如果不传，默认按 `0` 初始化
+- 已有 SKU 不允许传 `initial_stock`；如果传入，会按参数错误处理
 
 推荐调用顺序：
 
@@ -1044,6 +1047,7 @@ GET /api/v1/products/detail/192000000000000001
 - 更新已有 SKU：带真实 `sku.id`
 - 新增 SKU：不带 `id`
 - 删除 SKU：不要把该 SKU 放进本次请求的 `skus` 数组
+- 新增 SKU 初始化库存：可选传 `initial_stock`，不传时默认 `0`
 
 权限说明：
 
@@ -1125,6 +1129,7 @@ GET /api/v1/products/detail/192000000000000001
       "sale_price": 699900,
       "market_price": 799900,
       "status": 1,
+      "initial_stock": 50,
       "cover_url": "https://cdn.example.com/iphone15-white.jpg",
       "attrs": [
         {
@@ -1147,6 +1152,8 @@ GET /api/v1/products/detail/192000000000000001
 
 - 第一个 SKU 带 `id`，表示更新已有 SKU
 - 第二个 SKU 不带 `id`，表示新增 SKU
+- 新增 SKU 可以携带 `initial_stock`；如果不传，默认按 `0` 初始化库存
+- 已有 SKU 不应传 `initial_stock`；如果传了，接口会返回参数错误
 - 如果只想保留部分已有 SKU，未出现在 `skus` 数组中的旧 SKU 会被删除
 
 成功响应示例：
