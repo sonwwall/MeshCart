@@ -227,3 +227,71 @@ func TestGetLogic_SuperAdminCanReadAnyInventory(t *testing.T) {
 		t.Fatalf("unexpected data: %+v", data)
 	}
 }
+
+func TestBatchGetLogic_Success(t *testing.T) {
+	logic := NewBatchGetLogic(context.Background(), newInventorySvcCtxWithProduct(t, &stubInventoryClient{
+		batchGetSkuStockFn: func(_ context.Context, req *inventorypb.BatchGetSkuStockRequest) (*inventoryrpc.BatchGetSkuStockResponse, error) {
+			if len(req.GetSkuIds()) != 2 || req.GetSkuIds()[0] != 3001 || req.GetSkuIds()[1] != 3002 {
+				t.Fatalf("unexpected batch get request: %+v", req)
+			}
+			return &inventoryrpc.BatchGetSkuStockResponse{
+				Code: common.CodeOK,
+				Stocks: []*inventorypb.SkuStock{
+					{SkuId: 3001, TotalStock: 10, ReservedStock: 1, AvailableStock: 9, SaleableStock: 9},
+					{SkuId: 3002, TotalStock: 20, ReservedStock: 2, AvailableStock: 18, SaleableStock: 18},
+				},
+			}, nil
+		},
+	}, &stubProductClient{
+		batchGetSkuFn: func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
+			return &productrpc.BatchGetSKUResponse{Code: common.CodeOK, Skus: []*productpb.ProductSku{{Id: 3001, SpuId: 2001}, {Id: 3002, SpuId: 2001}}}, nil
+		},
+		getProductDetailFn: func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+			return &productrpc.GetProductDetailResponse{Code: common.CodeOK, Product: &productpb.Product{Id: 2001, CreatorId: 1}}, nil
+		},
+	}))
+
+	data, bizErr := logic.BatchGet(&types.InventoryBatchGetRequest{SKUIDs: []int64{3001, 3002}}, &middleware.AuthIdentity{UserID: 1, Role: authz.RoleAdmin})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if data == nil || len(data.Stocks) != 2 || data.Stocks[1].SKUID != 3002 {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+}
+
+func TestBatchGetLogic_InvalidParam(t *testing.T) {
+	logic := NewBatchGetLogic(context.Background(), newInventorySvcCtxWithProduct(t, &stubInventoryClient{}, &stubProductClient{}))
+
+	data, bizErr := logic.BatchGet(&types.InventoryBatchGetRequest{SKUIDs: []int64{3001, 0}}, &middleware.AuthIdentity{UserID: 1, Role: authz.RoleAdmin})
+	if data != nil {
+		t.Fatalf("expected nil data, got %+v", data)
+	}
+	if bizErr != common.ErrInvalidParam {
+		t.Fatalf("expected ErrInvalidParam, got %+v", bizErr)
+	}
+}
+
+func TestBatchGetLogic_ForbiddenForOtherAdminProduct(t *testing.T) {
+	logic := NewBatchGetLogic(context.Background(), newInventorySvcCtxWithProduct(t, &stubInventoryClient{
+		batchGetSkuStockFn: func(_ context.Context, _ *inventorypb.BatchGetSkuStockRequest) (*inventoryrpc.BatchGetSkuStockResponse, error) {
+			t.Fatal("batch get stock should not be called when ownership check fails")
+			return nil, nil
+		},
+	}, &stubProductClient{
+		batchGetSkuFn: func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
+			return &productrpc.BatchGetSKUResponse{Code: common.CodeOK, Skus: []*productpb.ProductSku{{Id: 3001, SpuId: 2001}}}, nil
+		},
+		getProductDetailFn: func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+			return &productrpc.GetProductDetailResponse{Code: common.CodeOK, Product: &productpb.Product{Id: 2001, CreatorId: 2}}, nil
+		},
+	}))
+
+	data, bizErr := logic.BatchGet(&types.InventoryBatchGetRequest{SKUIDs: []int64{3001}}, &middleware.AuthIdentity{UserID: 1, Role: authz.RoleAdmin})
+	if data != nil {
+		t.Fatalf("expected nil data, got %+v", data)
+	}
+	if bizErr != errOwnInventoryRequired {
+		t.Fatalf("expected errOwnInventoryRequired, got %+v", bizErr)
+	}
+}

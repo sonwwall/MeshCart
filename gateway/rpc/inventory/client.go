@@ -21,6 +21,8 @@ var (
 	errNilGetSkuStockResponse        = errors.New("inventory rpc returned nil get sku stock response")
 	errNilBatchGetSkuStockResponse   = errors.New("inventory rpc returned nil batch get sku stock response")
 	errNilCheckSaleableStockResponse = errors.New("inventory rpc returned nil check saleable stock response")
+	errNilInitSkuStocksResponse      = errors.New("inventory rpc returned nil init sku stocks response")
+	errNilAdjustStockResponse        = errors.New("inventory rpc returned nil adjust stock response")
 )
 
 type GetSkuStockResponse struct {
@@ -150,7 +152,7 @@ func (c *kitexClient) InitSkuStocks(ctx context.Context, req *inventorypb.InitSk
 		return nil, err
 	}
 	if resp == nil {
-		return nil, errNilBatchGetSkuStockResponse
+		return nil, errNilInitSkuStocksResponse
 	}
 	code, message := baseCodeMessage(resp.Base)
 	return &InitSkuStocksResponse{Code: code, Message: message, Stocks: resp.Stocks}, nil
@@ -162,7 +164,7 @@ func (c *kitexClient) AdjustStock(ctx context.Context, req *inventorypb.AdjustSt
 		return nil, err
 	}
 	if resp == nil {
-		return nil, errNilGetSkuStockResponse
+		return nil, errNilAdjustStockResponse
 	}
 	code, message := baseCodeMessage(resp.Base)
 	return &AdjustStockResponse{Code: code, Message: message, Stock: resp.Stock}, nil

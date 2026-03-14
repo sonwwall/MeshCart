@@ -80,7 +80,8 @@ func (r *MySQLInventoryRepository) CreateBatch(ctx context.Context, stocks []*da
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, stock := range stocks {
 			if err := tx.Create(stock).Error; err != nil {
-				if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+				lowerErr := strings.ToLower(err.Error())
+				if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(lowerErr, "duplicate") || strings.Contains(lowerErr, "unique constraint") {
 					return ErrStockExists
 				}
 				return err

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -87,10 +88,100 @@ func TestRepository_CreateBatchAndAdjustTotalStock(t *testing.T) {
 	}
 }
 
+func TestRepository_GetBySKUID_NotFound(t *testing.T) {
+	db := newInventorySQLiteDB(t)
+	repo := NewMySQLInventoryRepository(db, time.Second)
+
+	stock, err := repo.GetBySKUID(context.Background(), 3001)
+	if stock != nil {
+		t.Fatalf("expected nil stock, got %+v", stock)
+	}
+	if !errors.Is(err, ErrStockNotFound) {
+		t.Fatalf("expected ErrStockNotFound, got %v", err)
+	}
+}
+
+func TestRepository_ListBySKUIDs_Empty(t *testing.T) {
+	db := newInventorySQLiteDB(t)
+	repo := NewMySQLInventoryRepository(db, time.Second)
+
+	stocks, err := repo.ListBySKUIDs(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("list empty sku ids: %v", err)
+	}
+	if len(stocks) != 0 {
+		t.Fatalf("expected empty result, got %+v", stocks)
+	}
+}
+
+func TestRepository_CreateBatch_DuplicateStock(t *testing.T) {
+	db := newInventorySQLiteDB(t)
+	repo := NewMySQLInventoryRepository(db, time.Second)
+
+	_, err := repo.CreateBatch(context.Background(), []*dalmodel.InventoryStock{
+		{ID: 1, SKUID: 3001, TotalStock: 10, ReservedStock: 0, AvailableStock: 10, Version: 1},
+	})
+	if err != nil {
+		t.Fatalf("seed create batch: %v", err)
+	}
+
+	_, err = repo.CreateBatch(context.Background(), []*dalmodel.InventoryStock{
+		{ID: 2, SKUID: 3001, TotalStock: 10, ReservedStock: 0, AvailableStock: 10, Version: 1},
+	})
+	if !errors.Is(err, ErrStockExists) {
+		t.Fatalf("expected ErrStockExists, got %v", err)
+	}
+}
+
+func TestRepository_CreateBatch_InvalidQuantity(t *testing.T) {
+	db := newInventorySQLiteDB(t)
+	repo := NewMySQLInventoryRepository(db, time.Second)
+
+	_, err := repo.CreateBatch(context.Background(), []*dalmodel.InventoryStock{
+		{ID: 1, SKUID: 3001, TotalStock: -1, ReservedStock: 0, AvailableStock: -1, Version: 1},
+	})
+	if !errors.Is(err, ErrInvalidQuantity) {
+		t.Fatalf("expected ErrInvalidQuantity, got %v", err)
+	}
+}
+
+func TestRepository_AdjustTotalStock_InvalidWhenBelowReserved(t *testing.T) {
+	db := newInventorySQLiteDB(t)
+	repo := NewMySQLInventoryRepository(db, time.Second)
+
+	_, err := repo.CreateBatch(context.Background(), []*dalmodel.InventoryStock{
+		{ID: 1, SKUID: 3001, TotalStock: 10, ReservedStock: 6, AvailableStock: 4, Version: 1},
+	})
+	if err != nil {
+		t.Fatalf("seed create batch: %v", err)
+	}
+
+	stock, err := repo.AdjustTotalStock(context.Background(), 3001, 5)
+	if stock != nil {
+		t.Fatalf("expected nil stock, got %+v", stock)
+	}
+	if !errors.Is(err, ErrInvalidQuantity) {
+		t.Fatalf("expected ErrInvalidQuantity, got %v", err)
+	}
+}
+
+func TestRepository_AdjustTotalStock_NotFound(t *testing.T) {
+	db := newInventorySQLiteDB(t)
+	repo := NewMySQLInventoryRepository(db, time.Second)
+
+	stock, err := repo.AdjustTotalStock(context.Background(), 3001, 5)
+	if stock != nil {
+		t.Fatalf("expected nil stock, got %+v", stock)
+	}
+	if !errors.Is(err, ErrStockNotFound) {
+		t.Fatalf("expected ErrStockNotFound, got %v", err)
+	}
+}
+
 func newInventorySQLiteDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=private", t.Name())), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite db: %v", err)
 	}
