@@ -16,6 +16,10 @@ func mapRepositoryError(err error) *common.BizError {
 		return nil
 	case errors.Is(err, repository.ErrStockNotFound):
 		return errno.ErrInventoryStockNotFound
+	case errors.Is(err, repository.ErrStockExists):
+		return errno.ErrStockAlreadyExists
+	case errors.Is(err, repository.ErrInvalidQuantity):
+		return errno.ErrInvalidStockQuantity
 	default:
 		return common.ErrInternalError
 	}

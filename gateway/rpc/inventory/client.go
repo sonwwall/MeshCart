@@ -42,10 +42,24 @@ type CheckSaleableStockResponse struct {
 	AvailableStock int64
 }
 
+type InitSkuStocksResponse struct {
+	Code    int32
+	Message string
+	Stocks  []*inventorypb.SkuStock
+}
+
+type AdjustStockResponse struct {
+	Code    int32
+	Message string
+	Stock   *inventorypb.SkuStock
+}
+
 type Client interface {
 	GetSkuStock(ctx context.Context, req *inventorypb.GetSkuStockRequest) (*GetSkuStockResponse, error)
 	BatchGetSkuStock(ctx context.Context, req *inventorypb.BatchGetSkuStockRequest) (*BatchGetSkuStockResponse, error)
 	CheckSaleableStock(ctx context.Context, req *inventorypb.CheckSaleableStockRequest) (*CheckSaleableStockResponse, error)
+	InitSkuStocks(ctx context.Context, req *inventorypb.InitSkuStocksRequest) (*InitSkuStocksResponse, error)
+	AdjustStock(ctx context.Context, req *inventorypb.AdjustStockRequest) (*AdjustStockResponse, error)
 }
 
 type kitexClient struct {
@@ -128,6 +142,30 @@ func (c *kitexClient) CheckSaleableStock(ctx context.Context, req *inventorypb.C
 		Saleable:       resp.GetSaleable(),
 		AvailableStock: resp.GetAvailableStock(),
 	}, nil
+}
+
+func (c *kitexClient) InitSkuStocks(ctx context.Context, req *inventorypb.InitSkuStocksRequest) (*InitSkuStocksResponse, error) {
+	resp, err := c.cli.InitSkuStocks(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilBatchGetSkuStockResponse
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &InitSkuStocksResponse{Code: code, Message: message, Stocks: resp.Stocks}, nil
+}
+
+func (c *kitexClient) AdjustStock(ctx context.Context, req *inventorypb.AdjustStockRequest) (*AdjustStockResponse, error) {
+	resp, err := c.cli.AdjustStock(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilGetSkuStockResponse
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &AdjustStockResponse{Code: code, Message: message, Stock: resp.Stock}, nil
 }
 
 func baseCodeMessage(base *basepb.BaseResponse) (int32, string) {

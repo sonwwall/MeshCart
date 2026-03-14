@@ -73,6 +73,13 @@
 - `inventory-service`：提供库存查询、预占、扣减 RPC
 - `order-service`：下单时调用商品服务获取商品快照，再调用库存服务处理库存
 
+补充说明：
+
+- 商品创建请求当前可以携带 SKU 的 `initial_stock`
+- 但 `product-service` 仍不直接保存库存字段
+- 商品创建成功后，由 `gateway` 调用 `inventory-service.InitSkuStocks` 完成库存初始化
+- 商品或 SKU 删除时，当前不建议默认联动物理删除库存记录，而应优先走“下架 / 不可售 + 库存冻结”方案
+
 ## 4. 核心模型
 
 当前实现采用 `SPU + SKU` 模型。
@@ -258,6 +265,7 @@ CREATE TABLE `product_skus` (
 
 - 一个 `products` 可以对应多个 `product_skus`
 - 下游交易链路通常更关心 SKU，而不是 SPU
+- 商品创建成功后，SKU ID 也会作为库存服务初始化库存记录的关联键
 - 订单落库时建议保存 `sku_id`、`sku_code`、`title`、`sale_price` 等快照字段
 
 ### 5.3 `product_sku_attrs`
@@ -897,6 +905,7 @@ GET /api/v1/products/detail/192000000000000001
       "sale_price": 599900,
       "market_price": 699900,
       "status": 1,
+      "initial_stock": 100,
       "cover_url": "https://cdn.example.com/iphone15-black.jpg",
       "attrs": [
         {
@@ -915,6 +924,11 @@ GET /api/v1/products/detail/192000000000000001
 }
 ```
 
+补充说明：
+
+- `initial_stock` 是管理端创建商品时可选携带的初始库存
+- 该字段只作为 `gateway` 编排库存初始化的输入，不会落到 `product-service` 自己的库表中
+
 成功响应示例：
 
 ```json
@@ -922,7 +936,13 @@ GET /api/v1/products/detail/192000000000000001
   "code": 0,
   "message": "成功",
   "data": {
-    "product_id": 192000000000000001
+    "product_id": 192000000000000001,
+    "skus": [
+      {
+        "id": 193000000000000001,
+        "sku_code": "IP15-BLACK-128G"
+      }
+    ]
   },
   "trace_id": "8f2d3f..."
 }
@@ -942,6 +962,12 @@ GET /api/v1/products/detail/192000000000000001
 - `attrs` 当前不要求传属性 `id`，服务端会按请求内容重建该 SKU 的属性集合
 - 如果请求中缺失某个已有 SKU，则当前实现会视为删除该 SKU
 - 如果传入了一个 `sku.id`，但它不属于当前 `product_id`，会返回 `2020002 / SKU 不存在`
+
+当前补充约定：
+
+- 当前删除 SKU 只会影响商品侧数据
+- 不会自动删除库存服务中的库存记录
+- 后续更合理的设计是：SKU 删除或失效时，同步把库存状态收口为 `frozen`
 
 推荐调用顺序：
 

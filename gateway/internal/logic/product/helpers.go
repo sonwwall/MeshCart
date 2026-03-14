@@ -10,6 +10,11 @@ import (
 
 var errOwnProductRequired = common.NewBizError(common.CodeForbidden, "仅可操作自己创建的商品")
 
+const (
+	productStatusOffline int32 = 1
+	productStatusOnline  int32 = 2
+)
+
 func roleOf(identity *middleware.AuthIdentity) string {
 	if identity == nil {
 		return authz.RoleGuest

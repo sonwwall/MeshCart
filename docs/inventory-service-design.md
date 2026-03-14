@@ -31,6 +31,9 @@
 - 提供单个 SKU 库存查询能力
 - 提供批量 SKU 库存查询能力
 - 提供库存是否足够的只读校验能力
+- 提供商品创建后的库存初始化能力
+- 提供后台库存调整能力
+- 提供后台库存查询 HTTP 接口
 - 为后续订单预占、扣减保留统一库存服务边界
 
 ### 3.3 当前不负责
@@ -114,9 +117,19 @@
 
 #### 库存读取链路
 
-1. 内部调用方发起 `GetSkuStock` 或 `BatchGetSkuStock`
-2. `inventory-service` 查询 `inventory_stocks`
-3. 返回库存快照
+1. 管理端或内部调用方发起库存查询
+2. `gateway` 调用 `inventory-service.GetSkuStock` 或 `BatchGetSkuStock`
+3. `inventory-service` 查询 `inventory_stocks`
+4. 返回库存快照
+
+#### 商品创建后的库存初始化
+
+1. 管理端调用创建商品接口，并在 SKU 中提交 `initial_stock`
+2. `gateway` 调用 `product-service.CreateProduct`
+3. `product-service` 返回新建商品 ID 和 SKU ID
+4. `gateway` 调用 `inventory-service.InitSkuStocks`
+5. `inventory-service` 写入每个 SKU 对应的库存记录
+6. 若库存初始化失败，`gateway` 对在线商品执行最佳努力降级到 `offline`
 
 ### 4.4 当前调用方视角
 
@@ -125,10 +138,14 @@
 - 当前已接入调用方
   - `gateway`
     - 在购物车加购链路里调用 `CheckSaleableStock`
+    - 在商品创建链路里调用 `InitSkuStocks`
+    - 在后台库存管理链路里调用 `GetSkuStock`、`BatchGetSkuStock`、`AdjustStock`
 - 当前可直接接入但尚未开放 HTTP 的内部调用方
   - 其他服务或后台逻辑
     - 调用 `GetSkuStock`
     - 调用 `BatchGetSkuStock`
+    - 调用 `InitSkuStocks`
+    - 调用 `AdjustStock`
 - 后续核心调用方
   - `order-service`
     - 预占库存
@@ -145,8 +162,11 @@
 - `available_stock` 不能大于 `total_stock`
 - `saleable_stock` 当前等于 `available_stock`
 - `CheckSaleableStock` 只判断是否足够，不修改库存
+- `InitSkuStocks` 只用于首次初始化库存，不用于重复覆盖
+- `AdjustStock` 当前按“设置总库存”语义执行，不做增量加减
 - 库存记录不存在时，当前按不可售处理
 - 库存服务不负责判断商品是否在线，也不判断 SKU 是否 active
+- 商品创建时可以携带 `initial_stock`，但库存真实落库仍由库存服务负责
 
 ## 6. 数据模型设计
 
@@ -245,7 +265,7 @@ services/inventory-service/
 - 库存服务当前不直接暴露公网接口
 - 对外授权统一收口在 `gateway`
 - `inventory-service` 不直接执行 Casbin 判定
-- 当前库存写能力未对外开放
+- 当前后台库存查询与库存调整能力由 `gateway` 对管理员开放
 
 ### 8.2 当前角色语义
 
@@ -254,9 +274,9 @@ services/inventory-service/
 - `user`
   - 不直接访问库存接口
 - `admin`
-  - 当前未开放库存管理写接口
+  - 可访问后台库存查询和库存调整接口
 - `superadmin`
-  - 当前未开放库存管理写接口
+  - 可访问后台库存查询和库存调整接口
 
 ## 9. 接口设计
 
@@ -267,6 +287,8 @@ services/inventory-service/
 - `GetSkuStock`
 - `BatchGetSkuStock`
 - `CheckSaleableStock`
+- `InitSkuStocks`
+- `AdjustStock`
 
 IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/inventory.thrift)。
 
@@ -378,14 +400,108 @@ IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/
 }
 ```
 
-### 9.6 当前 HTTP 接口状态
+### 9.6 `InitSkuStocks`
 
-当前第一阶段未开放独立库存 HTTP 接口。
+- 作用：在商品创建完成后初始化 SKU 库存
+- 请求字段：
+  - `stocks[].sku_id`
+  - `stocks[].total_stock`
+- 返回字段：
+  - `stocks`
+  - `base.code`
+  - `base.message`
 
-库存能力目前通过：
+成功返回示例：
 
-- `gateway` 内部编排调用
-- 其他服务直接走 RPC
+```json
+{
+  "stocks": [
+    {
+      "sku_id": 3001,
+      "total_stock": 100,
+      "reserved_stock": 0,
+      "available_stock": 100,
+      "saleable_stock": 100
+    }
+  ],
+  "base": {
+    "code": 0,
+    "message": "成功"
+  }
+}
+```
+
+### 9.7 `AdjustStock`
+
+- 作用：后台按“设置总库存”语义调整库存
+- 请求字段：
+  - `sku_id`
+  - `total_stock`
+  - `reason`
+- 返回字段：
+  - `stock`
+  - `base.code`
+  - `base.message`
+
+成功返回示例：
+
+```json
+{
+  "stock": {
+    "sku_id": 3001,
+    "total_stock": 80,
+    "reserved_stock": 0,
+    "available_stock": 80,
+    "saleable_stock": 80
+  },
+  "base": {
+    "code": 0,
+    "message": "成功"
+  }
+}
+```
+
+### 9.8 当前 HTTP 接口状态
+
+当前第二阶段已开放后台库存查询与调整 HTTP 接口：
+
+- `GET /api/v1/admin/inventory/skus/:sku_id`
+- `POST /api/v1/admin/inventory/skus/batch_get`
+- `PUT /api/v1/admin/inventory/skus/:sku_id/stock`
+
+这些接口统一由 `gateway` 对外暴露，并在网关层完成鉴权和错误映射。
+
+#### `GET /api/v1/admin/inventory/skus/:sku_id`
+
+- 作用：查询单个 SKU 库存
+- 权限：`admin` / `superadmin`
+
+#### `POST /api/v1/admin/inventory/skus/batch_get`
+
+- 作用：批量查询库存
+- 权限：`admin` / `superadmin`
+
+请求体示例：
+
+```json
+{
+  "sku_ids": [3001, 3002]
+}
+```
+
+#### `PUT /api/v1/admin/inventory/skus/:sku_id/stock`
+
+- 作用：后台调整库存
+- 权限：`admin` / `superadmin`
+
+请求体示例：
+
+```json
+{
+  "total_stock": 80,
+  "reason": "manual correction"
+}
+```
 
 ## 10. 错误码
 
@@ -395,6 +511,10 @@ IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/
   - 库存记录不存在
 - `2050002`
   - 库存不足
+- `2050003`
+  - 库存记录已存在
+- `2050004`
+  - 库存数量不合法
 
 ## 11. 当前已完成实现清单
 
@@ -406,9 +526,12 @@ IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/
 - 库存表 `inventory_stocks`
 - repository 层查询能力
 - service 层库存查询与可售校验能力
+- service 层库存初始化与后台调整能力
 - RPC handler 层
 - gateway 侧 inventory rpc client
 - `gateway` 购物车加购前库存校验接入
+- `gateway` 后台库存 HTTP 查询与调整入口
+- 商品创建后库存初始化编排
 - 最小单测
 
 ## 12. 当前测试情况
@@ -417,12 +540,14 @@ IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/
 
 - repository 单测
 - service 单测
+- inventory gateway logic 单测
+- product create logic 单测
 - gateway cart add logic 单测
 
 当前已通过的针对性测试命令：
 
 ```bash
-go test ./services/inventory-service/... ./gateway/internal/logic/cart ./gateway/rpc/inventory
+go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./gateway/internal/logic/product ./gateway/internal/logic/cart ./gateway/rpc/inventory
 ```
 
 ---
@@ -435,37 +560,27 @@ go test ./services/inventory-service/... ./gateway/internal/logic/cart ./gateway
 
 - 真实环境 migration 联调验证
 - `gateway + product-service + inventory-service + cart-service` 验收链路
-- 后台库存查询 HTTP 接口
-- 库存写能力
 - 订单预占、释放、扣减
 - 库存流水、审计、幂等
 - 多仓与热点库存治理
+- 商品或 SKU 删除后的库存状态收口
 
 ## 14. 后续设计方案
 
 ### 14.1 第二阶段目标
 
-第二阶段建议先补“可管理、可联调、可接订单”的能力，不要直接跳到复杂库存系统。
+第三阶段建议开始补“可接订单、可追踪、可恢复”的能力，不要直接跳到复杂库存系统。
 
 建议目标：
 
-- 开放后台只读库存查询能力
-- 开放库存初始化和后台库存写能力
 - 明确订单预占接口设计
 - 补库存流水或预占记录模型设计
+- 补订单与库存的失败补偿口径
 
 ### 14.2 建议新增接口
 
-优先建议新增：
+下一阶段优先建议新增：
 
-- `GET /api/v1/admin/inventory/skus/:sku_id`
-  - 查询单个 SKU 库存
-- `POST /api/v1/admin/inventory/skus/batch_get`
-  - 批量查询库存
-- `InitSkuStocks`
-  - 在商品创建后初始化 SKU 库存
-- `AdjustStock`
-  - 后台人工调整库存
 - `ReserveStock`
   - 供订单服务预占库存
 - `ReleaseReservedStock`
@@ -473,16 +588,16 @@ go test ./services/inventory-service/... ./gateway/internal/logic/cart ./gateway
 - `DeductStock`
   - 供支付成功后做最终扣减
 
-### 14.3 商品创建时的库存初始化设计
+### 14.3 已落地的商品创建库存初始化方案
 
-当前建议支持“商品创建时一并提交初始库存”，但不建议让 `product-service` 自己保存库存字段。
+当前已经支持“商品创建时一并提交初始库存”，并且没有把库存主数据落在 `product-service`。
 
-推荐设计如下：
+当前实现如下：
 
 1. 管理端创建商品时，请求中的每个 SKU 可带 `initial_stock`
 2. `gateway` 先调用 `product-service.CreateProduct`
 3. 商品和 SKU 创建成功后，`gateway` 拿到新生成的 `sku_id`
-4. `gateway` 再调用 `inventory-service.InitSkuStocks`
+4. `gateway` 调用 `inventory-service.InitSkuStocks`
 5. `inventory-service` 为每个 `sku_id` 创建对应库存记录
 
 这个设计的核心原则是：
@@ -504,7 +619,7 @@ go test ./services/inventory-service/... ./gateway/internal/logic/cart ./gateway
 - 后续预占、释放、扣减都应围绕库存服务扩展
 - 如果商品服务直接承接库存写，后面库存域会再次拆分，成本更高
 
-### 14.4 商品与库存初始化的协作方式
+### 14.4 已落地的商品与库存初始化协作方式
 
 推荐链路：
 
@@ -516,15 +631,13 @@ go test ./services/inventory-service/... ./gateway/internal/logic/cart ./gateway
 6. `inventory-service` 写入 `inventory_stocks`
 7. 两边都成功后，再返回创建成功
 
-### 14.5 初始化库存失败时的处理建议
+### 14.5 已落地的初始化库存失败处理
 
-当前阶段建议按简单补偿方案处理，不必一开始就引入分布式事务：
+当前阶段已经按简单补偿方案处理，不引入分布式事务：
 
-- 首选方案
+- 当前实现
   - 商品创建成功但库存初始化失败时，接口整体返回失败
-  - 同时把商品保持在 `draft` 或 `offline` 状态，避免进入可售链路
-- 次选方案
-  - 记录失败日志，由管理员重试初始化库存
+  - 如果商品原本请求创建为 `online`，`gateway` 会最佳努力把商品降级为 `offline`
 - 后续再考虑
   - 异步补偿任务
   - 事务消息
@@ -552,21 +665,21 @@ go test ./services/inventory-service/... ./gateway/internal/logic/cart ./gateway
 - `created_at`
 - `updated_at`
 
-### 14.7 后台库存写能力建议
+### 14.7 已落地的后台库存写能力
 
-在订单链路正式接入前，库存写能力建议先只开放两类：
+在订单链路正式接入前，当前已经先开放两类：
 
 - 初始化库存
   - 用于商品创建成功后的首次数量写入
 - 调整库存
   - 用于后台人工修正库存
 
-当前不建议先开放：
+当前仍不建议先开放：
 
 - 任意业务侧直接加减库存
 - 多来源并发修改库存且没有流水记录
 
-### 14.8 订单协作设计
+### 14.8 下一阶段订单协作设计
 
 后续推荐链路：
 
@@ -575,7 +688,48 @@ go test ./services/inventory-service/... ./gateway/internal/logic/cart ./gateway
 3. 支付成功后调用 `DeductStock`
 4. 支付失败、取消订单或超时关闭时调用 `ReleaseReservedStock`
 
-### 14.9 当前不建议过早做的事情
+### 14.9 商品删除与库存记录处理方案
+
+当前建议：
+
+- 默认不物理删除库存记录
+- 商品删除或 SKU 删除时，优先做“不可售/冻结”，不做硬删除
+
+原因：
+
+- 库存记录属于交易域数据，不只是展示数据
+- 后续订单、支付、售后、审计、对账都可能依赖库存侧历史记录
+- 如果商品侧直接物理删除而库存侧也跟着物理删除，后续排障和审计会失去依据
+
+推荐方案：
+
+1. 商品或 SKU 被删除时，商品侧优先下架或置为不可售
+2. 库存侧保留库存记录
+3. 库存侧增加状态语义，至少支持：
+   - `active`
+   - `frozen`
+   - `deleted`
+4. 当商品或 SKU 失效时，由编排层或后续订单治理逻辑把库存状态同步为 `frozen`
+5. `CheckSaleableStock` 后续除判断数量外，还应判断库存状态是否允许售卖
+
+严格条件下可允许物理删除：
+
+- 没有购物车引用
+- 没有订单引用
+- 没有支付记录
+- 没有库存流水或预占记录
+
+只有满足这些前置条件时，才考虑：
+
+- 商品侧删除 SKU
+- 库存侧删除对应库存记录
+
+当前阶段结论：
+
+- 商品删除或 SKU 删除后，不应默认联动物理删除库存记录
+- 更合理的方向是“状态冻结”，而不是“数据硬删”
+
+### 14.10 当前不建议过早做的事情
 
 当前不建议直接推进：
 
@@ -586,19 +740,22 @@ go test ./services/inventory-service/... ./gateway/internal/logic/cart ./gateway
 
 这些能力应等订单链路和基础库存状态机稳定后再进入。
 
-## 15. 后续开发顺序建议
+## 15. 之后的开发计划
 
 建议按以下顺序继续推进：
 
 1. 跑通真实数据库和 migration
 2. 完成库存服务本地启动与联调
-3. 补后台只读库存查询接口
-4. 设计订单预占模型与接口
+3. 设计并实现订单预占模型与接口
+4. 设计释放库存和最终扣减接口
 5. 补库存流水和幂等设计
 6. 最后再评估热点库存和多仓
 
 ## 16. 当前结论
 
-- `inventory-service` 第一阶段已经完成最小库存闭环
-- 当前最核心的已落地能力是“购物车加购前库存可售校验”
-- 下一阶段重点不应是做复杂库存系统，而应先补联调、后台查询和订单预占设计
+- `inventory-service` 第一阶段和第二阶段已经完成
+- 当前最核心的已落地能力包括：
+  - 购物车加购前库存可售校验
+  - 商品创建后的库存初始化
+  - 后台库存查询与库存调整
+- 下一阶段重点应进入订单预占、释放、扣减和库存流水设计

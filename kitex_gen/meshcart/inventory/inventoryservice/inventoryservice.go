@@ -34,6 +34,20 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"initSkuStocks": kitex.NewMethodInfo(
+		initSkuStocksHandler,
+		newInventoryServiceInitSkuStocksArgs,
+		newInventoryServiceInitSkuStocksResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"adjustStock": kitex.NewMethodInfo(
+		adjustStockHandler,
+		newInventoryServiceAdjustStockArgs,
+		newInventoryServiceAdjustStockResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -154,6 +168,42 @@ func newInventoryServiceCheckSaleableStockResult() interface{} {
 	return inventory.NewInventoryServiceCheckSaleableStockResult()
 }
 
+func initSkuStocksHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*inventory.InventoryServiceInitSkuStocksArgs)
+	realResult := result.(*inventory.InventoryServiceInitSkuStocksResult)
+	success, err := handler.(inventory.InventoryService).InitSkuStocks(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newInventoryServiceInitSkuStocksArgs() interface{} {
+	return inventory.NewInventoryServiceInitSkuStocksArgs()
+}
+
+func newInventoryServiceInitSkuStocksResult() interface{} {
+	return inventory.NewInventoryServiceInitSkuStocksResult()
+}
+
+func adjustStockHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*inventory.InventoryServiceAdjustStockArgs)
+	realResult := result.(*inventory.InventoryServiceAdjustStockResult)
+	success, err := handler.(inventory.InventoryService).AdjustStock(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newInventoryServiceAdjustStockArgs() interface{} {
+	return inventory.NewInventoryServiceAdjustStockArgs()
+}
+
+func newInventoryServiceAdjustStockResult() interface{} {
+	return inventory.NewInventoryServiceAdjustStockResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -189,6 +239,26 @@ func (p *kClient) CheckSaleableStock(ctx context.Context, request *inventory.Che
 	_args.Request = request
 	var _result inventory.InventoryServiceCheckSaleableStockResult
 	if err = p.c.Call(ctx, "checkSaleableStock", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) InitSkuStocks(ctx context.Context, request *inventory.InitSkuStocksRequest) (r *inventory.InitSkuStocksResponse, err error) {
+	var _args inventory.InventoryServiceInitSkuStocksArgs
+	_args.Request = request
+	var _result inventory.InventoryServiceInitSkuStocksResult
+	if err = p.c.Call(ctx, "initSkuStocks", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) AdjustStock(ctx context.Context, request *inventory.AdjustStockRequest) (r *inventory.AdjustStockResponse, err error) {
+	var _args inventory.InventoryServiceAdjustStockArgs
+	_args.Request = request
+	var _result inventory.InventoryServiceAdjustStockResult
+	if err = p.c.Call(ctx, "adjustStock", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

@@ -19,7 +19,7 @@ func (s *ProductServiceImpl) CreateProduct(ctx context.Context, request *product
 		metricsx.ObserveRPC("product-service", "create_product", code, time.Since(start))
 	}()
 
-	productID, bizErr := s.svc.CreateProduct(ctx, request)
+	productID, skus, bizErr := s.svc.CreateProduct(ctx, request)
 	if bizErr != nil {
 		code = bizErr.Code
 		logx.L(ctx).Warn("create product failed", zap.Int32("code", bizErr.Code), zap.String("message", bizErr.Msg))
@@ -27,6 +27,7 @@ func (s *ProductServiceImpl) CreateProduct(ctx context.Context, request *product
 	}
 	return &productpb.CreateProductResponse{
 		ProductId: productID,
+		Skus:      skus,
 		Base:      &base.BaseResponse{Code: 0, Message: "成功"},
 	}, nil
 }

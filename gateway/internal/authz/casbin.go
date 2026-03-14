@@ -20,6 +20,8 @@ const (
 	ActionWriteOwn    = "write_own"
 	ActionCreate      = "create"
 	ActionManageRole  = "manage_role"
+	ActionRead        = "read"
+	ActionWrite       = "write"
 )
 
 type AccessController struct {
@@ -38,7 +40,7 @@ p = sub, obj, act
 e = some(where (p.eft == allow))
 
 [matchers]
-m = r.sub == p.sub && r.obj == p.obj && r.act == p.act && ((r.act == "read_online" && r.status == 2) || (r.act == "read_private" && (r.sub == "superadmin" || r.owner == r.uid)) || (r.act == "write_own" && (r.sub == "superadmin" || r.owner == r.uid)) || r.act == "create" || r.act == "manage_role")
+m = r.sub == p.sub && r.obj == p.obj && r.act == p.act && ((r.act == "read_online" && r.status == 2) || (r.act == "read_private" && (r.sub == "superadmin" || r.owner == r.uid)) || (r.act == "write_own" && (r.sub == "superadmin" || r.owner == r.uid)) || r.act == "create" || r.act == "manage_role" || r.act == "read" || r.act == "write")
 `))
 	if err != nil {
 		return nil, err
@@ -56,10 +58,14 @@ m = r.sub == p.sub && r.obj == p.obj && r.act == p.act && ((r.act == "read_onlin
 		{RoleAdmin, "product", ActionReadPrivate},
 		{RoleAdmin, "product", ActionWriteOwn},
 		{RoleAdmin, "product", ActionCreate},
+		{RoleAdmin, "inventory", ActionRead},
+		{RoleAdmin, "inventory", ActionWrite},
 		{RoleSuperAdmin, "product", ActionReadOnline},
 		{RoleSuperAdmin, "product", ActionReadPrivate},
 		{RoleSuperAdmin, "product", ActionWriteOwn},
 		{RoleSuperAdmin, "product", ActionCreate},
+		{RoleSuperAdmin, "inventory", ActionRead},
+		{RoleSuperAdmin, "inventory", ActionWrite},
 		{RoleSuperAdmin, "user", ActionManageRole},
 	}
 	for _, policy := range policies {

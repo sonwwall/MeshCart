@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func (s *ProductService) CreateProduct(ctx context.Context, req *productpb.CreateProductRequest) (int64, *common.BizError) {
+func (s *ProductService) CreateProduct(ctx context.Context, req *productpb.CreateProductRequest) (int64, []*productpb.ProductSku, *common.BizError) {
 	productModel, skuModels, bizErr := s.buildModelsForWrite(
 		0,
 		req.Title,
@@ -24,7 +24,7 @@ func (s *ProductService) CreateProduct(ctx context.Context, req *productpb.Creat
 		req.CreatorId,
 	)
 	if bizErr != nil {
-		return 0, bizErr
+		return 0, nil, bizErr
 	}
 
 	if err := s.repo.Create(ctx, productModel, skuModels); err != nil {
@@ -32,7 +32,7 @@ func (s *ProductService) CreateProduct(ctx context.Context, req *productpb.Creat
 			zap.Error(err),
 			zap.Int64("product_id", productModel.ID),
 		)
-		return 0, mapRepositoryError(err)
+		return 0, nil, mapRepositoryError(err)
 	}
-	return productModel.ID, nil
+	return productModel.ID, toProductSkusForCreate(skuModels), nil
 }

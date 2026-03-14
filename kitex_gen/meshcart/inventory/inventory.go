@@ -328,12 +328,242 @@ var fieldIDToName_CheckSaleableStockResponse = map[int16]string{
 	255: "base",
 }
 
+type InitSkuStockItem struct {
+	SkuId      int64 `thrift:"sku_id,1" frugal:"1,default,i64" json:"sku_id"`
+	TotalStock int64 `thrift:"total_stock,2" frugal:"2,default,i64" json:"total_stock"`
+}
+
+func NewInitSkuStockItem() *InitSkuStockItem {
+	return &InitSkuStockItem{}
+}
+
+func (p *InitSkuStockItem) InitDefault() {
+}
+
+func (p *InitSkuStockItem) GetSkuId() (v int64) {
+	return p.SkuId
+}
+
+func (p *InitSkuStockItem) GetTotalStock() (v int64) {
+	return p.TotalStock
+}
+func (p *InitSkuStockItem) SetSkuId(val int64) {
+	p.SkuId = val
+}
+func (p *InitSkuStockItem) SetTotalStock(val int64) {
+	p.TotalStock = val
+}
+
+func (p *InitSkuStockItem) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("InitSkuStockItem(%+v)", *p)
+}
+
+var fieldIDToName_InitSkuStockItem = map[int16]string{
+	1: "sku_id",
+	2: "total_stock",
+}
+
+type InitSkuStocksRequest struct {
+	Stocks []*InitSkuStockItem `thrift:"stocks,1" frugal:"1,default,list<InitSkuStockItem>" json:"stocks"`
+}
+
+func NewInitSkuStocksRequest() *InitSkuStocksRequest {
+	return &InitSkuStocksRequest{}
+}
+
+func (p *InitSkuStocksRequest) InitDefault() {
+}
+
+func (p *InitSkuStocksRequest) GetStocks() (v []*InitSkuStockItem) {
+	return p.Stocks
+}
+func (p *InitSkuStocksRequest) SetStocks(val []*InitSkuStockItem) {
+	p.Stocks = val
+}
+
+func (p *InitSkuStocksRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("InitSkuStocksRequest(%+v)", *p)
+}
+
+var fieldIDToName_InitSkuStocksRequest = map[int16]string{
+	1: "stocks",
+}
+
+type InitSkuStocksResponse struct {
+	Stocks []*SkuStock        `thrift:"stocks,1" frugal:"1,default,list<SkuStock>" json:"stocks"`
+	Base   *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+}
+
+func NewInitSkuStocksResponse() *InitSkuStocksResponse {
+	return &InitSkuStocksResponse{}
+}
+
+func (p *InitSkuStocksResponse) InitDefault() {
+}
+
+func (p *InitSkuStocksResponse) GetStocks() (v []*SkuStock) {
+	return p.Stocks
+}
+
+var InitSkuStocksResponse_Base_DEFAULT *base.BaseResponse
+
+func (p *InitSkuStocksResponse) GetBase() (v *base.BaseResponse) {
+	if !p.IsSetBase() {
+		return InitSkuStocksResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+func (p *InitSkuStocksResponse) SetStocks(val []*SkuStock) {
+	p.Stocks = val
+}
+func (p *InitSkuStocksResponse) SetBase(val *base.BaseResponse) {
+	p.Base = val
+}
+
+func (p *InitSkuStocksResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *InitSkuStocksResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("InitSkuStocksResponse(%+v)", *p)
+}
+
+var fieldIDToName_InitSkuStocksResponse = map[int16]string{
+	1:   "stocks",
+	255: "base",
+}
+
+type AdjustStockRequest struct {
+	SkuId      int64   `thrift:"sku_id,1" frugal:"1,default,i64" json:"sku_id"`
+	TotalStock int64   `thrift:"total_stock,2" frugal:"2,default,i64" json:"total_stock"`
+	Reason     *string `thrift:"reason,3,optional" frugal:"3,optional,string" json:"reason,omitempty"`
+}
+
+func NewAdjustStockRequest() *AdjustStockRequest {
+	return &AdjustStockRequest{}
+}
+
+func (p *AdjustStockRequest) InitDefault() {
+}
+
+func (p *AdjustStockRequest) GetSkuId() (v int64) {
+	return p.SkuId
+}
+
+func (p *AdjustStockRequest) GetTotalStock() (v int64) {
+	return p.TotalStock
+}
+
+var AdjustStockRequest_Reason_DEFAULT string
+
+func (p *AdjustStockRequest) GetReason() (v string) {
+	if !p.IsSetReason() {
+		return AdjustStockRequest_Reason_DEFAULT
+	}
+	return *p.Reason
+}
+func (p *AdjustStockRequest) SetSkuId(val int64) {
+	p.SkuId = val
+}
+func (p *AdjustStockRequest) SetTotalStock(val int64) {
+	p.TotalStock = val
+}
+func (p *AdjustStockRequest) SetReason(val *string) {
+	p.Reason = val
+}
+
+func (p *AdjustStockRequest) IsSetReason() bool {
+	return p.Reason != nil
+}
+
+func (p *AdjustStockRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AdjustStockRequest(%+v)", *p)
+}
+
+var fieldIDToName_AdjustStockRequest = map[int16]string{
+	1: "sku_id",
+	2: "total_stock",
+	3: "reason",
+}
+
+type AdjustStockResponse struct {
+	Stock *SkuStock          `thrift:"stock,1" frugal:"1,default,SkuStock" json:"stock"`
+	Base  *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+}
+
+func NewAdjustStockResponse() *AdjustStockResponse {
+	return &AdjustStockResponse{}
+}
+
+func (p *AdjustStockResponse) InitDefault() {
+}
+
+var AdjustStockResponse_Stock_DEFAULT *SkuStock
+
+func (p *AdjustStockResponse) GetStock() (v *SkuStock) {
+	if !p.IsSetStock() {
+		return AdjustStockResponse_Stock_DEFAULT
+	}
+	return p.Stock
+}
+
+var AdjustStockResponse_Base_DEFAULT *base.BaseResponse
+
+func (p *AdjustStockResponse) GetBase() (v *base.BaseResponse) {
+	if !p.IsSetBase() {
+		return AdjustStockResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+func (p *AdjustStockResponse) SetStock(val *SkuStock) {
+	p.Stock = val
+}
+func (p *AdjustStockResponse) SetBase(val *base.BaseResponse) {
+	p.Base = val
+}
+
+func (p *AdjustStockResponse) IsSetStock() bool {
+	return p.Stock != nil
+}
+
+func (p *AdjustStockResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *AdjustStockResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AdjustStockResponse(%+v)", *p)
+}
+
+var fieldIDToName_AdjustStockResponse = map[int16]string{
+	1:   "stock",
+	255: "base",
+}
+
 type InventoryService interface {
 	GetSkuStock(ctx context.Context, request *GetSkuStockRequest) (r *GetSkuStockResponse, err error)
 
 	BatchGetSkuStock(ctx context.Context, request *BatchGetSkuStockRequest) (r *BatchGetSkuStockResponse, err error)
 
 	CheckSaleableStock(ctx context.Context, request *CheckSaleableStockRequest) (r *CheckSaleableStockResponse, err error)
+
+	InitSkuStocks(ctx context.Context, request *InitSkuStocksRequest) (r *InitSkuStocksResponse, err error)
+
+	AdjustStock(ctx context.Context, request *AdjustStockRequest) (r *AdjustStockResponse, err error)
 }
 
 type InventoryServiceGetSkuStockArgs struct {
@@ -561,5 +791,157 @@ func (p *InventoryServiceCheckSaleableStockResult) String() string {
 }
 
 var fieldIDToName_InventoryServiceCheckSaleableStockResult = map[int16]string{
+	0: "success",
+}
+
+type InventoryServiceInitSkuStocksArgs struct {
+	Request *InitSkuStocksRequest `thrift:"request,1" frugal:"1,default,InitSkuStocksRequest" json:"request"`
+}
+
+func NewInventoryServiceInitSkuStocksArgs() *InventoryServiceInitSkuStocksArgs {
+	return &InventoryServiceInitSkuStocksArgs{}
+}
+
+func (p *InventoryServiceInitSkuStocksArgs) InitDefault() {
+}
+
+var InventoryServiceInitSkuStocksArgs_Request_DEFAULT *InitSkuStocksRequest
+
+func (p *InventoryServiceInitSkuStocksArgs) GetRequest() (v *InitSkuStocksRequest) {
+	if !p.IsSetRequest() {
+		return InventoryServiceInitSkuStocksArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *InventoryServiceInitSkuStocksArgs) SetRequest(val *InitSkuStocksRequest) {
+	p.Request = val
+}
+
+func (p *InventoryServiceInitSkuStocksArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *InventoryServiceInitSkuStocksArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("InventoryServiceInitSkuStocksArgs(%+v)", *p)
+}
+
+var fieldIDToName_InventoryServiceInitSkuStocksArgs = map[int16]string{
+	1: "request",
+}
+
+type InventoryServiceInitSkuStocksResult struct {
+	Success *InitSkuStocksResponse `thrift:"success,0,optional" frugal:"0,optional,InitSkuStocksResponse" json:"success,omitempty"`
+}
+
+func NewInventoryServiceInitSkuStocksResult() *InventoryServiceInitSkuStocksResult {
+	return &InventoryServiceInitSkuStocksResult{}
+}
+
+func (p *InventoryServiceInitSkuStocksResult) InitDefault() {
+}
+
+var InventoryServiceInitSkuStocksResult_Success_DEFAULT *InitSkuStocksResponse
+
+func (p *InventoryServiceInitSkuStocksResult) GetSuccess() (v *InitSkuStocksResponse) {
+	if !p.IsSetSuccess() {
+		return InventoryServiceInitSkuStocksResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *InventoryServiceInitSkuStocksResult) SetSuccess(x interface{}) {
+	p.Success = x.(*InitSkuStocksResponse)
+}
+
+func (p *InventoryServiceInitSkuStocksResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *InventoryServiceInitSkuStocksResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("InventoryServiceInitSkuStocksResult(%+v)", *p)
+}
+
+var fieldIDToName_InventoryServiceInitSkuStocksResult = map[int16]string{
+	0: "success",
+}
+
+type InventoryServiceAdjustStockArgs struct {
+	Request *AdjustStockRequest `thrift:"request,1" frugal:"1,default,AdjustStockRequest" json:"request"`
+}
+
+func NewInventoryServiceAdjustStockArgs() *InventoryServiceAdjustStockArgs {
+	return &InventoryServiceAdjustStockArgs{}
+}
+
+func (p *InventoryServiceAdjustStockArgs) InitDefault() {
+}
+
+var InventoryServiceAdjustStockArgs_Request_DEFAULT *AdjustStockRequest
+
+func (p *InventoryServiceAdjustStockArgs) GetRequest() (v *AdjustStockRequest) {
+	if !p.IsSetRequest() {
+		return InventoryServiceAdjustStockArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *InventoryServiceAdjustStockArgs) SetRequest(val *AdjustStockRequest) {
+	p.Request = val
+}
+
+func (p *InventoryServiceAdjustStockArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *InventoryServiceAdjustStockArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("InventoryServiceAdjustStockArgs(%+v)", *p)
+}
+
+var fieldIDToName_InventoryServiceAdjustStockArgs = map[int16]string{
+	1: "request",
+}
+
+type InventoryServiceAdjustStockResult struct {
+	Success *AdjustStockResponse `thrift:"success,0,optional" frugal:"0,optional,AdjustStockResponse" json:"success,omitempty"`
+}
+
+func NewInventoryServiceAdjustStockResult() *InventoryServiceAdjustStockResult {
+	return &InventoryServiceAdjustStockResult{}
+}
+
+func (p *InventoryServiceAdjustStockResult) InitDefault() {
+}
+
+var InventoryServiceAdjustStockResult_Success_DEFAULT *AdjustStockResponse
+
+func (p *InventoryServiceAdjustStockResult) GetSuccess() (v *AdjustStockResponse) {
+	if !p.IsSetSuccess() {
+		return InventoryServiceAdjustStockResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *InventoryServiceAdjustStockResult) SetSuccess(x interface{}) {
+	p.Success = x.(*AdjustStockResponse)
+}
+
+func (p *InventoryServiceAdjustStockResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *InventoryServiceAdjustStockResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("InventoryServiceAdjustStockResult(%+v)", *p)
+}
+
+var fieldIDToName_InventoryServiceAdjustStockResult = map[int16]string{
 	0: "success",
 }

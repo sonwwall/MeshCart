@@ -14,6 +14,8 @@ import (
 type stubInventoryRepository struct {
 	getBySKUIDFn   func(context.Context, int64) (*dalmodel.InventoryStock, error)
 	listBySKUIDsFn func(context.Context, []int64) ([]*dalmodel.InventoryStock, error)
+	createBatchFn  func(context.Context, []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error)
+	adjustStockFn  func(context.Context, int64, int64) (*dalmodel.InventoryStock, error)
 }
 
 func (s *stubInventoryRepository) GetBySKUID(ctx context.Context, skuID int64) (*dalmodel.InventoryStock, error) {
@@ -28,6 +30,20 @@ func (s *stubInventoryRepository) ListBySKUIDs(ctx context.Context, skuIDs []int
 		return s.listBySKUIDsFn(ctx, skuIDs)
 	}
 	return []*dalmodel.InventoryStock{}, nil
+}
+
+func (s *stubInventoryRepository) CreateBatch(ctx context.Context, stocks []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error) {
+	if s.createBatchFn != nil {
+		return s.createBatchFn(ctx, stocks)
+	}
+	return stocks, nil
+}
+
+func (s *stubInventoryRepository) AdjustTotalStock(ctx context.Context, skuID int64, totalStock int64) (*dalmodel.InventoryStock, error) {
+	if s.adjustStockFn != nil {
+		return s.adjustStockFn(ctx, skuID, totalStock)
+	}
+	return nil, repository.ErrStockNotFound
 }
 
 func TestInventoryService_GetSkuStock_NotFound(t *testing.T) {
@@ -110,5 +126,42 @@ func TestInventoryService_CheckSaleableStock_Success(t *testing.T) {
 	}
 	if !saleable || available != 8 {
 		t.Fatalf("unexpected result saleable=%v available=%d", saleable, available)
+	}
+}
+
+func TestInventoryService_InitSkuStocks_Success(t *testing.T) {
+	svc := NewInventoryService(&stubInventoryRepository{
+		createBatchFn: func(_ context.Context, stocks []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error) {
+			if len(stocks) != 1 || stocks[0].SKUID != 3001 || stocks[0].AvailableStock != 20 {
+				t.Fatalf("unexpected init stocks: %+v", stocks)
+			}
+			return stocks, nil
+		},
+	})
+
+	stocks, bizErr := svc.InitSkuStocks(context.Background(), &inventorypb.InitSkuStocksRequest{
+		Stocks: []*inventorypb.InitSkuStockItem{{SkuId: 3001, TotalStock: 20}},
+	})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if len(stocks) != 1 || stocks[0].GetTotalStock() != 20 {
+		t.Fatalf("unexpected response: %+v", stocks)
+	}
+}
+
+func TestInventoryService_AdjustStock_Success(t *testing.T) {
+	svc := NewInventoryService(&stubInventoryRepository{
+		adjustStockFn: func(context.Context, int64, int64) (*dalmodel.InventoryStock, error) {
+			return &dalmodel.InventoryStock{SKUID: 3001, TotalStock: 50, AvailableStock: 45, ReservedStock: 5}, nil
+		},
+	})
+
+	stock, bizErr := svc.AdjustStock(context.Background(), &inventorypb.AdjustStockRequest{SkuId: 3001, TotalStock: 50})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if stock == nil || stock.GetAvailableStock() != 45 {
+		t.Fatalf("unexpected stock: %+v", stock)
 	}
 }

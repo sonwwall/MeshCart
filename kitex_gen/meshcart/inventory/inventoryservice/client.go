@@ -14,6 +14,8 @@ type Client interface {
 	GetSkuStock(ctx context.Context, request *inventory.GetSkuStockRequest, callOptions ...callopt.Option) (r *inventory.GetSkuStockResponse, err error)
 	BatchGetSkuStock(ctx context.Context, request *inventory.BatchGetSkuStockRequest, callOptions ...callopt.Option) (r *inventory.BatchGetSkuStockResponse, err error)
 	CheckSaleableStock(ctx context.Context, request *inventory.CheckSaleableStockRequest, callOptions ...callopt.Option) (r *inventory.CheckSaleableStockResponse, err error)
+	InitSkuStocks(ctx context.Context, request *inventory.InitSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.InitSkuStocksResponse, err error)
+	AdjustStock(ctx context.Context, request *inventory.AdjustStockRequest, callOptions ...callopt.Option) (r *inventory.AdjustStockResponse, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -58,4 +60,14 @@ func (p *kInventoryServiceClient) BatchGetSkuStock(ctx context.Context, request 
 func (p *kInventoryServiceClient) CheckSaleableStock(ctx context.Context, request *inventory.CheckSaleableStockRequest, callOptions ...callopt.Option) (r *inventory.CheckSaleableStockResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.CheckSaleableStock(ctx, request)
+}
+
+func (p *kInventoryServiceClient) InitSkuStocks(ctx context.Context, request *inventory.InitSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.InitSkuStocksResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.InitSkuStocks(ctx, request)
+}
+
+func (p *kInventoryServiceClient) AdjustStock(ctx context.Context, request *inventory.AdjustStockRequest, callOptions ...callopt.Option) (r *inventory.AdjustStockResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.AdjustStock(ctx, request)
 }

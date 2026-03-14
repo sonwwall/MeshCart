@@ -7,14 +7,15 @@ type ProductSkuAttrInput struct {
 }
 
 type ProductSkuInput struct {
-	ID          *int64                `json:"id,omitempty"`
-	SKUCode     string                `json:"sku_code"`
-	Title       string                `json:"title"`
-	SalePrice   int64                 `json:"sale_price"`
-	MarketPrice int64                 `json:"market_price"`
-	Status      int32                 `json:"status"`
-	CoverURL    string                `json:"cover_url"`
-	Attrs       []ProductSkuAttrInput `json:"attrs"`
+	ID           *int64                `json:"id,omitempty"`
+	SKUCode      string                `json:"sku_code"`
+	Title        string                `json:"title"`
+	SalePrice    int64                 `json:"sale_price"`
+	MarketPrice  int64                 `json:"market_price"`
+	Status       int32                 `json:"status"`
+	CoverURL     string                `json:"cover_url"`
+	InitialStock *int64                `json:"initial_stock,omitempty"`
+	Attrs        []ProductSkuAttrInput `json:"attrs"`
 }
 
 type CreateProductRequest struct {
@@ -50,7 +51,13 @@ type ListProductsRequest struct {
 }
 
 type CreateProductData struct {
-	ProductID int64 `json:"product_id"`
+	ProductID int64                   `json:"product_id"`
+	SKUs      []CreatedProductSKUData `json:"skus"`
+}
+
+type CreatedProductSKUData struct {
+	ID      int64  `json:"id"`
+	SKUCode string `json:"sku_code"`
 }
 
 type ListProductsData struct {

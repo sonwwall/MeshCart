@@ -76,6 +76,7 @@ struct CreateProductRequest {
 
 struct CreateProductResponse {
     1: i64 product_id
+    2: list<ProductSku> skus
     255: base.BaseResponse base
 }
 

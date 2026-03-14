@@ -618,6 +618,7 @@ var fieldIDToName_CreateProductRequest = map[int16]string{
 
 type CreateProductResponse struct {
 	ProductId int64              `thrift:"product_id,1" frugal:"1,default,i64" json:"product_id"`
+	Skus      []*ProductSku      `thrift:"skus,2" frugal:"2,default,list<ProductSku>" json:"skus"`
 	Base      *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
 }
 
@@ -632,6 +633,10 @@ func (p *CreateProductResponse) GetProductId() (v int64) {
 	return p.ProductId
 }
 
+func (p *CreateProductResponse) GetSkus() (v []*ProductSku) {
+	return p.Skus
+}
+
 var CreateProductResponse_Base_DEFAULT *base.BaseResponse
 
 func (p *CreateProductResponse) GetBase() (v *base.BaseResponse) {
@@ -642,6 +647,9 @@ func (p *CreateProductResponse) GetBase() (v *base.BaseResponse) {
 }
 func (p *CreateProductResponse) SetProductId(val int64) {
 	p.ProductId = val
+}
+func (p *CreateProductResponse) SetSkus(val []*ProductSku) {
+	p.Skus = val
 }
 func (p *CreateProductResponse) SetBase(val *base.BaseResponse) {
 	p.Base = val
@@ -660,6 +668,7 @@ func (p *CreateProductResponse) String() string {
 
 var fieldIDToName_CreateProductResponse = map[int16]string{
 	1:   "product_id",
+	2:   "skus",
 	255: "base",
 }
 

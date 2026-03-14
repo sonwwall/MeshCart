@@ -389,6 +389,8 @@ type stubInventoryClient struct {
 	getSkuStockFn        func(context.Context, *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error)
 	batchGetSkuStockFn   func(context.Context, *inventorypb.BatchGetSkuStockRequest) (*inventoryrpc.BatchGetSkuStockResponse, error)
 	checkSaleableStockFn func(context.Context, *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error)
+	initSkuStocksFn      func(context.Context, *inventorypb.InitSkuStocksRequest) (*inventoryrpc.InitSkuStocksResponse, error)
+	adjustStockFn        func(context.Context, *inventorypb.AdjustStockRequest) (*inventoryrpc.AdjustStockResponse, error)
 }
 
 func (s *stubInventoryClient) GetSkuStock(ctx context.Context, req *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error) {
@@ -410,6 +412,20 @@ func (s *stubInventoryClient) CheckSaleableStock(ctx context.Context, req *inven
 		return &inventoryrpc.CheckSaleableStockResponse{Code: common.CodeOK, Message: "成功", Saleable: true, AvailableStock: 100}, nil
 	}
 	return s.checkSaleableStockFn(ctx, req)
+}
+
+func (s *stubInventoryClient) InitSkuStocks(ctx context.Context, req *inventorypb.InitSkuStocksRequest) (*inventoryrpc.InitSkuStocksResponse, error) {
+	if s.initSkuStocksFn == nil {
+		return &inventoryrpc.InitSkuStocksResponse{Code: common.CodeOK, Message: "成功", Stocks: []*inventorypb.SkuStock{}}, nil
+	}
+	return s.initSkuStocksFn(ctx, req)
+}
+
+func (s *stubInventoryClient) AdjustStock(ctx context.Context, req *inventorypb.AdjustStockRequest) (*inventoryrpc.AdjustStockResponse, error) {
+	if s.adjustStockFn == nil {
+		return &inventoryrpc.AdjustStockResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.adjustStockFn(ctx, req)
 }
 
 func newTestServiceContext(t *testing.T, rl config.RateLimitConfig) *svc.ServiceContext {

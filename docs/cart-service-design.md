@@ -32,7 +32,6 @@
 
 - 游客购物车
 - 购物车跨端合并
-- 实时库存校验
 - 下单
 - 库存预占与扣减
 - 价格锁定
@@ -48,6 +47,7 @@
   - 负责 JWT 登录态识别
   - 负责“只能访问自己的购物车”这一层授权收口
   - 负责加购前调用 `product-service` 做商品和 SKU 状态校验
+  - 负责加购前调用 `inventory-service` 做库存可售校验
   - 负责把商品快照注入到 cart RPC 请求中
 - `cart-service`
   - 提供购物车读写 RPC
@@ -56,6 +56,9 @@
 - `product-service`
   - 提供商品详情只读能力
   - 当前主要给加购链路提供商品在线、SKU 可售和快照来源
+- `inventory-service`
+  - 提供库存查询和库存可售校验能力
+  - 当前主要给加购链路提供库存是否足够的判断
 
 ### 4.2 核心链路
 
@@ -73,10 +76,12 @@
 2. `gateway` 从 JWT 解析当前用户身份
 3. `gateway` 调用 `product-service.GetProductDetail`
 4. 校验商品状态为在线、目标 SKU 状态为可售
-5. `gateway` 从商品详情提取标题、SKU 标题、价格、封面快照
-6. `gateway` 调用 `cart-service.AddCartItem`
-7. `cart-service` 按 `(user_id, sku_id)` 唯一约束执行“创建或累加”
-8. 返回最终购物车项
+5. `gateway` 调用 `inventory-service.CheckSaleableStock`
+6. 校验目标 SKU 当前库存充足
+7. `gateway` 从商品详情提取标题、SKU 标题、价格、封面快照
+8. `gateway` 调用 `cart-service.AddCartItem`
+9. `cart-service` 按 `(user_id, sku_id)` 唯一约束执行“创建或累加”
+10. 返回最终购物车项
 
 #### 修改、删除、清空
 
@@ -145,10 +150,10 @@
 
 ### 6.2 当前未处理规则
 
-- 实时库存判断
 - 价格变化后的重算
 - 商品下架后的自动剔除或标红
 - 结算前购物车失效修复
+- 购物车已存在项的自动库存重算
 
 ## 7. 授权与安全设计
 
@@ -502,6 +507,7 @@ struct ClearCartRequest {
 - `gateway` 已实现 `cart` 路由、`cart` logic、`cart` RPC client
 - 已实现 JWT 下“只访问自己的购物车”
 - 已实现加购前通过 `product-service` 做商品在线、SKU 可售校验
+- 已实现加购前通过 `inventory-service` 做库存可售校验
 - 已实现加购时快照落库
 - 已补 cart service 层与 gateway cart logic 层最小单测
 
@@ -509,7 +515,6 @@ struct ClearCartRequest {
 
 - 还没有游客购物车
 - 还没有购物车合并
-- 还没有库存联动
 - 还没有商品失效自动修复
 - 还没有批量勾选 / 取消勾选
 - 还没有面向结算的专用购物车读取模型
@@ -534,10 +539,7 @@ struct ClearCartRequest {
 4. 补结算前模型
    - 提供“仅返回可结算条目”的读取能力
    - 为 `order-service` 预留输入
-5. 与 `inventory-service` 联动
-   - 增加库存可售校验
-   - 明确库存不足时的购物车表现
-6. 与 `order-service` 联动
+5. 与 `order-service` 联动
    - 支持从购物车生成订单输入
    - 支持下单后清理已结算购物车项
 

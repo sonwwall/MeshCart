@@ -64,6 +64,29 @@ func TestRepository_GetBySKUID_DBTimeout(t *testing.T) {
 	}
 }
 
+func TestRepository_CreateBatchAndAdjustTotalStock(t *testing.T) {
+	db := newInventorySQLiteDB(t)
+	repo := NewMySQLInventoryRepository(db, time.Second)
+
+	created, err := repo.CreateBatch(context.Background(), []*dalmodel.InventoryStock{
+		{ID: 1, SKUID: 3001, TotalStock: 10, ReservedStock: 0, AvailableStock: 10, Version: 1},
+	})
+	if err != nil {
+		t.Fatalf("create batch: %v", err)
+	}
+	if len(created) != 1 || created[0].SKUID != 3001 {
+		t.Fatalf("unexpected created stocks: %+v", created)
+	}
+
+	adjusted, err := repo.AdjustTotalStock(context.Background(), 3001, 8)
+	if err != nil {
+		t.Fatalf("adjust total stock: %v", err)
+	}
+	if adjusted.TotalStock != 8 || adjusted.AvailableStock != 8 {
+		t.Fatalf("unexpected adjusted stock: %+v", adjusted)
+	}
+}
+
 func newInventorySQLiteDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
