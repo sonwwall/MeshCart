@@ -716,7 +716,7 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 当前建议：
 
 - 默认不物理删除库存记录
-- 商品删除或 SKU 删除时，优先做“不可售/冻结”，不做硬删除
+- 商品删除或 SKU 删除时，优先做“商品 SKU 失效 + 库存冻结”，不做硬删除
 
 原因：
 
@@ -726,7 +726,7 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 
 推荐方案：
 
-1. 商品或 SKU 被删除时，商品侧优先下架或置为不可售
+1. 商品或 SKU 被删除时，商品侧保留 SKU 记录，并优先置为不可售或失效
 2. 库存侧保留库存记录
 3. 库存侧增加状态语义，至少支持：
    - `active`
@@ -750,7 +750,7 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 当前阶段结论：
 
 - 商品删除或 SKU 删除后，不应默认联动物理删除库存记录
-- 更合理的方向是“状态冻结”，而不是“数据硬删”
+- 更合理的方向是“商品 SKU 失效 + 库存冻结”，而不是“数据硬删”
 
 ### 14.10 当前不建议过早做的事情
 
