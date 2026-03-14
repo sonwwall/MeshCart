@@ -719,6 +719,7 @@ gateway/
 - `gateway` 对外 HTTP 接口：
   - `GET /api/v1/products`
   - `GET /api/v1/products/detail/:product_id`
+  - `GET /api/v1/admin/products`
   - `POST /api/v1/admin/products`
   - `PUT /api/v1/admin/products/:product_id`
   - `POST /api/v1/admin/products/:product_id/status`
@@ -776,20 +777,20 @@ gateway/
 
 - `page`：页码，选填，默认 `1`
 - `page_size`：每页数量，选填，默认 `20`，最大 `100`
-- `status`：商品状态，选填
 - `category_id`：类目 ID，选填
 - `keyword`：标题 / 副标题 / 品牌关键字，选填
 
 权限说明：
 
-- 未登录用户和普通用户：不传 `status` 时默认只看 `online`
-- 普通用户即使主动传 `status=0/1`，也不会获得草稿 / 下架数据
-- 管理员查询 `status=0/1` 时，只能看到自己创建的商品
+- 该接口固定只返回 `online` 商品
+- 不支持通过 `status` 切换到 `draft/offline`
+- 管理员如果需要按状态查看自己商品，应使用后台列表接口
+- 管理员如果需要查看自己全部商品，应调用后台列表接口，而不是复用公开商品列表
 
 请求示例：
 
 ```http
-GET /api/v1/products?page=1&page_size=10&status=2&keyword=iphone
+GET /api/v1/products?page=1&page_size=10&keyword=iphone
 ```
 
 成功响应示例：
@@ -817,7 +818,58 @@ GET /api/v1/products?page=1&page_size=10&status=2&keyword=iphone
 }
 ```
 
-### 17.2 商品详情
+### 17.2 管理端商品列表
+
+- 方法：`GET`
+- 路径：`/api/v1/admin/products`
+
+查询参数：
+
+- `page`：页码，选填，默认 `1`
+- `page_size`：每页数量，选填，默认 `20`，最大 `100`
+- `status`：商品状态，选填，允许 `0/1/2`
+- `category_id`：类目 ID，选填
+- `keyword`：标题 / 副标题 / 品牌关键字，选填
+
+权限说明：
+
+- 需要登录
+- `admin` 默认只会看到自己创建的商品
+- `superadmin` 可以查看全量商品
+- 不传 `status` 时，管理端列表默认不过滤状态，可同时看到 `draft/offline/online`
+
+请求示例：
+
+```http
+GET /api/v1/admin/products?page=1&page_size=10&status=1
+```
+
+成功响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "data": {
+    "products": [
+      {
+        "id": 192000000000000001,
+        "title": "iPhone 15",
+        "sub_title": "A16 芯片",
+        "category_id": 1001,
+        "brand": "Apple",
+        "status": 1,
+        "min_sale_price": 599900,
+        "cover_url": "https://cdn.example.com/iphone15-black.jpg"
+      }
+    ],
+    "total": 1
+  },
+  "trace_id": "8f2d3f..."
+}
+```
+
+### 17.3 商品详情
 
 - 方法：`GET`
 - 路径：`/api/v1/products/detail/:product_id`
@@ -883,7 +935,7 @@ GET /api/v1/products/detail/192000000000000001
 }
 ```
 
-### 17.3 创建商品
+### 17.4 创建商品
 
 - 方法：`POST`
 - 路径：`/api/v1/admin/products`
@@ -958,7 +1010,7 @@ GET /api/v1/products/detail/192000000000000001
 }
 ```
 
-### 17.4 更新商品
+### 17.5 更新商品
 
 - 方法：`PUT`
 - 路径：`/api/v1/admin/products/:product_id`

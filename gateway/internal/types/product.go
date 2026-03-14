@@ -43,11 +43,11 @@ type ChangeProductStatusRequest struct {
 }
 
 type ListProductsRequest struct {
-	Page       int32  `query:"page"`
-	PageSize   int32  `query:"page_size"`
-	Status     *int32 `query:"status"`
-	CategoryID *int64 `query:"category_id"`
-	Keyword    string `query:"keyword"`
+	Page       int32  `query:"page" form:"page"`
+	PageSize   int32  `query:"page_size" form:"page_size"`
+	Status     *int32 `query:"status" form:"status"`
+	CategoryID *int64 `query:"category_id" form:"category_id"`
+	Keyword    string `query:"keyword" form:"keyword"`
 }
 
 type CreateProductData struct {
