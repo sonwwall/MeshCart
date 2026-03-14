@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	productStatusOnline int32 = 2
-	skuStatusActive     int32 = 1
+	productStatusOnline            int32 = 2
+	skuStatusActive                int32 = 1
+	inventoryCodeInsufficientStock int32 = 2050002
 )
 
 func toCartData(items []*cartpb.CartItem) *types.CartData {

@@ -5,6 +5,7 @@ import (
 	"meshcart/gateway/internal/authz"
 	"meshcart/gateway/internal/middleware"
 	cartrpc "meshcart/gateway/rpc/cart"
+	inventoryrpc "meshcart/gateway/rpc/inventory"
 	productrpc "meshcart/gateway/rpc/product"
 	userrpc "meshcart/gateway/rpc/user"
 	"sync/atomic"
@@ -13,14 +14,15 @@ import (
 )
 
 type ServiceContext struct {
-	Config        config.Config
-	UserClient    userrpc.Client
-	CartClient    cartrpc.Client
-	ProductClient productrpc.Client
-	AccessControl *authz.AccessController
-	JWT           *jwtmw.HertzJWTMiddleware
-	RateLimiter   *middleware.RateLimitStore
-	Draining      *atomic.Bool
+	Config          config.Config
+	UserClient      userrpc.Client
+	CartClient      cartrpc.Client
+	ProductClient   productrpc.Client
+	InventoryClient inventoryrpc.Client
+	AccessControl   *authz.AccessController
+	JWT             *jwtmw.HertzJWTMiddleware
+	RateLimiter     *middleware.RateLimitStore
+	Draining        *atomic.Bool
 }
 
 func NewServiceContext(cfg config.Config) *ServiceContext {
@@ -60,6 +62,18 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		panic(err)
 	}
 
+	inventoryClient, err := inventoryrpc.NewClient(
+		cfg.InventoryRPC.ServiceName,
+		cfg.InventoryRPC.Address,
+		cfg.InventoryRPC.DiscoveryType,
+		cfg.InventoryRPC.ConsulAddress,
+		cfg.InventoryRPC.ConnectTimeout,
+		cfg.InventoryRPC.RPCTimeout,
+	)
+	if err != nil {
+		panic(err)
+	}
+
 	jwtMiddleware, err := middleware.NewJWT(cfg.JWT)
 	if err != nil {
 		panic(err)
@@ -71,13 +85,14 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 	}
 
 	return &ServiceContext{
-		Config:        cfg,
-		UserClient:    userClient,
-		CartClient:    cartClient,
-		ProductClient: productClient,
-		AccessControl: accessController,
-		JWT:           jwtMiddleware,
-		RateLimiter:   middleware.NewRateLimitStore(cfg.RateLimit),
-		Draining:      &atomic.Bool{},
+		Config:          cfg,
+		UserClient:      userClient,
+		CartClient:      cartClient,
+		ProductClient:   productClient,
+		InventoryClient: inventoryClient,
+		AccessControl:   accessController,
+		JWT:             jwtMiddleware,
+		RateLimiter:     middleware.NewRateLimitStore(cfg.RateLimit),
+		Draining:        &atomic.Bool{},
 	}
 }

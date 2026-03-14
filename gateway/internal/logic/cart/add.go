@@ -11,6 +11,7 @@ import (
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
 	cartpb "meshcart/kitex_gen/meshcart/cart"
+	inventorypb "meshcart/kitex_gen/meshcart/inventory"
 	productpb "meshcart/kitex_gen/meshcart/product"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -53,6 +54,22 @@ func (l *AddLogic) Add(userID int64, req *types.AddCartItemRequest) (*types.Cart
 	sku := findSKU(detailResp.Product, req.SKUID)
 	if sku == nil || sku.GetStatus() != skuStatusActive {
 		return nil, common.ErrNotFound
+	}
+
+	stockResp, err := l.svcCtx.InventoryClient.CheckSaleableStock(ctx, &inventorypb.CheckSaleableStockRequest{
+		SkuId:    req.SKUID,
+		Quantity: req.Quantity,
+	})
+	if err != nil {
+		span.RecordError(err)
+		logx.L(ctx).Error("inventory rpc check stock before add cart failed", zap.Error(err))
+		return nil, logicutil.MapRPCError(err)
+	}
+	if stockResp.Code != common.CodeOK {
+		return nil, common.NewBizError(stockResp.Code, stockResp.Message)
+	}
+	if !stockResp.Saleable {
+		return nil, common.NewBizError(inventoryCodeInsufficientStock, "库存不足")
 	}
 
 	addResp, err := l.svcCtx.CartClient.AddCartItem(ctx, &cartpb.AddCartItemRequest{

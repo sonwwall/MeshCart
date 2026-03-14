@@ -11,8 +11,10 @@ import (
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
 	cartrpc "meshcart/gateway/rpc/cart"
+	inventoryrpc "meshcart/gateway/rpc/inventory"
 	productrpc "meshcart/gateway/rpc/product"
 	cartpb "meshcart/kitex_gen/meshcart/cart"
+	inventorypb "meshcart/kitex_gen/meshcart/inventory"
 	productpb "meshcart/kitex_gen/meshcart/product"
 )
 
@@ -102,7 +104,34 @@ func (s *stubProductClient) ListProducts(ctx context.Context, req *productpb.Lis
 	return &productrpc.ListProductsResponse{Code: common.CodeOK, Message: "成功"}, nil
 }
 
-func newCartTestServiceContext(t *testing.T, cartClient cartrpc.Client, productClient productrpc.Client) *svc.ServiceContext {
+type stubInventoryClient struct {
+	getSkuStockFn        func(context.Context, *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error)
+	batchGetSkuStockFn   func(context.Context, *inventorypb.BatchGetSkuStockRequest) (*inventoryrpc.BatchGetSkuStockResponse, error)
+	checkSaleableStockFn func(context.Context, *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error)
+}
+
+func (s *stubInventoryClient) GetSkuStock(ctx context.Context, req *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error) {
+	if s.getSkuStockFn != nil {
+		return s.getSkuStockFn(ctx, req)
+	}
+	return &inventoryrpc.GetSkuStockResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubInventoryClient) BatchGetSkuStock(ctx context.Context, req *inventorypb.BatchGetSkuStockRequest) (*inventoryrpc.BatchGetSkuStockResponse, error) {
+	if s.batchGetSkuStockFn != nil {
+		return s.batchGetSkuStockFn(ctx, req)
+	}
+	return &inventoryrpc.BatchGetSkuStockResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubInventoryClient) CheckSaleableStock(ctx context.Context, req *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error) {
+	if s.checkSaleableStockFn != nil {
+		return s.checkSaleableStockFn(ctx, req)
+	}
+	return &inventoryrpc.CheckSaleableStockResponse{Code: common.CodeOK, Message: "成功", Saleable: true, AvailableStock: 100}, nil
+}
+
+func newCartTestServiceContext(t *testing.T, cartClient cartrpc.Client, productClient productrpc.Client, inventoryClient inventoryrpc.Client) *svc.ServiceContext {
 	t.Helper()
 
 	jwtMiddleware, err := middleware.NewJWT(config.JWTConfig{
@@ -120,10 +149,11 @@ func newCartTestServiceContext(t *testing.T, cartClient cartrpc.Client, productC
 	}
 
 	return &svc.ServiceContext{
-		CartClient:    cartClient,
-		ProductClient: productClient,
-		JWT:           jwtMiddleware,
-		AccessControl: accessController,
+		CartClient:      cartClient,
+		ProductClient:   productClient,
+		InventoryClient: inventoryClient,
+		JWT:             jwtMiddleware,
+		AccessControl:   accessController,
 	}
 }
 
@@ -136,7 +166,7 @@ func TestAddLogic_ProductOffline(t *testing.T) {
 				Product: &productpb.Product{Id: 2001, Status: 1},
 			}, nil
 		},
-	}))
+	}, &stubInventoryClient{}))
 
 	item, bizErr := logic.Add(101, &types.AddCartItemRequest{ProductID: 2001, SKUID: 3001, Quantity: 1})
 	if item != nil {
@@ -184,6 +214,13 @@ func TestAddLogic_Success(t *testing.T) {
 				},
 			}, nil
 		},
+	}, &stubInventoryClient{
+		checkSaleableStockFn: func(_ context.Context, req *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error) {
+			if req.GetSkuId() != 3001 || req.GetQuantity() != 2 {
+				t.Fatalf("unexpected stock check request: %+v", req)
+			}
+			return &inventoryrpc.CheckSaleableStockResponse{Code: common.CodeOK, Message: "成功", Saleable: true, AvailableStock: 10}, nil
+		},
 	}))
 
 	item, bizErr := logic.Add(101, &types.AddCartItemRequest{ProductID: 2001, SKUID: 3001, Quantity: 2})
@@ -192,5 +229,36 @@ func TestAddLogic_Success(t *testing.T) {
 	}
 	if item == nil || item.Quantity != 2 || item.SKUTitleSnapshot != "Blue XL" {
 		t.Fatalf("unexpected item: %+v", item)
+	}
+}
+
+func TestAddLogic_InsufficientStock(t *testing.T) {
+	logic := NewAddLogic(context.Background(), newCartTestServiceContext(t, &stubCartClient{}, &stubProductClient{
+		getProductDetailFn: func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+			return &productrpc.GetProductDetailResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Product: &productpb.Product{
+					Id:     2001,
+					Title:  "MeshCart Tee",
+					Status: 2,
+					Skus: []*productpb.ProductSku{
+						{Id: 3001, Title: "Blue XL", SalePrice: 1999, Status: 1},
+					},
+				},
+			}, nil
+		},
+	}, &stubInventoryClient{
+		checkSaleableStockFn: func(context.Context, *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error) {
+			return &inventoryrpc.CheckSaleableStockResponse{Code: 2050002, Message: "库存不足", Saleable: false, AvailableStock: 1}, nil
+		},
+	}))
+
+	item, bizErr := logic.Add(101, &types.AddCartItemRequest{ProductID: 2001, SKUID: 3001, Quantity: 2})
+	if item != nil {
+		t.Fatalf("expected nil item, got %+v", item)
+	}
+	if bizErr == nil || bizErr.Code != 2050002 {
+		t.Fatalf("expected insufficient stock error, got %+v", bizErr)
 	}
 }

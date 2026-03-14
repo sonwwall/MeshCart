@@ -17,8 +17,10 @@ import (
 	"meshcart/gateway/internal/handler"
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
+	inventoryrpc "meshcart/gateway/rpc/inventory"
 	productrpc "meshcart/gateway/rpc/product"
 	userrpc "meshcart/gateway/rpc/user"
+	inventorypb "meshcart/kitex_gen/meshcart/inventory"
 	productpb "meshcart/kitex_gen/meshcart/product"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -383,6 +385,33 @@ func (s *stubProductClient) ListProducts(ctx context.Context, req *productpb.Lis
 	return s.listProductsFn(ctx, req)
 }
 
+type stubInventoryClient struct {
+	getSkuStockFn        func(context.Context, *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error)
+	batchGetSkuStockFn   func(context.Context, *inventorypb.BatchGetSkuStockRequest) (*inventoryrpc.BatchGetSkuStockResponse, error)
+	checkSaleableStockFn func(context.Context, *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error)
+}
+
+func (s *stubInventoryClient) GetSkuStock(ctx context.Context, req *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error) {
+	if s.getSkuStockFn == nil {
+		return &inventoryrpc.GetSkuStockResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.getSkuStockFn(ctx, req)
+}
+
+func (s *stubInventoryClient) BatchGetSkuStock(ctx context.Context, req *inventorypb.BatchGetSkuStockRequest) (*inventoryrpc.BatchGetSkuStockResponse, error) {
+	if s.batchGetSkuStockFn == nil {
+		return &inventoryrpc.BatchGetSkuStockResponse{Code: common.CodeOK, Message: "成功", Stocks: []*inventorypb.SkuStock{}}, nil
+	}
+	return s.batchGetSkuStockFn(ctx, req)
+}
+
+func (s *stubInventoryClient) CheckSaleableStock(ctx context.Context, req *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error) {
+	if s.checkSaleableStockFn == nil {
+		return &inventoryrpc.CheckSaleableStockResponse{Code: common.CodeOK, Message: "成功", Saleable: true, AvailableStock: 100}, nil
+	}
+	return s.checkSaleableStockFn(ctx, req)
+}
+
 func newTestServiceContext(t *testing.T, rl config.RateLimitConfig) *svc.ServiceContext {
 	t.Helper()
 
@@ -412,11 +441,12 @@ func newTestServiceContext(t *testing.T, rl config.RateLimitConfig) *svc.Service
 			},
 			RateLimit: rl,
 		},
-		UserClient:    &stubUserClient{},
-		ProductClient: &stubProductClient{},
-		AccessControl: ac,
-		JWT:           jwtMiddleware,
-		RateLimiter:   middleware.NewRateLimitStore(rl),
+		UserClient:      &stubUserClient{},
+		ProductClient:   &stubProductClient{},
+		InventoryClient: &stubInventoryClient{},
+		AccessControl:   ac,
+		JWT:             jwtMiddleware,
+		RateLimiter:     middleware.NewRateLimitStore(rl),
 	}
 }
 

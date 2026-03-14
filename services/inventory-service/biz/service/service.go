@@ -1,3 +1,11 @@
 package service
 
-// TODO: core business use-cases.
+import "meshcart/services/inventory-service/biz/repository"
+
+type InventoryService struct {
+	repo repository.InventoryRepository
+}
+
+func NewInventoryService(repo repository.InventoryRepository) *InventoryService {
+	return &InventoryService{repo: repo}
+}

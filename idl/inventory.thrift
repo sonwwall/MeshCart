@@ -1,3 +1,46 @@
-namespace go inventory
+namespace go meshcart.inventory
 
-// TODO: define inventory service IDL.
+include "base.thrift"
+
+struct SkuStock {
+    1: i64 sku_id
+    2: i64 total_stock
+    3: i64 reserved_stock
+    4: i64 available_stock
+    5: i64 saleable_stock
+}
+
+struct GetSkuStockRequest {
+    1: i64 sku_id
+}
+
+struct GetSkuStockResponse {
+    1: SkuStock stock
+    255: base.BaseResponse base
+}
+
+struct BatchGetSkuStockRequest {
+    1: list<i64> sku_ids
+}
+
+struct BatchGetSkuStockResponse {
+    1: list<SkuStock> stocks
+    255: base.BaseResponse base
+}
+
+struct CheckSaleableStockRequest {
+    1: i64 sku_id
+    2: i32 quantity
+}
+
+struct CheckSaleableStockResponse {
+    1: bool saleable
+    2: i64 available_stock
+    255: base.BaseResponse base
+}
+
+service InventoryService {
+    GetSkuStockResponse getSkuStock(1: GetSkuStockRequest request)
+    BatchGetSkuStockResponse batchGetSkuStock(1: BatchGetSkuStockRequest request)
+    CheckSaleableStockResponse checkSaleableStock(1: CheckSaleableStockRequest request)
+}

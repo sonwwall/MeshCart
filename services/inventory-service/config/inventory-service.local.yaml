@@ -1,0 +1,15 @@
+mysql:
+  address: "49.235.163.191:13306"
+  username: "root"
+  password: "2FaJkFtkMkC3yeBK"
+  database: "meshcart_inventory"
+  charset: "utf8mb4"
+  parse_time: true
+  loc: "Local"
+
+migration:
+  enabled: true
+  source: "file://services/inventory-service/migrations"
+
+timeout:
+  db_query_ms: 1500

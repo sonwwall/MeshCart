@@ -1,3 +1,3 @@
 package handler
 
-// TODO: RPC handler implementations.
+// Package handler is reserved for optional inventory business adapters.

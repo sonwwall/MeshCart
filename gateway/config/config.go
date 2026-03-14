@@ -7,16 +7,17 @@ import (
 )
 
 type Config struct {
-	App        AppConfig
-	Log        LogConfig
-	Telemetry  TelemetryConfig
-	Metrics    MetricsConfig
-	Server     ServerConfig
-	RateLimit  RateLimitConfig
-	UserRPC    UserRPCConfig
-	CartRPC    CartRPCConfig
-	ProductRPC ProductRPCConfig
-	JWT        JWTConfig
+	App          AppConfig
+	Log          LogConfig
+	Telemetry    TelemetryConfig
+	Metrics      MetricsConfig
+	Server       ServerConfig
+	RateLimit    RateLimitConfig
+	UserRPC      UserRPCConfig
+	CartRPC      CartRPCConfig
+	ProductRPC   ProductRPCConfig
+	InventoryRPC InventoryRPCConfig
+	JWT          JWTConfig
 }
 
 type AppConfig struct {
@@ -85,6 +86,15 @@ type ProductRPCConfig struct {
 }
 
 type CartRPCConfig struct {
+	ServiceName    string
+	Address        string
+	DiscoveryType  string
+	ConsulAddress  string
+	ConnectTimeout time.Duration
+	RPCTimeout     time.Duration
+}
+
+type InventoryRPCConfig struct {
 	ServiceName    string
 	Address        string
 	DiscoveryType  string
@@ -176,6 +186,14 @@ func Load() Config {
 			ConsulAddress:  getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
 			ConnectTimeout: getEnvAsDuration("PRODUCT_RPC_CONNECT_TIMEOUT_MS", 500*time.Millisecond),
 			RPCTimeout:     getEnvAsDuration("PRODUCT_RPC_TIMEOUT_MS", 2*time.Second),
+		},
+		InventoryRPC: InventoryRPCConfig{
+			ServiceName:    getEnv("INVENTORY_RPC_SERVICE", "meshcart.inventory"),
+			Address:        getEnv("INVENTORY_RPC_ADDR", "127.0.0.1:8891"),
+			DiscoveryType:  getEnv("INVENTORY_RPC_DISCOVERY", "direct"),
+			ConsulAddress:  getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
+			ConnectTimeout: getEnvAsDuration("INVENTORY_RPC_CONNECT_TIMEOUT_MS", 500*time.Millisecond),
+			RPCTimeout:     getEnvAsDuration("INVENTORY_RPC_TIMEOUT_MS", 2*time.Second),
 		},
 		JWT: JWTConfig{
 			Secret:            getEnv("JWT_SECRET", "meshcart-dev-secret-change-me"),
