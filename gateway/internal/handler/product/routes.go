@@ -18,6 +18,7 @@ func RegisterRoutes(api *route.RouterGroup, svcCtx *svc.ServiceContext) {
 		middleware.RateLimit(svcCtx.RateLimiter, middleware.NewRule(svcCtx.Config.RateLimit.AdminWriteRoute), middleware.RouteKey),
 	)
 	adminGroup.GET("", ListOwnedProducts(svcCtx))
+	adminGroup.GET("/:product_id", GetAdminProductDetail(svcCtx))
 	adminGroup.POST("", CreateProduct(svcCtx))
 	adminGroup.PUT("/:product_id", UpdateProduct(svcCtx))
 	adminGroup.POST("/:product_id/status", ChangeProductStatus(svcCtx))

@@ -633,11 +633,13 @@ gateway/
 - `gateway/internal/handler/product/update.go`：处理更新商品 HTTP 请求。
 - `gateway/internal/handler/product/change_status.go`：处理商品状态变更 HTTP 请求。
 - `gateway/internal/handler/product/detail.go`：处理商品详情 HTTP 请求。
+- `gateway/internal/handler/product/admin_detail.go`：处理管理员商品聚合详情 HTTP 请求。
 - `gateway/internal/handler/product/list.go`：处理商品列表 HTTP 请求。
 - `gateway/internal/logic/product/create.go`：网关侧创建商品业务编排，负责参数检查和下游 RPC 调用。
 - `gateway/internal/logic/product/update.go`：网关侧更新商品业务编排，并在写入前校验是否有权修改该商品。
 - `gateway/internal/logic/product/change_status.go`：网关侧商品状态变更业务编排，并校验是否有权修改该商品。
 - `gateway/internal/logic/product/detail.go`：网关侧商品详情业务编排，并根据商品状态和创建者做可见性控制。
+- `gateway/internal/logic/product/admin_detail.go`：网关侧管理员商品聚合详情编排，聚合商品和库存信息，并校验商品归属。
 - `gateway/internal/logic/product/list.go`：网关侧商品列表业务编排，对普通用户和管理员应用不同查询策略。
 - `gateway/internal/types/product.go`：商品相关 HTTP 请求 / 响应结构定义。
 - `gateway/rpc/product/client.go`：商品服务 Kitex Client 封装。
@@ -720,6 +722,7 @@ gateway/
   - `GET /api/v1/products`
   - `GET /api/v1/products/detail/:product_id`
   - `GET /api/v1/admin/products`
+  - `GET /api/v1/admin/products/:product_id`
   - `POST /api/v1/admin/products`
   - `PUT /api/v1/admin/products/:product_id`
   - `POST /api/v1/admin/products/:product_id/status`
@@ -935,7 +938,108 @@ GET /api/v1/products/detail/192000000000000001
 }
 ```
 
-### 17.4 创建商品
+### 17.4 管理员商品聚合详情
+
+- 方法：`GET`
+- 路径：`/api/v1/admin/products/:product_id`
+
+权限说明：
+
+- 需要登录
+- `admin` 仅可查看自己创建的商品
+- `superadmin` 可查看全量商品
+
+接口说明：
+
+- 该接口由 `gateway` 聚合 `product-service.GetProductDetail` 与 `inventory-service.BatchGetSkuStock`
+- 返回商品主信息、创建者信息，以及每个 SKU 对应的库存快照
+- 与公共商品详情不同，管理员聚合详情会保留全量 SKU，包括 `inactive` SKU，便于后台排障和审计
+
+请求示例：
+
+```http
+GET /api/v1/admin/products/192000000000000001
+```
+
+成功响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "data": {
+    "id": 192000000000000001,
+    "title": "iPhone 15",
+    "sub_title": "A16 芯片",
+    "category_id": 1001,
+    "brand": "Apple",
+    "description": "iPhone 15 商品详情",
+    "status": 1,
+    "creator_id": 9001,
+    "skus": [
+      {
+        "id": 192000000000000101,
+        "spu_id": 192000000000000001,
+        "sku_code": "IP15-BLACK-128G",
+        "title": "iPhone 15 黑色 128G",
+        "sale_price": 599900,
+        "market_price": 699900,
+        "status": 1,
+        "cover_url": "https://cdn.example.com/iphone15-black.jpg",
+        "attrs": [
+          {
+            "id": 192000000000000201,
+            "sku_id": 192000000000000101,
+            "attr_name": "颜色",
+            "attr_value": "黑色",
+            "sort": 1
+          }
+        ],
+        "inventory": {
+          "sku_id": 192000000000000101,
+          "total_stock": 100,
+          "reserved_stock": 0,
+          "available_stock": 100,
+          "saleable_stock": 100,
+          "status": 1
+        }
+      },
+      {
+        "id": 192000000000000102,
+        "spu_id": 192000000000000001,
+        "sku_code": "IP15-WHITE-256G",
+        "title": "iPhone 15 白色 256G",
+        "sale_price": 699900,
+        "market_price": 799900,
+        "status": 0,
+        "cover_url": "https://cdn.example.com/iphone15-white.jpg",
+        "attrs": [],
+        "inventory": {
+          "sku_id": 192000000000000102,
+          "total_stock": 8,
+          "reserved_stock": 0,
+          "available_stock": 8,
+          "saleable_stock": 8,
+          "status": 0
+        }
+      }
+    ]
+  },
+  "trace_id": "8f2d3f..."
+}
+```
+
+失败响应示例：
+
+```json
+{
+  "code": 403,
+  "message": "无权限",
+  "trace_id": "8f2d3f..."
+}
+```
+
+### 17.5 创建商品
 
 - 方法：`POST`
 - 路径：`/api/v1/admin/products`
@@ -1010,7 +1114,7 @@ GET /api/v1/products/detail/192000000000000001
 }
 ```
 
-### 17.5 更新商品
+### 17.6 更新商品
 
 - 方法：`PUT`
 - 路径：`/api/v1/admin/products/:product_id`
@@ -1167,7 +1271,7 @@ GET /api/v1/products/detail/192000000000000001
 }
 ```
 
-### 17.5 修改商品状态
+### 17.7 修改商品状态
 
 - 方法：`POST`
 - 路径：`/api/v1/admin/products/:product_id/status`

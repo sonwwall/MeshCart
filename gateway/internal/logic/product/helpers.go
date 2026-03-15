@@ -5,6 +5,7 @@ import (
 	"meshcart/gateway/internal/authz"
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/types"
+	inventorypb "meshcart/kitex_gen/meshcart/inventory"
 	productpb "meshcart/kitex_gen/meshcart/product"
 )
 
@@ -80,5 +81,66 @@ func toDetailData(product *productpb.Product, includeInactive bool) *types.Produ
 		Description: product.GetDescription(),
 		Status:      product.GetStatus(),
 		SKUs:        skus,
+	}
+}
+
+func toAdminDetailData(product *productpb.Product, stockMap map[int64]*types.InventoryStockData) *types.AdminProductDetailData {
+	if product == nil {
+		return nil
+	}
+
+	skus := make([]types.AdminProductSKUData, 0, len(product.GetSkus()))
+	for _, sku := range product.GetSkus() {
+		if sku == nil {
+			continue
+		}
+		attrs := make([]types.ProductSKUAttrData, 0, len(sku.GetAttrs()))
+		for _, attr := range sku.GetAttrs() {
+			attrs = append(attrs, types.ProductSKUAttrData{
+				ID:        attr.GetId(),
+				SKUID:     attr.GetSkuId(),
+				AttrName:  attr.GetAttrName(),
+				AttrValue: attr.GetAttrValue(),
+				Sort:      attr.GetSort(),
+			})
+		}
+		skus = append(skus, types.AdminProductSKUData{
+			ID:          sku.GetId(),
+			SPUID:       sku.GetSpuId(),
+			SKUCode:     sku.GetSkuCode(),
+			Title:       sku.GetTitle(),
+			SalePrice:   sku.GetSalePrice(),
+			MarketPrice: sku.GetMarketPrice(),
+			Status:      sku.GetStatus(),
+			CoverURL:    sku.GetCoverUrl(),
+			Attrs:       attrs,
+			Inventory:   stockMap[sku.GetId()],
+		})
+	}
+
+	return &types.AdminProductDetailData{
+		ID:          product.GetId(),
+		Title:       product.GetTitle(),
+		SubTitle:    product.GetSubTitle(),
+		CategoryID:  product.GetCategoryId(),
+		Brand:       product.GetBrand(),
+		Description: product.GetDescription(),
+		Status:      product.GetStatus(),
+		CreatorID:   product.GetCreatorId(),
+		SKUs:        skus,
+	}
+}
+
+func toInventoryStockData(stock *inventorypb.SkuStock) *types.InventoryStockData {
+	if stock == nil {
+		return nil
+	}
+	return &types.InventoryStockData{
+		SKUID:          stock.GetSkuId(),
+		TotalStock:     stock.GetTotalStock(),
+		ReservedStock:  stock.GetReservedStock(),
+		AvailableStock: stock.GetAvailableStock(),
+		SaleableStock:  stock.GetSaleableStock(),
+		Status:         stock.GetStatus(),
 	}
 }
