@@ -41,6 +41,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"freezeSkuStocks": kitex.NewMethodInfo(
+		freezeSkuStocksHandler,
+		newInventoryServiceFreezeSkuStocksArgs,
+		newInventoryServiceFreezeSkuStocksResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"adjustStock": kitex.NewMethodInfo(
 		adjustStockHandler,
 		newInventoryServiceAdjustStockArgs,
@@ -186,6 +193,24 @@ func newInventoryServiceInitSkuStocksResult() interface{} {
 	return inventory.NewInventoryServiceInitSkuStocksResult()
 }
 
+func freezeSkuStocksHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*inventory.InventoryServiceFreezeSkuStocksArgs)
+	realResult := result.(*inventory.InventoryServiceFreezeSkuStocksResult)
+	success, err := handler.(inventory.InventoryService).FreezeSkuStocks(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newInventoryServiceFreezeSkuStocksArgs() interface{} {
+	return inventory.NewInventoryServiceFreezeSkuStocksArgs()
+}
+
+func newInventoryServiceFreezeSkuStocksResult() interface{} {
+	return inventory.NewInventoryServiceFreezeSkuStocksResult()
+}
+
 func adjustStockHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*inventory.InventoryServiceAdjustStockArgs)
 	realResult := result.(*inventory.InventoryServiceAdjustStockResult)
@@ -249,6 +274,16 @@ func (p *kClient) InitSkuStocks(ctx context.Context, request *inventory.InitSkuS
 	_args.Request = request
 	var _result inventory.InventoryServiceInitSkuStocksResult
 	if err = p.c.Call(ctx, "initSkuStocks", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) FreezeSkuStocks(ctx context.Context, request *inventory.FreezeSkuStocksRequest) (r *inventory.FreezeSkuStocksResponse, err error) {
+	var _args inventory.InventoryServiceFreezeSkuStocksArgs
+	_args.Request = request
+	var _result inventory.InventoryServiceFreezeSkuStocksResult
+	if err = p.c.Call(ctx, "freezeSkuStocks", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

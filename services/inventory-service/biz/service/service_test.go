@@ -11,10 +11,15 @@ import (
 	dalmodel "meshcart/services/inventory-service/dal/model"
 )
 
+func strPtr(v string) *string {
+	return &v
+}
+
 type stubInventoryRepository struct {
 	getBySKUIDFn   func(context.Context, int64) (*dalmodel.InventoryStock, error)
 	listBySKUIDsFn func(context.Context, []int64) ([]*dalmodel.InventoryStock, error)
 	createBatchFn  func(context.Context, []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error)
+	freezeBySKUsFn func(context.Context, []int64) ([]*dalmodel.InventoryStock, error)
 	adjustStockFn  func(context.Context, int64, int64) (*dalmodel.InventoryStock, error)
 }
 
@@ -37,6 +42,13 @@ func (s *stubInventoryRepository) CreateBatch(ctx context.Context, stocks []*dal
 		return s.createBatchFn(ctx, stocks)
 	}
 	return stocks, nil
+}
+
+func (s *stubInventoryRepository) FreezeBySKUIDs(ctx context.Context, skuIDs []int64) ([]*dalmodel.InventoryStock, error) {
+	if s.freezeBySKUsFn != nil {
+		return s.freezeBySKUsFn(ctx, skuIDs)
+	}
+	return []*dalmodel.InventoryStock{}, nil
 }
 
 func (s *stubInventoryRepository) AdjustTotalStock(ctx context.Context, skuID int64, totalStock int64) (*dalmodel.InventoryStock, error) {
@@ -122,7 +134,7 @@ func TestInventoryService_CheckSaleableStock_InvalidParam(t *testing.T) {
 func TestInventoryService_CheckSaleableStock_Insufficient(t *testing.T) {
 	svc := NewInventoryService(&stubInventoryRepository{
 		getBySKUIDFn: func(context.Context, int64) (*dalmodel.InventoryStock, error) {
-			return &dalmodel.InventoryStock{SKUID: 3001, AvailableStock: 1}, nil
+			return &dalmodel.InventoryStock{SKUID: 3001, AvailableStock: 1, Status: StockStatusActive}, nil
 		},
 	})
 
@@ -175,7 +187,7 @@ func TestInventoryService_CheckSaleableStock_RepositoryError(t *testing.T) {
 func TestInventoryService_CheckSaleableStock_Success(t *testing.T) {
 	svc := NewInventoryService(&stubInventoryRepository{
 		getBySKUIDFn: func(context.Context, int64) (*dalmodel.InventoryStock, error) {
-			return &dalmodel.InventoryStock{SKUID: 3001, AvailableStock: 8}, nil
+			return &dalmodel.InventoryStock{SKUID: 3001, AvailableStock: 8, Status: StockStatusActive}, nil
 		},
 	})
 
@@ -191,10 +203,29 @@ func TestInventoryService_CheckSaleableStock_Success(t *testing.T) {
 	}
 }
 
+func TestInventoryService_CheckSaleableStock_Frozen(t *testing.T) {
+	svc := NewInventoryService(&stubInventoryRepository{
+		getBySKUIDFn: func(context.Context, int64) (*dalmodel.InventoryStock, error) {
+			return &dalmodel.InventoryStock{SKUID: 3001, AvailableStock: 8, Status: StockStatusFrozen}, nil
+		},
+	})
+
+	saleable, available, bizErr := svc.CheckSaleableStock(context.Background(), &inventorypb.CheckSaleableStockRequest{
+		SkuId:    3001,
+		Quantity: 2,
+	})
+	if saleable || available != 8 {
+		t.Fatalf("unexpected result saleable=%v available=%d", saleable, available)
+	}
+	if bizErr != errno.ErrStockFrozen {
+		t.Fatalf("expected ErrStockFrozen, got %+v", bizErr)
+	}
+}
+
 func TestInventoryService_InitSkuStocks_Success(t *testing.T) {
 	svc := NewInventoryService(&stubInventoryRepository{
 		createBatchFn: func(_ context.Context, stocks []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error) {
-			if len(stocks) != 1 || stocks[0].SKUID != 3001 || stocks[0].AvailableStock != 20 {
+			if len(stocks) != 1 || stocks[0].SKUID != 3001 || stocks[0].AvailableStock != 20 || stocks[0].Status != StockStatusActive {
 				t.Fatalf("unexpected init stocks: %+v", stocks)
 			}
 			return stocks, nil
@@ -241,6 +272,46 @@ func TestInventoryService_InitSkuStocks_RepositoryConflict(t *testing.T) {
 	}
 	if bizErr != errno.ErrStockAlreadyExists {
 		t.Fatalf("expected ErrStockAlreadyExists, got %+v", bizErr)
+	}
+}
+
+func TestInventoryService_FreezeSkuStocks_Success(t *testing.T) {
+	svc := NewInventoryService(&stubInventoryRepository{
+		freezeBySKUsFn: func(_ context.Context, skuIDs []int64) ([]*dalmodel.InventoryStock, error) {
+			if len(skuIDs) != 2 || skuIDs[0] != 3001 || skuIDs[1] != 3002 {
+				t.Fatalf("unexpected sku ids: %+v", skuIDs)
+			}
+			return []*dalmodel.InventoryStock{
+				{SKUID: 3001, AvailableStock: 10, Status: StockStatusFrozen},
+				{SKUID: 3002, AvailableStock: 0, Status: StockStatusFrozen},
+			}, nil
+		},
+	})
+
+	stocks, bizErr := svc.FreezeSkuStocks(context.Background(), &inventorypb.FreezeSkuStocksRequest{
+		SkuIds:     []int64{3001, 3002},
+		OperatorId: 99,
+		Reason:     strPtr("product sku removed"),
+	})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if len(stocks) != 2 || stocks[0].GetStatus() != StockStatusFrozen || stocks[1].GetStatus() != StockStatusFrozen {
+		t.Fatalf("unexpected frozen stocks: %+v", stocks)
+	}
+}
+
+func TestInventoryService_FreezeSkuStocks_InvalidParam(t *testing.T) {
+	svc := NewInventoryService(&stubInventoryRepository{})
+
+	stocks, bizErr := svc.FreezeSkuStocks(context.Background(), &inventorypb.FreezeSkuStocksRequest{
+		SkuIds: []int64{3001, 0},
+	})
+	if stocks != nil {
+		t.Fatalf("expected nil stocks, got %+v", stocks)
+	}
+	if bizErr != common.ErrInvalidParam {
+		t.Fatalf("expected ErrInvalidParam, got %+v", bizErr)
 	}
 }
 

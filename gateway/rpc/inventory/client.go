@@ -22,6 +22,7 @@ var (
 	errNilBatchGetSkuStockResponse   = errors.New("inventory rpc returned nil batch get sku stock response")
 	errNilCheckSaleableStockResponse = errors.New("inventory rpc returned nil check saleable stock response")
 	errNilInitSkuStocksResponse      = errors.New("inventory rpc returned nil init sku stocks response")
+	errNilFreezeSkuStocksResponse    = errors.New("inventory rpc returned nil freeze sku stocks response")
 	errNilAdjustStockResponse        = errors.New("inventory rpc returned nil adjust stock response")
 )
 
@@ -50,6 +51,12 @@ type InitSkuStocksResponse struct {
 	Stocks  []*inventorypb.SkuStock
 }
 
+type FreezeSkuStocksResponse struct {
+	Code    int32
+	Message string
+	Stocks  []*inventorypb.SkuStock
+}
+
 type AdjustStockResponse struct {
 	Code    int32
 	Message string
@@ -61,6 +68,7 @@ type Client interface {
 	BatchGetSkuStock(ctx context.Context, req *inventorypb.BatchGetSkuStockRequest) (*BatchGetSkuStockResponse, error)
 	CheckSaleableStock(ctx context.Context, req *inventorypb.CheckSaleableStockRequest) (*CheckSaleableStockResponse, error)
 	InitSkuStocks(ctx context.Context, req *inventorypb.InitSkuStocksRequest) (*InitSkuStocksResponse, error)
+	FreezeSkuStocks(ctx context.Context, req *inventorypb.FreezeSkuStocksRequest) (*FreezeSkuStocksResponse, error)
 	AdjustStock(ctx context.Context, req *inventorypb.AdjustStockRequest) (*AdjustStockResponse, error)
 }
 
@@ -156,6 +164,18 @@ func (c *kitexClient) InitSkuStocks(ctx context.Context, req *inventorypb.InitSk
 	}
 	code, message := baseCodeMessage(resp.Base)
 	return &InitSkuStocksResponse{Code: code, Message: message, Stocks: resp.Stocks}, nil
+}
+
+func (c *kitexClient) FreezeSkuStocks(ctx context.Context, req *inventorypb.FreezeSkuStocksRequest) (*FreezeSkuStocksResponse, error) {
+	resp, err := c.cli.FreezeSkuStocks(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilFreezeSkuStocksResponse
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &FreezeSkuStocksResponse{Code: code, Message: message, Stocks: resp.Stocks}, nil
 }
 
 func (c *kitexClient) AdjustStock(ctx context.Context, req *inventorypb.AdjustStockRequest) (*AdjustStockResponse, error) {

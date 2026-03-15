@@ -172,10 +172,9 @@ func (r *MySQLProductRepository) Update(ctx context.Context, product *dalmodel.P
 			}
 		}
 		if len(staleSKUIds) > 0 {
-			if err := tx.Where("sku_id IN ?", staleSKUIds).Delete(&dalmodel.ProductSKUAttr{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("id IN ? AND spu_id = ?", staleSKUIds, product.ID).Delete(&dalmodel.ProductSKU{}).Error; err != nil {
+			if err := tx.Model(&dalmodel.ProductSKU{}).
+				Where("id IN ? AND spu_id = ?", staleSKUIds, product.ID).
+				Updates(map[string]any{"status": 0}).Error; err != nil {
 				return err
 			}
 		}

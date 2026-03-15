@@ -38,13 +38,16 @@ func toListItemData(item *productpb.ProductListItem) types.ProductListItemData {
 	}
 }
 
-func toDetailData(product *productpb.Product) *types.ProductDetailData {
+func toDetailData(product *productpb.Product, includeInactive bool) *types.ProductDetailData {
 	if product == nil {
 		return nil
 	}
 
 	skus := make([]types.ProductSKUData, 0, len(product.GetSkus()))
 	for _, sku := range product.GetSkus() {
+		if !includeInactive && sku.GetStatus() != 1 {
+			continue
+		}
 		attrs := make([]types.ProductSKUAttrData, 0, len(sku.GetAttrs()))
 		for _, attr := range sku.GetAttrs() {
 			attrs = append(attrs, types.ProductSKUAttrData{

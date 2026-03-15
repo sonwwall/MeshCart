@@ -21,6 +21,7 @@ type stubInventoryClient struct {
 	batchGetSkuStockFn   func(context.Context, *inventorypb.BatchGetSkuStockRequest) (*inventoryrpc.BatchGetSkuStockResponse, error)
 	checkSaleableStockFn func(context.Context, *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error)
 	initSkuStocksFn      func(context.Context, *inventorypb.InitSkuStocksRequest) (*inventoryrpc.InitSkuStocksResponse, error)
+	freezeSkuStocksFn    func(context.Context, *inventorypb.FreezeSkuStocksRequest) (*inventoryrpc.FreezeSkuStocksResponse, error)
 	adjustStockFn        func(context.Context, *inventorypb.AdjustStockRequest) (*inventoryrpc.AdjustStockResponse, error)
 }
 
@@ -72,6 +73,13 @@ func (s *stubInventoryClient) InitSkuStocks(ctx context.Context, req *inventoryp
 		return s.initSkuStocksFn(ctx, req)
 	}
 	return &inventoryrpc.InitSkuStocksResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubInventoryClient) FreezeSkuStocks(ctx context.Context, req *inventorypb.FreezeSkuStocksRequest) (*inventoryrpc.FreezeSkuStocksResponse, error) {
+	if s.freezeSkuStocksFn != nil {
+		return s.freezeSkuStocksFn(ctx, req)
+	}
+	return &inventoryrpc.FreezeSkuStocksResponse{Code: common.CodeOK, Message: "成功"}, nil
 }
 
 func (s *stubInventoryClient) AdjustStock(ctx context.Context, req *inventorypb.AdjustStockRequest) (*inventoryrpc.AdjustStockResponse, error) {

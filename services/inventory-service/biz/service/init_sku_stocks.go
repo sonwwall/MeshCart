@@ -24,6 +24,7 @@ func (s *InventoryService) InitSkuStocks(ctx context.Context, req *inventorypb.I
 			TotalStock:     item.GetTotalStock(),
 			ReservedStock:  0,
 			AvailableStock: item.GetTotalStock(),
+			Status:         StockStatusActive,
 			Version:        1,
 		})
 	}

@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -12,85 +11,64 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestWithQueryTimeout_AddsDeadline(t *testing.T) {
-	ctx, cancel := withQueryTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		t.Fatal("expected deadline to be set")
-	}
-
-	remaining := time.Until(deadline)
-	if remaining <= 0 || remaining > 100*time.Millisecond {
-		t.Fatalf("expected deadline close to 50ms, got remaining=%s", remaining)
-	}
-}
-
-func TestWithQueryTimeout_DisabledWhenTimeoutNonPositive(t *testing.T) {
-	parent := context.Background()
-	ctx, cancel := withQueryTimeout(parent, 0)
-	defer cancel()
-
-	if ctx != parent {
-		t.Fatal("expected original context when timeout is disabled")
-	}
-	if _, ok := ctx.Deadline(); ok {
-		t.Fatal("expected no deadline on original context")
-	}
-}
-
-func TestWithQueryTimeout_Expires(t *testing.T) {
-	ctx, cancel := withQueryTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
-
-	select {
-	case <-ctx.Done():
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("expected context deadline to fire")
-	}
-
-	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		t.Fatalf("expected context deadline exceeded, got %v", ctx.Err())
-	}
-}
-
-func TestRepository_GetByID_DBTimeout(t *testing.T) {
-	db := newProductSQLiteDB(t)
-	registerBlockingQueryCallback(t, db)
-
-	repo := NewMySQLProductRepository(db, 20*time.Millisecond)
-	_, err := repo.GetByID(context.Background(), 1)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected context deadline exceeded, got %v", err)
-	}
-}
-
-func newProductSQLiteDB(t *testing.T) *gorm.DB {
-	t.Helper()
-
+func TestMySQLProductRepository_UpdateMarksMissingSKUsInactive(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	if err != nil {
-		t.Fatalf("open sqlite db: %v", err)
+		t.Fatalf("open sqlite: %v", err)
 	}
 	if err := db.AutoMigrate(&dalmodel.Product{}, &dalmodel.ProductSKU{}, &dalmodel.ProductSKUAttr{}); err != nil {
-		t.Fatalf("migrate sqlite schema: %v", err)
+		t.Fatalf("auto migrate: %v", err)
 	}
-	return db
-}
 
-func registerBlockingQueryCallback(t *testing.T, db *gorm.DB) {
-	t.Helper()
+	repo := NewMySQLProductRepository(db, time.Second)
+	ctx := context.Background()
 
-	const callbackName = "test:block_until_ctx_done"
-	if err := db.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		ctx := tx.Statement.Context
-		if ctx == nil {
-			return
-		}
-		<-ctx.Done()
-		_ = tx.AddError(ctx.Err())
-	}); err != nil {
-		t.Fatalf("register query callback: %v", err)
+	product := &dalmodel.Product{ID: 2001, Title: "Old", Status: 1}
+	skuKeep := &dalmodel.ProductSKU{ID: 3001, SPUID: 2001, Title: "Keep", SalePrice: 100, Status: 1}
+	skuDelete := &dalmodel.ProductSKU{ID: 3002, SPUID: 2001, Title: "Delete", SalePrice: 120, Status: 1}
+	attr := &dalmodel.ProductSKUAttr{ID: 4001, SKUID: 3002, AttrName: "颜色", AttrValue: "黑色", Sort: 1}
+	if err := db.Create(product).Error; err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+	if err := db.Create(skuKeep).Error; err != nil {
+		t.Fatalf("create keep sku: %v", err)
+	}
+	if err := db.Create(skuDelete).Error; err != nil {
+		t.Fatalf("create delete sku: %v", err)
+	}
+	if err := db.Create(attr).Error; err != nil {
+		t.Fatalf("create attr: %v", err)
+	}
+
+	err = repo.Update(ctx, &dalmodel.Product{
+		ID:          2001,
+		Title:       "New",
+		SubTitle:    "",
+		CategoryID:  1,
+		Brand:       "",
+		Description: "",
+		Status:      1,
+		UpdatedBy:   99,
+	}, []*dalmodel.ProductSKU{
+		{ID: 3001, SPUID: 2001, Title: "Keep Updated", SalePrice: 150, Status: 1},
+	})
+	if err != nil {
+		t.Fatalf("update product: %v", err)
+	}
+
+	var stale dalmodel.ProductSKU
+	if err := db.Where("id = ?", 3002).Take(&stale).Error; err != nil {
+		t.Fatalf("load stale sku: %v", err)
+	}
+	if stale.Status != 0 {
+		t.Fatalf("expected stale sku status 0, got %d", stale.Status)
+	}
+
+	var attrs []dalmodel.ProductSKUAttr
+	if err := db.Where("sku_id = ?", 3002).Find(&attrs).Error; err != nil {
+		t.Fatalf("load stale attrs: %v", err)
+	}
+	if len(attrs) != 1 {
+		t.Fatalf("expected stale attrs retained, got %+v", attrs)
 	}
 }

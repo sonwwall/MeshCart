@@ -78,7 +78,7 @@
 - 商品创建请求当前可以携带 SKU 的 `initial_stock`
 - 但 `product-service` 仍不直接保存库存字段
 - 商品创建成功后，由 `gateway` 调用 `inventory-service.InitSkuStocks` 完成库存初始化
-- 商品或 SKU 删除时，当前不建议默认物理删除商品 SKU 或库存记录，而应优先走“商品 SKU 失效 / 不可售 + 库存冻结”方案
+- 商品或 SKU 删除时，当前已经落地“商品 SKU 失效 / 不可售 + 库存冻结”方案，不默认物理删除商品 SKU 或库存记录
 
 ## 4. 核心模型
 
@@ -569,7 +569,7 @@ services/product-service/
 - `biz/service/mapper.go`：DAL 模型到 RPC 模型的转换，以及 repository 错误到业务错误的映射。
 - `biz/service/build_models.go`：商品写入时的入参校验、SKU / 属性模型组装、ID 生成。
 - `biz/service/create_product.go`：创建商品业务逻辑。
-- `biz/service/update_product.go`：更新商品业务逻辑，当前按全量覆盖方式更新 SKU 集合。
+- `biz/service/update_product.go`：更新商品业务逻辑，按全量覆盖方式接收 SKU 集合，并把缺失的旧 SKU 收口为 `inactive`。
 - `biz/service/change_product_status.go`：修改商品上下架状态。
 - `biz/service/get_product_detail.go`：读取商品详情，返回商品、SKU、销售属性。
 - `biz/service/list_products.go`：商品列表查询，支持分页、状态、类目、关键字过滤。
@@ -1027,9 +1027,10 @@ GET /api/v1/products/detail/192000000000000001
 
 当前补充约定：
 
-- 当前删除 SKU 只会影响商品侧数据
-- 不会自动删除库存服务中的库存记录
-- 后续更合理的设计是：SKU 删除动作改为商品 SKU 失效，同时把库存状态收口为 `frozen`
+- 当前删除 SKU 不再物理删除商品侧记录
+- 当请求中缺失某个已有 SKU 时，`product-service` 会把该 SKU 状态收口为 `inactive`
+- `gateway` 会在商品更新成功后同步调用 `inventory-service.FreezeSkuStocks`，把对应库存状态收口为 `frozen`
+- 公共商品详情默认不返回 `inactive` SKU；私有商品详情仍保留全量 SKU，便于后台排障和审计
 - `sku_code` 在更新接口中同样为可选字段；不传或传空表示该 SKU 没有业务编码
 - 当前只校验同一次请求里的非空 `sku_code` 不重复，不再要求全局唯一
 - 如果本次更新新增了 SKU，`gateway` 会在商品更新成功后为新增 SKU 初始化库存
@@ -1046,7 +1047,7 @@ GET /api/v1/products/detail/192000000000000001
 
 - 更新已有 SKU：带真实 `sku.id`
 - 新增 SKU：不带 `id`
-- 删除 SKU：当前实现仍是不要把该 SKU 放进本次请求的 `skus` 数组；后续会调整为商品 SKU 失效而不是物理删除
+- 删除 SKU：不要把该 SKU 放进本次请求的 `skus` 数组；服务端会把该 SKU 收口为 `inactive`，并由 `gateway` 冻结对应库存
 - 新增 SKU 初始化库存：可选传 `initial_stock`，不传时默认 `0`
 
 权限说明：
@@ -1154,7 +1155,7 @@ GET /api/v1/products/detail/192000000000000001
 - 第二个 SKU 不带 `id`，表示新增 SKU
 - 新增 SKU 可以携带 `initial_stock`；如果不传，默认按 `0` 初始化库存
 - 已有 SKU 不应传 `initial_stock`；如果传了，接口会返回参数错误
-- 如果只想保留部分已有 SKU，未出现在 `skus` 数组中的旧 SKU 会被删除
+- 如果只想保留部分已有 SKU，未出现在 `skus` 数组中的旧 SKU 会被收口为 `inactive`，不会物理删除
 
 成功响应示例：
 
@@ -1234,7 +1235,7 @@ IDL：`idl/product.thrift`
 说明：
 
 - 当前实现按“全量覆盖”方式更新商品及其 SKU 集合
-- 请求中缺失的旧 SKU 会被删除
+- 请求中缺失的旧 SKU 不会物理删除，而会被收口为 `inactive`
 - 更新已有 SKU 时，`skus[].id` 必须是当前商品下真实存在的 SKU ID
 - 新增 SKU 时，不要传 `skus[].id`
 - 如果传入的 `skus[].id` 不属于当前 `product_id`，会返回 `2020002 / SKU 不存在`
@@ -1256,7 +1257,7 @@ IDL：`idl/product.thrift`
 成功返回：
 
 - 商品主信息
-- 全量 SKU 列表
+- 全量 SKU 列表；其中 `inactive` SKU 也会在 RPC 层返回，供 `gateway` 做私有详情判权和差集编排
 - 每个 SKU 的销售属性列表
 - 商品创建者 `creator_id` 会在 RPC 层返回，供 gateway 判权
 

@@ -26,6 +26,9 @@ func TestUpdateLogic_InitStocksForNewSKUs(t *testing.T) {
 					Id:        2001,
 					Status:    productStatusOffline,
 					CreatorId: 1,
+					Skus: []*productpb.ProductSku{
+						{Id: existingID, SpuId: 2001, SkuCode: "existing"},
+					},
 				},
 			}, nil
 		},
@@ -76,6 +79,7 @@ func TestUpdateLogic_DefaultsNewSKUInitialStockToZero(t *testing.T) {
 					Id:        2001,
 					Status:    productStatusOffline,
 					CreatorId: 1,
+					Skus:      []*productpb.ProductSku{},
 				},
 			}, nil
 		},
@@ -122,6 +126,9 @@ func TestUpdateLogic_DoesNotInitStocksWhenNoNewSKU(t *testing.T) {
 					Id:        2001,
 					Status:    productStatusOffline,
 					CreatorId: 1,
+					Skus: []*productpb.ProductSku{
+						{Id: existingID, SpuId: 2001, SkuCode: "existing"},
+					},
 				},
 			}, nil
 		},
@@ -138,6 +145,65 @@ func TestUpdateLogic_DoesNotInitStocksWhenNoNewSKU(t *testing.T) {
 		initSkuStocksFn: func(_ context.Context, req *inventorypb.InitSkuStocksRequest) (*inventoryrpc.InitSkuStocksResponse, error) {
 			t.Fatalf("init sku stocks should not be called, got %+v", req)
 			return nil, nil
+		},
+	}))
+
+	bizErr := logic.Update(2001, &types.UpdateProductRequest{
+		Title:  "Tee",
+		Status: productStatusOffline,
+		SKUs: []types.ProductSkuInput{
+			{ID: &existingID, SKUCode: "existing", Title: "Existing", SalePrice: 100, Status: 1},
+		},
+	}, &middleware.AuthIdentity{UserID: 1, Role: authz.RoleAdmin})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+}
+
+func TestUpdateLogic_FreezesDeletedSKUs(t *testing.T) {
+	existingID := int64(3001)
+	deletedID := int64(3002)
+
+	logic := NewUpdateLogic(context.Background(), newCreateProductSvcCtx(t, &stubProductClient{
+		getProductDetailFn: func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+			return &productrpc.GetProductDetailResponse{
+				Code: common.CodeOK,
+				Product: &productpb.Product{
+					Id:        2001,
+					Status:    productStatusOffline,
+					CreatorId: 1,
+					Skus: []*productpb.ProductSku{
+						{Id: existingID, SpuId: 2001, SkuCode: "existing"},
+						{Id: deletedID, SpuId: 2001, SkuCode: "deleted"},
+					},
+				},
+			}, nil
+		},
+		updateProductFn: func(_ context.Context, req *productpb.UpdateProductRequest) (*productrpc.UpdateProductResponse, error) {
+			if len(req.GetSkus()) != 1 || req.GetSkus()[0].GetId() != existingID {
+				t.Fatalf("unexpected update skus: %+v", req.GetSkus())
+			}
+			return &productrpc.UpdateProductResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Skus: []*productpb.ProductSku{
+					{Id: existingID, SkuCode: "existing", SpuId: 2001},
+				},
+			}, nil
+		},
+	}, &stubInventoryClient{
+		initSkuStocksFn: func(_ context.Context, req *inventorypb.InitSkuStocksRequest) (*inventoryrpc.InitSkuStocksResponse, error) {
+			t.Fatalf("init sku stocks should not be called, got %+v", req)
+			return nil, nil
+		},
+		freezeSkuStocksFn: func(_ context.Context, req *inventorypb.FreezeSkuStocksRequest) (*inventoryrpc.FreezeSkuStocksResponse, error) {
+			if len(req.GetSkuIds()) != 1 || req.GetSkuIds()[0] != deletedID {
+				t.Fatalf("unexpected freeze sku ids: %+v", req.GetSkuIds())
+			}
+			if req.GetOperatorId() != 1 || req.GetReason() != "product sku removed" {
+				t.Fatalf("unexpected freeze request: %+v", req)
+			}
+			return &inventoryrpc.FreezeSkuStocksResponse{Code: common.CodeOK, Message: "成功"}, nil
 		},
 	}))
 

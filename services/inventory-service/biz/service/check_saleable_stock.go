@@ -21,6 +21,9 @@ func (s *InventoryService) CheckSaleableStock(ctx context.Context, req *inventor
 		}
 		return false, 0, common.ErrInternalError
 	}
+	if stock.Status != StockStatusActive {
+		return false, stock.AvailableStock, errno.ErrStockFrozen
+	}
 	if stock.AvailableStock < int64(req.GetQuantity()) {
 		return false, stock.AvailableStock, errno.ErrInsufficientStock
 	}

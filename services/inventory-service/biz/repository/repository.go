@@ -21,6 +21,7 @@ type InventoryRepository interface {
 	GetBySKUID(ctx context.Context, skuID int64) (*dalmodel.InventoryStock, error)
 	ListBySKUIDs(ctx context.Context, skuIDs []int64) ([]*dalmodel.InventoryStock, error)
 	CreateBatch(ctx context.Context, stocks []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error)
+	FreezeBySKUIDs(ctx context.Context, skuIDs []int64) ([]*dalmodel.InventoryStock, error)
 	AdjustTotalStock(ctx context.Context, skuID int64, totalStock int64) (*dalmodel.InventoryStock, error)
 }
 
@@ -130,6 +131,40 @@ func (r *MySQLInventoryRepository) AdjustTotalStock(ctx context.Context, skuID i
 		return nil, err
 	}
 	return &stock, nil
+}
+
+func (r *MySQLInventoryRepository) FreezeBySKUIDs(ctx context.Context, skuIDs []int64) ([]*dalmodel.InventoryStock, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	if len(skuIDs) == 0 {
+		return []*dalmodel.InventoryStock{}, nil
+	}
+	for _, skuID := range skuIDs {
+		if skuID <= 0 {
+			return nil, ErrInvalidQuantity
+		}
+	}
+
+	var stocks []*dalmodel.InventoryStock
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("sku_id IN ?", skuIDs).Order("sku_id ASC").Find(&stocks).Error; err != nil {
+			return err
+		}
+		if len(stocks) == 0 {
+			return nil
+		}
+		if err := tx.Model(&dalmodel.InventoryStock{}).
+			Where("sku_id IN ?", skuIDs).
+			Updates(map[string]any{"status": 0}).Error; err != nil {
+			return err
+		}
+		return tx.Where("sku_id IN ?", skuIDs).Order("sku_id ASC").Find(&stocks).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return stocks, nil
 }
 
 func withQueryTimeout(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

@@ -104,6 +104,7 @@ func toStockData(stock *inventorypb.SkuStock) *types.InventoryStockData {
 		ReservedStock:  stock.GetReservedStock(),
 		AvailableStock: stock.GetAvailableStock(),
 		SaleableStock:  stock.GetSaleableStock(),
+		Status:         stock.GetStatus(),
 	}
 }
 

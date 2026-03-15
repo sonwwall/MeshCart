@@ -55,13 +55,15 @@ func (l *DetailLogic) Get(productID int64, identity *middleware.AuthIdentity) (*
 	if product == nil {
 		return nil, common.ErrNotFound
 	}
+	includeInactive := false
 	if product.GetStatus() != 2 {
 		if identity == nil || !l.svcCtx.AccessControl.Enforce(roleOf(identity), "product", authz.ActionReadPrivate, product.GetCreatorId(), identity.UserID, product.GetStatus()) {
 			return nil, common.ErrNotFound
 		}
+		includeInactive = true
 	}
 
 	span.SetAttributes(attribute.Bool("biz.success", true))
 	span.SetStatus(codes.Ok, "ok")
-	return toDetailData(product), nil
+	return toDetailData(product, includeInactive), nil
 }

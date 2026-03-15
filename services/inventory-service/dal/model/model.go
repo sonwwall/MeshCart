@@ -8,6 +8,7 @@ type InventoryStock struct {
 	TotalStock     int64     `gorm:"column:total_stock;not null;default:0"`
 	ReservedStock  int64     `gorm:"column:reserved_stock;not null;default:0"`
 	AvailableStock int64     `gorm:"column:available_stock;not null;default:0"`
+	Status         int32     `gorm:"column:status;type:tinyint;not null;default:1;index:idx_status"`
 	Version        int64     `gorm:"column:version;not null;default:1"`
 	CreatedAt      time.Time `gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt      time.Time `gorm:"column:updated_at;autoUpdateTime;index:idx_updated_at"`

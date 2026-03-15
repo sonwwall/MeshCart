@@ -15,6 +15,7 @@ type InventoryStockData struct {
 	ReservedStock  int64 `json:"reserved_stock"`
 	AvailableStock int64 `json:"available_stock"`
 	SaleableStock  int64 `json:"saleable_stock"`
+	Status         int32 `json:"status"`
 }
 
 type InventoryBatchData struct {

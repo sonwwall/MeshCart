@@ -16,6 +16,7 @@ type stubKitexInventoryClient struct {
 	batchGetSkuStockFn func(context.Context, *inventorypb.BatchGetSkuStockRequest) (*inventorypb.BatchGetSkuStockResponse, error)
 	checkSaleableFn    func(context.Context, *inventorypb.CheckSaleableStockRequest) (*inventorypb.CheckSaleableStockResponse, error)
 	initSkuStocksFn    func(context.Context, *inventorypb.InitSkuStocksRequest) (*inventorypb.InitSkuStocksResponse, error)
+	freezeSkuStocksFn  func(context.Context, *inventorypb.FreezeSkuStocksRequest) (*inventorypb.FreezeSkuStocksResponse, error)
 	adjustStockFn      func(context.Context, *inventorypb.AdjustStockRequest) (*inventorypb.AdjustStockResponse, error)
 }
 
@@ -35,6 +36,10 @@ func (s *stubKitexInventoryClient) CheckSaleableStock(ctx context.Context, reque
 
 func (s *stubKitexInventoryClient) InitSkuStocks(ctx context.Context, request *inventorypb.InitSkuStocksRequest, _ ...callopt.Option) (*inventorypb.InitSkuStocksResponse, error) {
 	return s.initSkuStocksFn(ctx, request)
+}
+
+func (s *stubKitexInventoryClient) FreezeSkuStocks(ctx context.Context, request *inventorypb.FreezeSkuStocksRequest, _ ...callopt.Option) (*inventorypb.FreezeSkuStocksResponse, error) {
+	return s.freezeSkuStocksFn(ctx, request)
 }
 
 func (s *stubKitexInventoryClient) AdjustStock(ctx context.Context, request *inventorypb.AdjustStockRequest, _ ...callopt.Option) (*inventorypb.AdjustStockResponse, error) {
@@ -70,6 +75,22 @@ func TestClient_AdjustStock_NilResponse(t *testing.T) {
 	}
 	if !errors.Is(err, errNilAdjustStockResponse) {
 		t.Fatalf("expected errNilAdjustStockResponse, got %v", err)
+	}
+}
+
+func TestClient_FreezeSkuStocks_NilResponse(t *testing.T) {
+	c := &kitexClient{cli: &stubKitexInventoryClient{
+		freezeSkuStocksFn: func(context.Context, *inventorypb.FreezeSkuStocksRequest) (*inventorypb.FreezeSkuStocksResponse, error) {
+			return nil, nil
+		},
+	}}
+
+	resp, err := c.FreezeSkuStocks(context.Background(), &inventorypb.FreezeSkuStocksRequest{})
+	if resp != nil {
+		t.Fatalf("expected nil response, got %+v", resp)
+	}
+	if !errors.Is(err, errNilFreezeSkuStocksResponse) {
+		t.Fatalf("expected errNilFreezeSkuStocksResponse, got %v", err)
 	}
 }
 

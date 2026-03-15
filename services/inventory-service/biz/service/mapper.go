@@ -35,6 +35,7 @@ func toRPCSkuStock(stock *dalmodel.InventoryStock) *inventorypb.SkuStock {
 		ReservedStock:  stock.ReservedStock,
 		AvailableStock: stock.AvailableStock,
 		SaleableStock:  stock.AvailableStock,
+		Status:         stock.Status,
 	}
 }
 

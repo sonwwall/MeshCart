@@ -148,12 +148,14 @@
   - `gateway`
     - 在购物车加购链路里调用 `CheckSaleableStock`
     - 在商品创建链路里调用 `InitSkuStocks`
+    - 在商品更新删除 SKU 链路里调用 `FreezeSkuStocks`
     - 在后台库存管理链路里调用 `GetSkuStock`、`BatchGetSkuStock`、`AdjustStock`
 - 当前可直接接入但尚未开放 HTTP 的内部调用方
   - 其他服务或后台逻辑
     - 调用 `GetSkuStock`
     - 调用 `BatchGetSkuStock`
     - 调用 `InitSkuStocks`
+    - 调用 `FreezeSkuStocks`
     - 调用 `AdjustStock`
 - 后续核心调用方
   - `order-service`
@@ -199,6 +201,8 @@
   - 已预留给后续预占场景的库存
 - `available_stock`
   - 当前可用库存
+- `status`
+  - 库存状态，当前用于表达该库存是否仍允许参与售卖，0为inactive，1为active
 - `version`
   - 乐观锁版本号预留字段
 - `created_at`
@@ -216,6 +220,7 @@
 - 使用 `sku_id` 唯一约束保证单 SKU 单库存记录
 - 预留 `reserved_stock` 和 `version`，避免后续做订单预占时大改表结构
 - `available_stock` 直接落库，简化第一阶段读取和校验逻辑
+- `status` 直接落库，便于把“商品 SKU 失效”同步收口为“库存冻结”
 
 ## 7. 服务结构与治理接入
 
@@ -303,6 +308,7 @@ services/inventory-service/
 - `BatchGetSkuStock`
 - `CheckSaleableStock`
 - `InitSkuStocks`
+- `FreezeSkuStocks`
 - `AdjustStock`
 
 IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/inventory.thrift)。
@@ -318,6 +324,7 @@ IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/
 - `reserved_stock`
 - `available_stock`
 - `saleable_stock`
+- `status`
 
 ### 9.3 `GetSkuStock`
 
@@ -338,7 +345,8 @@ IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/
     "total_stock": 100,
     "reserved_stock": 0,
     "available_stock": 100,
-    "saleable_stock": 100
+    "saleable_stock": 100,
+    "status": 1
   },
   "base": {
     "code": 0,
@@ -367,7 +375,8 @@ IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/
       "total_stock": 100,
       "reserved_stock": 0,
       "available_stock": 100,
-      "saleable_stock": 100
+      "saleable_stock": 100,
+      "status": 1
     }
   ],
   "base": {
@@ -415,6 +424,19 @@ IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/
 }
 ```
 
+库存冻结返回示例：
+
+```json
+{
+  "saleable": false,
+  "available_stock": 8,
+  "base": {
+    "code": 2050005,
+    "message": "库存已冻结"
+  }
+}
+```
+
 ### 9.6 `InitSkuStocks`
 
 - 作用：在商品创建完成后初始化 SKU 库存
@@ -436,7 +458,8 @@ IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/
       "total_stock": 100,
       "reserved_stock": 0,
       "available_stock": 100,
-      "saleable_stock": 100
+      "saleable_stock": 100,
+      "status": 1
     }
   ],
   "base": {
@@ -446,7 +469,46 @@ IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/
 }
 ```
 
-### 9.7 `AdjustStock`
+### 9.7 `FreezeSkuStocks`
+
+- 作用：批量冻结已失效 SKU 对应的库存记录
+- 请求字段：
+  - `sku_ids`
+  - `operator_id`
+  - `reason`
+- 返回字段：
+  - `stocks`
+  - `base.code`
+  - `base.message`
+
+成功返回示例：
+
+```json
+{
+  "stocks": [
+    {
+      "sku_id": 3002,
+      "total_stock": 8,
+      "reserved_stock": 0,
+      "available_stock": 8,
+      "saleable_stock": 8,
+      "status": 0
+    }
+  ],
+  "base": {
+    "code": 0,
+    "message": "成功"
+  }
+}
+```
+
+说明：
+
+- 当前接口按 `sku_id` 批量冻结库存记录
+- 对已是 `frozen` 的库存重复调用，按成功处理
+- 当前主要由 `gateway` 在商品更新删除 SKU 后调用
+
+### 9.8 `AdjustStock`
 
 - 作用：后台按“设置总库存”语义调整库存
 - 请求字段：
@@ -578,7 +640,6 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 - 订单预占、释放、扣减
 - 库存流水、审计、幂等
 - 多仓与热点库存治理
-- 商品或 SKU 删除后的库存状态收口
 
 ## 14. 后续设计方案
 
@@ -711,12 +772,18 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 3. 支付成功后调用 `DeductStock`
 4. 支付失败、取消订单或超时关闭时调用 `ReleaseReservedStock`
 
-### 14.9 商品删除与库存记录处理方案
+### 14.9 已落地的商品删除与库存记录处理方案
 
-当前建议：
+当前实现：
 
 - 默认不物理删除库存记录
 - 商品删除或 SKU 删除时，优先做“商品 SKU 失效 + 库存冻结”，不做硬删除
+- `inventory_stocks` 已增加 `status` 字段，当前状态语义为：
+  - `1=active`
+  - `0=frozen`
+- `gateway` 在商品更新成功后，会对本次被删除的 SKU 调用 `FreezeSkuStocks`
+- `CheckSaleableStock` 当前除判断数量外，也会校验库存状态必须为 `active`
+- 后台库存查询接口当前会返回库存状态，便于运营判断某个 SKU 是否已冻结
 
 原因：
 
@@ -728,12 +795,9 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 
 1. 商品或 SKU 被删除时，商品侧保留 SKU 记录，并优先置为不可售或失效
 2. 库存侧保留库存记录
-3. 库存侧增加状态语义，至少支持：
-   - `active`
-   - `frozen`
-   - `deleted`
-4. 当商品或 SKU 失效时，由编排层或后续订单治理逻辑把库存状态同步为 `frozen`
-5. `CheckSaleableStock` 后续除判断数量外，还应判断库存状态是否允许售卖
+3. 库存侧通过 `status` 字段表达是否仍允许售卖
+4. 当商品或 SKU 失效时，由编排层把库存状态同步为 `frozen`
+5. `CheckSaleableStock` 结合数量和库存状态一起判断是否可售
 
 严格条件下可允许物理删除：
 
@@ -750,7 +814,7 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 当前阶段结论：
 
 - 商品删除或 SKU 删除后，不应默认联动物理删除库存记录
-- 更合理的方向是“商品 SKU 失效 + 库存冻结”，而不是“数据硬删”
+- 当前已落地的方案就是“商品 SKU 失效 + 库存冻结”，而不是“数据硬删”
 
 ### 14.10 当前不建议过早做的事情
 

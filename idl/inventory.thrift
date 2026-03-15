@@ -8,6 +8,7 @@ struct SkuStock {
     3: i64 reserved_stock
     4: i64 available_stock
     5: i64 saleable_stock
+    6: i32 status
 }
 
 struct GetSkuStockRequest {
@@ -53,6 +54,17 @@ struct InitSkuStocksResponse {
     255: base.BaseResponse base
 }
 
+struct FreezeSkuStocksRequest {
+    1: list<i64> sku_ids
+    2: i64 operator_id
+    3: optional string reason
+}
+
+struct FreezeSkuStocksResponse {
+    1: list<SkuStock> stocks
+    255: base.BaseResponse base
+}
+
 struct AdjustStockRequest {
     1: i64 sku_id
     2: i64 total_stock
@@ -69,5 +81,6 @@ service InventoryService {
     BatchGetSkuStockResponse batchGetSkuStock(1: BatchGetSkuStockRequest request)
     CheckSaleableStockResponse checkSaleableStock(1: CheckSaleableStockRequest request)
     InitSkuStocksResponse initSkuStocks(1: InitSkuStocksRequest request)
+    FreezeSkuStocksResponse freezeSkuStocks(1: FreezeSkuStocksRequest request)
     AdjustStockResponse adjustStock(1: AdjustStockRequest request)
 }

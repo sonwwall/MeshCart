@@ -69,6 +69,7 @@ func (l *UpdateLogic) Update(productID int64, req *types.UpdateProductRequest, i
 		}
 		return common.ErrForbidden
 	}
+	deletedSKUIds := findDeletedSKUIds(detailResp.Product.GetSkus(), req.SKUs)
 
 	resp, err := l.svcCtx.ProductClient.UpdateProduct(ctx, &productpb.UpdateProductRequest{
 		ProductId:   productID,
@@ -92,7 +93,7 @@ func (l *UpdateLogic) Update(productID int64, req *types.UpdateProductRequest, i
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(resp.Code)), attribute.String("biz.message", resp.Message))
 		return common.NewBizError(resp.Code, resp.Message)
 	}
-	if bizErr := l.initStocksAfterProductUpdate(ctx, req, resp); bizErr != nil {
+	if bizErr := l.syncStocksAfterProductUpdate(ctx, req, resp, deletedSKUIds, identity.UserID); bizErr != nil {
 		return bizErr
 	}
 
@@ -101,29 +102,43 @@ func (l *UpdateLogic) Update(productID int64, req *types.UpdateProductRequest, i
 	return nil
 }
 
-func (l *UpdateLogic) initStocksAfterProductUpdate(ctx context.Context, req *types.UpdateProductRequest, resp *productrpc.UpdateProductResponse) *common.BizError {
+func (l *UpdateLogic) syncStocksAfterProductUpdate(ctx context.Context, req *types.UpdateProductRequest, resp *productrpc.UpdateProductResponse, deletedSKUIds []int64, operatorID int64) *common.BizError {
 	expectedNewSKUCount := countNewSKUs(req.SKUs)
-	if expectedNewSKUCount == 0 {
-		return nil
-	}
-	if len(req.SKUs) != len(resp.Skus) {
-		logx.L(ctx).Error("updated sku ids do not match requested skus", zap.Int("request_sku_count", len(req.SKUs)), zap.Int("response_sku_count", len(resp.Skus)))
-		return common.ErrInternalError
+	if expectedNewSKUCount > 0 {
+		if len(req.SKUs) != len(resp.Skus) {
+			logx.L(ctx).Error("updated sku ids do not match requested skus", zap.Int("request_sku_count", len(req.SKUs)), zap.Int("response_sku_count", len(resp.Skus)))
+			return common.ErrInternalError
+		}
+
+		initItems := buildInitStockItemsForNewSKUs(req.SKUs, resp.Skus)
+		if len(initItems) != expectedNewSKUCount {
+			logx.L(ctx).Error("updated new sku ids do not match requested initial stocks", zap.Int("expected_new_sku_count", expectedNewSKUCount), zap.Int("actual_init_stock_count", len(initItems)))
+			return common.ErrInternalError
+		}
+
+		initResp, err := l.svcCtx.InventoryClient.InitSkuStocks(ctx, &inventorypb.InitSkuStocksRequest{Stocks: initItems})
+		if err != nil {
+			logx.L(ctx).Error("inventory rpc init sku stocks failed after update product", zap.Error(err))
+			return logicutil.MapRPCError(err)
+		}
+		if initResp.Code != common.CodeOK {
+			return common.NewBizError(initResp.Code, initResp.Message)
+		}
 	}
 
-	initItems := buildInitStockItemsForNewSKUs(req.SKUs, resp.Skus)
-	if len(initItems) != expectedNewSKUCount {
-		logx.L(ctx).Error("updated new sku ids do not match requested initial stocks", zap.Int("expected_new_sku_count", expectedNewSKUCount), zap.Int("actual_init_stock_count", len(initItems)))
-		return common.ErrInternalError
-	}
-
-	initResp, err := l.svcCtx.InventoryClient.InitSkuStocks(ctx, &inventorypb.InitSkuStocksRequest{Stocks: initItems})
-	if err != nil {
-		logx.L(ctx).Error("inventory rpc init sku stocks failed after update product", zap.Error(err))
-		return logicutil.MapRPCError(err)
-	}
-	if initResp.Code != common.CodeOK {
-		return common.NewBizError(initResp.Code, initResp.Message)
+	if len(deletedSKUIds) > 0 {
+		freezeResp, err := l.svcCtx.InventoryClient.FreezeSkuStocks(ctx, &inventorypb.FreezeSkuStocksRequest{
+			SkuIds:     deletedSKUIds,
+			OperatorId: operatorID,
+			Reason:     stringPtr("product sku removed"),
+		})
+		if err != nil {
+			logx.L(ctx).Error("inventory rpc freeze sku stocks failed after update product", zap.Error(err), zap.Int64s("sku_ids", deletedSKUIds))
+			return logicutil.MapRPCError(err)
+		}
+		if freezeResp.Code != common.CodeOK {
+			return common.NewBizError(freezeResp.Code, freezeResp.Message)
+		}
 	}
 	return nil
 }
@@ -167,4 +182,32 @@ func validateUpdateInitialStocks(items []types.ProductSkuInput) *common.BizError
 		}
 	}
 	return validateInitialStocks(items)
+}
+
+func findDeletedSKUIds(existingSKUs []*productpb.ProductSku, requestSKUs []types.ProductSkuInput) []int64 {
+	if len(existingSKUs) == 0 {
+		return nil
+	}
+
+	requested := make(map[int64]struct{}, len(requestSKUs))
+	for _, sku := range requestSKUs {
+		if sku.ID != nil && *sku.ID > 0 {
+			requested[*sku.ID] = struct{}{}
+		}
+	}
+
+	deleted := make([]int64, 0)
+	for _, sku := range existingSKUs {
+		if sku == nil || sku.GetId() <= 0 {
+			continue
+		}
+		if _, ok := requested[sku.GetId()]; !ok {
+			deleted = append(deleted, sku.GetId())
+		}
+	}
+	return deleted
+}
+
+func stringPtr(v string) *string {
+	return &v
 }
