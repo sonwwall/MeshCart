@@ -108,12 +108,12 @@
     },
     {
       "type": "stat",
-      "title": "User Login RPC QPS",
+      "title": "Total RPC QPS",
       "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "sum(rate(meshcart_rpc_requests_total{service=\"user-service\",method=\"login\"}[$interval]))",
+          "expr": "sum(rate(meshcart_rpc_requests_total[$interval]))",
           "refId": "A"
         }
       ],
@@ -179,18 +179,18 @@
     },
     {
       "type": "timeseries",
-      "title": "User Login RPC Error Rate",
+      "title": "RPC QPS by Service",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "(sum(rate(meshcart_rpc_errors_total{service=\"user-service\",method=\"login\"}[$interval])) / clamp_min(sum(rate(meshcart_rpc_requests_total{service=\"user-service\",method=\"login\"}[$interval])), 1e-9)) * 100",
-          "legendFormat": "login error rate",
+          "expr": "sum(rate(meshcart_rpc_requests_total[$interval])) by (service)",
+          "legendFormat": "{{service}}",
           "refId": "A"
         }
       ],
       "fieldConfig": {
-        "defaults": {"unit": "percent"},
+        "defaults": {"unit": "reqps"},
         "overrides": []
       },
       "options": {
@@ -200,18 +200,18 @@
     },
     {
       "type": "timeseries",
-      "title": "User Login RPC Duration P95/P99",
+      "title": "RPC Duration P95/P99 by Service",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(meshcart_rpc_request_duration_seconds_bucket{service=\"user-service\",method=\"login\"}[$interval])) by (le))",
-          "legendFormat": "p95",
+          "expr": "histogram_quantile(0.95, sum(rate(meshcart_rpc_request_duration_seconds_bucket[$interval])) by (service, le))",
+          "legendFormat": "{{service}} p95",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(meshcart_rpc_request_duration_seconds_bucket{service=\"user-service\",method=\"login\"}[$interval])) by (le))",
-          "legendFormat": "p99",
+          "expr": "histogram_quantile(0.99, sum(rate(meshcart_rpc_request_duration_seconds_bucket[$interval])) by (service, le))",
+          "legendFormat": "{{service}} p99",
           "refId": "B"
         }
       ],

@@ -14,6 +14,9 @@
 
 - `gateway`
 - `user-service`
+- `product-service`
+- `cart-service`
+- `inventory-service`
 
 ## 2. 总体架构
 
@@ -65,6 +68,15 @@
 - User Service
   - `services/user-service/rpc/main.go`
   - `services/user-service/rpc/handler/`
+- Product Service
+  - `services/product-service/rpc/main.go`
+  - `services/product-service/rpc/handler/`
+- Cart Service
+  - `services/cart-service/rpc/main.go`
+  - `services/cart-service/rpc/handler/`
+- Inventory Service
+  - `services/inventory-service/rpc/main.go`
+  - `services/inventory-service/rpc/handler/`
 
 ## 4. 设计说明
 
@@ -135,7 +147,7 @@
   - 类型：Histogram
   - 标签：`method`, `statusCode`
 
-### 4.3.2 RPC 指标（user-service）
+### 4.3.2 RPC 指标（各 RPC 服务）
 
 - `meshcart_rpc_requests_total`
   - 类型：Counter
@@ -193,6 +205,18 @@ user-service：
 
 - `USER_METRICS_ADDR`：metrics 监听地址（默认 `:9091`）
 
+product-service：
+
+- `PRODUCT_METRICS_ADDR`：metrics 监听地址（默认 `:9093`）
+
+cart-service：
+
+- `CART_METRICS_ADDR`：metrics 监听地址（默认 `:9094`）
+
+inventory-service：
+
+- `INVENTORY_METRICS_ADDR`：metrics 监听地址（默认 `:9095`）
+
 ## 5.2 端口说明
 
 - Grafana：`3000`
@@ -203,6 +227,9 @@ user-service：
 - OTel Collector OTLP HTTP（宿主机）：`4320`
 - Gateway metrics：`9092/metrics`
 - User-service metrics：`9091/metrics`
+- Product-service metrics：`9093/metrics`
+- Cart-service metrics：`9094/metrics`
+- Inventory-service metrics：`9095/metrics`
 
 ## 5.3 访问入口总表
 
@@ -213,6 +240,9 @@ user-service：
 - Loki HTTP API：`http://localhost:3100`
 - Gateway 指标端点：`http://localhost:9092/metrics`
 - User-service 指标端点：`http://localhost:9091/metrics`
+- Product-service 指标端点：`http://localhost:9093/metrics`
+- Cart-service 指标端点：`http://localhost:9094/metrics`
+- Inventory-service 指标端点：`http://localhost:9095/metrics`
 
 说明：
 
@@ -246,12 +276,12 @@ docker compose restart grafana
 
 - 业务日志同时输出到控制台和 `logs/` 目录
 - 本地日志文件由 `lumberjack` 做滚动切分
-- `promtail` 只采集 `logs/gateway.log` 和 `logs/user-service.log`
+- `promtail` 采集 `logs/gateway.log`、`logs/user-service.log`、`logs/product-service.log`、`logs/cart-service.log`、`logs/inventory-service.log`
 - `promtail` 的读取位点文件使用宿主机持久化，避免重启后反复从头扫描旧日志
 
 ### 6.3 启动业务服务
 
-分别启动 `gateway` 与 `user-service`，并设置环境变量：
+分别启动 `gateway`、`user-service`、`product-service`、`cart-service`、`inventory-service`，并设置环境变量：
 
 ```bash
 export APP_ENV=dev
@@ -297,7 +327,7 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319
 常用入口：
 
 - `http://localhost:9090/targets`
-  - 查看 `gateway`、`user-service` 是否抓取成功
+  - 查看 `gateway`、`user-service`、`product-service`、`cart-service`、`inventory-service` 是否抓取成功
 - `Graph`
   - 手工查询指标，比如 `hertz_server_throughput`
   - 手工查询 RPC 指标，比如 `meshcart_rpc_requests_total`
@@ -315,7 +345,7 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319
 
 常用方法：
 
-- 选择 `gateway` 或 `user-service`
+- 选择 `gateway`、`user-service`、`product-service`、`cart-service` 或 `inventory-service`
 - 点击 `Find Traces`
 - 打开某条 trace 后查看每个 span 的耗时、父子关系、错误信息
 
@@ -343,6 +373,10 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319
   - `{project="meshcart", source="file", service="gateway"}`
 - 查询 user-service 文件日志：
   - `{project="meshcart", source="file", service="user-service"}`
+- 查询 cart-service 文件日志：
+  - `{project="meshcart", source="file", service="cart-service"}`
+- 查询 inventory-service 文件日志：
+  - `{project="meshcart", source="file", service="inventory-service"}`
 - 查询容器日志：
   - `{project="meshcart", compose_service="loki"}`
 - 按链路查询：
@@ -371,6 +405,9 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319
 
 - Gateway：`http://localhost:9092/metrics`
 - User-service：`http://localhost:9091/metrics`
+- Product-service：`http://localhost:9093/metrics`
+- Cart-service：`http://localhost:9094/metrics`
+- Inventory-service：`http://localhost:9095/metrics`
 
 用途：
 
@@ -381,19 +418,22 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4319
 
 - Gateway: `http://localhost:9092/metrics`
 - User-service: `http://localhost:9091/metrics`
+- Product-service: `http://localhost:9093/metrics`
+- Cart-service: `http://localhost:9094/metrics`
+- Inventory-service: `http://localhost:9095/metrics`
 - Prometheus Targets: `http://localhost:9090/targets`
 
 ## 7.2 验证链路
 
-1. 调用 `POST /api/v1/user/login`
+1. 调用 `POST /api/v1/user/login` 或任一购物车接口，例如 `POST /api/v1/cart/items`
 2. 打开 Jaeger：`http://localhost:16686`
-3. 查询 `gateway`、`user-service` 相关 trace
+3. 查询 `gateway`、`user-service`、`cart-service` 相关 trace
 
 ## 7.3 验证日志
 
 1. 打开 Grafana：`http://localhost:3000`
 2. 进入 Loki Explore
-3. 先查 `{project="meshcart", source="file", service="gateway"}` 或 `{project="meshcart", source="file", service="user-service"}`
+3. 先查 `{project="meshcart", source="file", service="gateway"}`、`{project="meshcart", source="file", service="user-service"}` 或 `{project="meshcart", source="file", service="cart-service"}`
 4. 再结合 `trace_id` 或错误关键字过滤对应链路日志
 
 ## 7.4 查看默认看板
@@ -440,7 +480,7 @@ Grafana -> Folder `MeshCart` -> `MeshCart Observability`
 
 检查：
 
-- `gateway` 和 `user-service` metrics 端点是否可访问
+- `gateway`、`user-service`、`product-service`、`cart-service`、`inventory-service` metrics 端点是否可访问
 - `prometheus.yml` target 是否可达
 - Docker 环境下 `host.docker.internal` 是否可解析
 
@@ -451,7 +491,7 @@ Grafana -> Folder `MeshCart` -> `MeshCart Observability`
 - 数据源状态是否 Healthy
 - Prometheus 是否有对应时序数据
 - Loki 是否收到日志（Promtail 是否运行）
-- 本地服务是否已在项目根目录生成 `logs/gateway.log` 或 `logs/user-service.log`
+- 本地服务是否已在项目根目录生成对应日志文件，例如 `logs/gateway.log`、`logs/cart-service.log`
 - 查询条件是否错误选成了 `loki`、`grafana` 等观测组件自身日志
 
 ### 8.5 Promtail 重启后日志查询不稳定
