@@ -12,6 +12,7 @@ type Config struct {
 	Telemetry    TelemetryConfig
 	Metrics      MetricsConfig
 	Server       ServerConfig
+	DTM          DTMConfig
 	RateLimit    RateLimitConfig
 	UserRPC      UserRPCConfig
 	CartRPC      CartRPCConfig
@@ -49,6 +50,11 @@ type ServerConfig struct {
 	ShutdownTimeout  time.Duration
 	PreflightTimeout time.Duration
 	DrainTimeout     time.Duration
+}
+
+type DTMConfig struct {
+	Server              string
+	WorkflowCallbackURL string
 }
 
 type RateLimitConfig struct {
@@ -137,6 +143,10 @@ func Load() Config {
 			ShutdownTimeout:  getEnvAsDuration("GATEWAY_SHUTDOWN_TIMEOUT_MS", 5*time.Second),
 			PreflightTimeout: getEnvAsDuration("GATEWAY_PREFLIGHT_TIMEOUT_MS", 1500*time.Millisecond),
 			DrainTimeout:     getEnvAsDuration("GATEWAY_DRAIN_TIMEOUT_MS", 500*time.Millisecond),
+		},
+		DTM: DTMConfig{
+			Server:              getEnv("DTM_SERVER", "http://127.0.0.1:36789/api/dtmsvr"),
+			WorkflowCallbackURL: getEnv("DTM_WORKFLOW_CALLBACK_URL", "http://127.0.0.1:8080/api/internal/dtm/workflow"),
 		},
 		RateLimit: RateLimitConfig{
 			Enabled:         getEnvAsBool("GATEWAY_RATE_LIMIT_ENABLED", true),

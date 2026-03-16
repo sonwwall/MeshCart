@@ -27,6 +27,14 @@ func (s *slowProductService) CreateProduct(ctx context.Context, request *product
 	return &productpb.CreateProductResponse{Base: &basepb.BaseResponse{Code: 0, Message: "成功"}}, nil
 }
 
+func (s *slowProductService) CreateProductSaga(ctx context.Context, request *productpb.CreateProductSagaRequest) (*productpb.CreateProductResponse, error) {
+	return &productpb.CreateProductResponse{Base: &basepb.BaseResponse{Code: 0, Message: "成功"}}, nil
+}
+
+func (s *slowProductService) CompensateCreateProductSaga(ctx context.Context, request *productpb.CompensateCreateProductSagaRequest) (*productpb.CompensateCreateProductSagaResponse, error) {
+	return &productpb.CompensateCreateProductSagaResponse{Base: &basepb.BaseResponse{Code: 0, Message: "成功"}}, nil
+}
+
 func (s *slowProductService) UpdateProduct(ctx context.Context, request *productpb.UpdateProductRequest) (*productpb.UpdateProductResponse, error) {
 	return &productpb.UpdateProductResponse{Base: &basepb.BaseResponse{Code: 0, Message: "成功"}}, nil
 }

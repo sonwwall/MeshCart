@@ -12,6 +12,8 @@ import (
 // Client is designed to provide IDL-compatible methods with call-option parameter for kitex framework.
 type Client interface {
 	CreateProduct(ctx context.Context, request *product.CreateProductRequest, callOptions ...callopt.Option) (r *product.CreateProductResponse, err error)
+	CreateProductSaga(ctx context.Context, request *product.CreateProductSagaRequest, callOptions ...callopt.Option) (r *product.CreateProductResponse, err error)
+	CompensateCreateProductSaga(ctx context.Context, request *product.CompensateCreateProductSagaRequest, callOptions ...callopt.Option) (r *product.CompensateCreateProductSagaResponse, err error)
 	UpdateProduct(ctx context.Context, request *product.UpdateProductRequest, callOptions ...callopt.Option) (r *product.UpdateProductResponse, err error)
 	ChangeProductStatus(ctx context.Context, request *product.ChangeProductStatusRequest, callOptions ...callopt.Option) (r *product.ChangeProductStatusResponse, err error)
 	GetProductDetail(ctx context.Context, request *product.GetProductDetailRequest, callOptions ...callopt.Option) (r *product.GetProductDetailResponse, err error)
@@ -51,6 +53,16 @@ type kProductServiceClient struct {
 func (p *kProductServiceClient) CreateProduct(ctx context.Context, request *product.CreateProductRequest, callOptions ...callopt.Option) (r *product.CreateProductResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.CreateProduct(ctx, request)
+}
+
+func (p *kProductServiceClient) CreateProductSaga(ctx context.Context, request *product.CreateProductSagaRequest, callOptions ...callopt.Option) (r *product.CreateProductResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.CreateProductSaga(ctx, request)
+}
+
+func (p *kProductServiceClient) CompensateCreateProductSaga(ctx context.Context, request *product.CompensateCreateProductSagaRequest, callOptions ...callopt.Option) (r *product.CompensateCreateProductSagaResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.CompensateCreateProductSaga(ctx, request)
 }
 
 func (p *kProductServiceClient) UpdateProduct(ctx context.Context, request *product.UpdateProductRequest, callOptions ...callopt.Option) (r *product.UpdateProductResponse, err error) {

@@ -50,14 +50,23 @@ type ListFilter struct {
 	Keyword    string
 }
 
+type TxBranchFilter struct {
+	GlobalTxID string
+	BranchID   string
+	Action     string
+}
+
 type ProductRepository interface {
 	Create(ctx context.Context, product *dalmodel.Product, skus []*dalmodel.ProductSKU) error
+	CreateWithTxBranch(ctx context.Context, branch *dalmodel.ProductTxBranch, product *dalmodel.Product, skus []*dalmodel.ProductSKU) error
+	CompensateCreateWithTxBranch(ctx context.Context, branch *dalmodel.ProductTxBranch, globalTxID, forwardBranchID string, productID int64) error
 	Update(ctx context.Context, product *dalmodel.Product, skus []*dalmodel.ProductSKU) error
 	ChangeStatus(ctx context.Context, productID int64, status int32, operatorID int64) error
 	GetByID(ctx context.Context, productID int64) (*dalmodel.Product, error)
 	List(ctx context.Context, filter ListFilter) ([]*dalmodel.Product, int64, error)
 	ListSKUsByProductIDs(ctx context.Context, productIDs []int64) ([]*dalmodel.ProductSKU, error)
 	GetSKUsByIDs(ctx context.Context, skuIDs []int64) ([]*dalmodel.ProductSKU, error)
+	GetTxBranch(ctx context.Context, filter TxBranchFilter) (*dalmodel.ProductTxBranch, error)
 }
 
 type MySQLProductRepository struct {
@@ -86,6 +95,96 @@ func (r *MySQLProductRepository) Create(ctx context.Context, product *dalmodel.P
 			}
 			if err := tx.Create(&sku.Attrs).Error; err != nil {
 				return mapSQLError(err)
+			}
+		}
+		return nil
+	})
+}
+
+func (r *MySQLProductRepository) CreateWithTxBranch(ctx context.Context, branch *dalmodel.ProductTxBranch, product *dalmodel.Product, skus []*dalmodel.ProductSKU) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if branch != nil {
+			if err := tx.Create(branch).Error; err != nil {
+				return mapSQLError(err)
+			}
+		}
+		if err := tx.Create(product).Error; err != nil {
+			return mapSQLError(err)
+		}
+		for _, sku := range skus {
+			if err := tx.Omit("Attrs").Create(sku).Error; err != nil {
+				return mapSQLError(err)
+			}
+			if len(sku.Attrs) == 0 {
+				continue
+			}
+			if err := tx.Create(&sku.Attrs).Error; err != nil {
+				return mapSQLError(err)
+			}
+		}
+		if branch != nil {
+			if err := tx.Model(&dalmodel.ProductTxBranch{}).
+				Where("id = ?", branch.ID).
+				Updates(map[string]any{
+					"biz_id":           product.ID,
+					"status":           branch.Status,
+					"payload_snapshot": branch.PayloadSnapshot,
+					"error_message":    branch.ErrorMessage,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r *MySQLProductRepository) CompensateCreateWithTxBranch(ctx context.Context, branch *dalmodel.ProductTxBranch, globalTxID, forwardBranchID string, productID int64) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if branch != nil {
+			if err := tx.Create(branch).Error; err != nil {
+				return mapSQLError(err)
+			}
+		}
+		if productID > 0 {
+			var skuIDs []int64
+			if err := tx.Model(&dalmodel.ProductSKU{}).Where("spu_id = ?", productID).Pluck("id", &skuIDs).Error; err != nil {
+				return err
+			}
+			if len(skuIDs) > 0 {
+				if err := tx.Where("sku_id IN ?", skuIDs).Delete(&dalmodel.ProductSKUAttr{}).Error; err != nil {
+					return err
+				}
+				if err := tx.Where("id IN ?", skuIDs).Delete(&dalmodel.ProductSKU{}).Error; err != nil {
+					return err
+				}
+			}
+			if err := tx.Where("id = ?", productID).Delete(&dalmodel.Product{}).Error; err != nil {
+				return err
+			}
+		}
+		if branch != nil {
+			if err := tx.Model(&dalmodel.ProductTxBranch{}).
+				Where("id = ?", branch.ID).
+				Updates(map[string]any{
+					"biz_id":           productID,
+					"status":           branch.Status,
+					"payload_snapshot": branch.PayloadSnapshot,
+					"error_message":    branch.ErrorMessage,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		if globalTxID != "" && forwardBranchID != "" {
+			if err := tx.Model(&dalmodel.ProductTxBranch{}).
+				Where("global_tx_id = ? AND branch_id = ? AND action = ?", globalTxID, forwardBranchID, "create_product_saga").
+				Update("error_message", "compensated").Error; err != nil {
+				return err
 			}
 		}
 		return nil
@@ -258,6 +357,23 @@ func (r *MySQLProductRepository) List(ctx context.Context, filter ListFilter) ([
 		return nil, 0, err
 	}
 	return products, total, nil
+}
+
+func (r *MySQLProductRepository) GetTxBranch(ctx context.Context, filter TxBranchFilter) (*dalmodel.ProductTxBranch, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	var branch dalmodel.ProductTxBranch
+	err := r.db.WithContext(ctx).
+		Where("global_tx_id = ? AND branch_id = ? AND action = ?", filter.GlobalTxID, filter.BranchID, filter.Action).
+		Take(&branch).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &branch, nil
 }
 
 func (r *MySQLProductRepository) ListSKUsByProductIDs(ctx context.Context, productIDs []int64) ([]*dalmodel.ProductSKU, error) {

@@ -41,6 +41,20 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"initSkuStocksSaga": kitex.NewMethodInfo(
+		initSkuStocksSagaHandler,
+		newInventoryServiceInitSkuStocksSagaArgs,
+		newInventoryServiceInitSkuStocksSagaResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"compensateInitSkuStocksSaga": kitex.NewMethodInfo(
+		compensateInitSkuStocksSagaHandler,
+		newInventoryServiceCompensateInitSkuStocksSagaArgs,
+		newInventoryServiceCompensateInitSkuStocksSagaResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"freezeSkuStocks": kitex.NewMethodInfo(
 		freezeSkuStocksHandler,
 		newInventoryServiceFreezeSkuStocksArgs,
@@ -193,6 +207,42 @@ func newInventoryServiceInitSkuStocksResult() interface{} {
 	return inventory.NewInventoryServiceInitSkuStocksResult()
 }
 
+func initSkuStocksSagaHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*inventory.InventoryServiceInitSkuStocksSagaArgs)
+	realResult := result.(*inventory.InventoryServiceInitSkuStocksSagaResult)
+	success, err := handler.(inventory.InventoryService).InitSkuStocksSaga(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newInventoryServiceInitSkuStocksSagaArgs() interface{} {
+	return inventory.NewInventoryServiceInitSkuStocksSagaArgs()
+}
+
+func newInventoryServiceInitSkuStocksSagaResult() interface{} {
+	return inventory.NewInventoryServiceInitSkuStocksSagaResult()
+}
+
+func compensateInitSkuStocksSagaHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*inventory.InventoryServiceCompensateInitSkuStocksSagaArgs)
+	realResult := result.(*inventory.InventoryServiceCompensateInitSkuStocksSagaResult)
+	success, err := handler.(inventory.InventoryService).CompensateInitSkuStocksSaga(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newInventoryServiceCompensateInitSkuStocksSagaArgs() interface{} {
+	return inventory.NewInventoryServiceCompensateInitSkuStocksSagaArgs()
+}
+
+func newInventoryServiceCompensateInitSkuStocksSagaResult() interface{} {
+	return inventory.NewInventoryServiceCompensateInitSkuStocksSagaResult()
+}
+
 func freezeSkuStocksHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*inventory.InventoryServiceFreezeSkuStocksArgs)
 	realResult := result.(*inventory.InventoryServiceFreezeSkuStocksResult)
@@ -274,6 +324,26 @@ func (p *kClient) InitSkuStocks(ctx context.Context, request *inventory.InitSkuS
 	_args.Request = request
 	var _result inventory.InventoryServiceInitSkuStocksResult
 	if err = p.c.Call(ctx, "initSkuStocks", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) InitSkuStocksSaga(ctx context.Context, request *inventory.InitSkuStocksSagaRequest) (r *inventory.InitSkuStocksResponse, err error) {
+	var _args inventory.InventoryServiceInitSkuStocksSagaArgs
+	_args.Request = request
+	var _result inventory.InventoryServiceInitSkuStocksSagaResult
+	if err = p.c.Call(ctx, "initSkuStocksSaga", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) CompensateInitSkuStocksSaga(ctx context.Context, request *inventory.CompensateInitSkuStocksSagaRequest) (r *inventory.CompensateInitSkuStocksSagaResponse, err error) {
+	var _args inventory.InventoryServiceCompensateInitSkuStocksSagaArgs
+	_args.Request = request
+	var _result inventory.InventoryServiceCompensateInitSkuStocksSagaResult
+	if err = p.c.Call(ctx, "compensateInitSkuStocksSaga", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

@@ -2,6 +2,7 @@ package handler
 
 import (
 	carthandler "meshcart/gateway/internal/handler/cart"
+	dtmhandler "meshcart/gateway/internal/handler/dtm"
 	inventoryhandler "meshcart/gateway/internal/handler/inventory"
 	producthandler "meshcart/gateway/internal/handler/product"
 	userhandler "meshcart/gateway/internal/handler/user"
@@ -12,6 +13,8 @@ import (
 )
 
 func Register(h *server.Hertz, svcCtx *svc.ServiceContext) {
+	dtmhandler.RegisterRoutes(h)
+
 	apiV1 := h.Group("/api/v1")
 	apiV1.Use(
 		middleware.RateLimit(

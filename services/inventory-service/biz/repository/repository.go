@@ -21,8 +21,11 @@ type InventoryRepository interface {
 	GetBySKUID(ctx context.Context, skuID int64) (*dalmodel.InventoryStock, error)
 	ListBySKUIDs(ctx context.Context, skuIDs []int64) ([]*dalmodel.InventoryStock, error)
 	CreateBatch(ctx context.Context, stocks []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error)
+	CreateBatchWithTxBranch(ctx context.Context, branch *dalmodel.InventoryTxBranch, stocks []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error)
+	CompensateInitWithTxBranch(ctx context.Context, branch *dalmodel.InventoryTxBranch, skuIDs []int64) error
 	FreezeBySKUIDs(ctx context.Context, skuIDs []int64) ([]*dalmodel.InventoryStock, error)
 	AdjustTotalStock(ctx context.Context, skuID int64, totalStock int64) (*dalmodel.InventoryStock, error)
+	GetTxBranch(ctx context.Context, globalTxID, branchID, action string) (*dalmodel.InventoryTxBranch, error)
 }
 
 type MySQLInventoryRepository struct {
@@ -94,6 +97,91 @@ func (r *MySQLInventoryRepository) CreateBatch(ctx context.Context, stocks []*da
 		return nil, err
 	}
 	return stocks, nil
+}
+
+func (r *MySQLInventoryRepository) CreateBatchWithTxBranch(ctx context.Context, branch *dalmodel.InventoryTxBranch, stocks []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	if len(stocks) == 0 {
+		return []*dalmodel.InventoryStock{}, nil
+	}
+	for _, stock := range stocks {
+		if stock == nil || stock.SKUID <= 0 || stock.TotalStock < 0 || stock.ReservedStock < 0 || stock.AvailableStock < 0 {
+			return nil, ErrInvalidQuantity
+		}
+	}
+
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if branch != nil {
+			if err := tx.Create(branch).Error; err != nil {
+				lowerErr := strings.ToLower(err.Error())
+				if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(lowerErr, "duplicate") || strings.Contains(lowerErr, "unique constraint") {
+					return ErrStockExists
+				}
+				return err
+			}
+		}
+		for _, stock := range stocks {
+			if err := tx.Create(stock).Error; err != nil {
+				lowerErr := strings.ToLower(err.Error())
+				if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(lowerErr, "duplicate") || strings.Contains(lowerErr, "unique constraint") {
+					return ErrStockExists
+				}
+				return err
+			}
+		}
+		if branch != nil {
+			if err := tx.Model(&dalmodel.InventoryTxBranch{}).
+				Where("id = ?", branch.ID).
+				Updates(map[string]any{
+					"status":           branch.Status,
+					"payload_snapshot": branch.PayloadSnapshot,
+					"error_message":    branch.ErrorMessage,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return stocks, nil
+}
+
+func (r *MySQLInventoryRepository) CompensateInitWithTxBranch(ctx context.Context, branch *dalmodel.InventoryTxBranch, skuIDs []int64) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if branch != nil {
+			if err := tx.Create(branch).Error; err != nil {
+				lowerErr := strings.ToLower(err.Error())
+				if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(lowerErr, "duplicate") || strings.Contains(lowerErr, "unique constraint") {
+					return ErrStockExists
+				}
+				return err
+			}
+		}
+		if len(skuIDs) > 0 {
+			if err := tx.Where("sku_id IN ?", skuIDs).Delete(&dalmodel.InventoryStock{}).Error; err != nil {
+				return err
+			}
+		}
+		if branch != nil {
+			if err := tx.Model(&dalmodel.InventoryTxBranch{}).
+				Where("id = ?", branch.ID).
+				Updates(map[string]any{
+					"status":           branch.Status,
+					"payload_snapshot": branch.PayloadSnapshot,
+					"error_message":    branch.ErrorMessage,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *MySQLInventoryRepository) AdjustTotalStock(ctx context.Context, skuID int64, totalStock int64) (*dalmodel.InventoryStock, error) {
@@ -172,4 +260,21 @@ func withQueryTimeout(parent context.Context, timeout time.Duration) (context.Co
 		return parent, func() {}
 	}
 	return context.WithTimeout(parent, timeout)
+}
+
+func (r *MySQLInventoryRepository) GetTxBranch(ctx context.Context, globalTxID, branchID, action string) (*dalmodel.InventoryTxBranch, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	var branch dalmodel.InventoryTxBranch
+	err := r.db.WithContext(ctx).
+		Where("global_tx_id = ? AND branch_id = ? AND action = ?", globalTxID, branchID, action).
+		Take(&branch).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &branch, nil
 }

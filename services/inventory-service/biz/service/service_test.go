@@ -16,11 +16,14 @@ func strPtr(v string) *string {
 }
 
 type stubInventoryRepository struct {
-	getBySKUIDFn   func(context.Context, int64) (*dalmodel.InventoryStock, error)
-	listBySKUIDsFn func(context.Context, []int64) ([]*dalmodel.InventoryStock, error)
-	createBatchFn  func(context.Context, []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error)
-	freezeBySKUsFn func(context.Context, []int64) ([]*dalmodel.InventoryStock, error)
-	adjustStockFn  func(context.Context, int64, int64) (*dalmodel.InventoryStock, error)
+	getBySKUIDFn                 func(context.Context, int64) (*dalmodel.InventoryStock, error)
+	listBySKUIDsFn               func(context.Context, []int64) ([]*dalmodel.InventoryStock, error)
+	createBatchFn                func(context.Context, []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error)
+	createBatchWithTxBranchFn    func(context.Context, *dalmodel.InventoryTxBranch, []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error)
+	compensateInitWithTxBranchFn func(context.Context, *dalmodel.InventoryTxBranch, []int64) error
+	getTxBranchFn                func(context.Context, string, string, string) (*dalmodel.InventoryTxBranch, error)
+	freezeBySKUsFn               func(context.Context, []int64) ([]*dalmodel.InventoryStock, error)
+	adjustStockFn                func(context.Context, int64, int64) (*dalmodel.InventoryStock, error)
 }
 
 func (s *stubInventoryRepository) GetBySKUID(ctx context.Context, skuID int64) (*dalmodel.InventoryStock, error) {
@@ -42,6 +45,27 @@ func (s *stubInventoryRepository) CreateBatch(ctx context.Context, stocks []*dal
 		return s.createBatchFn(ctx, stocks)
 	}
 	return stocks, nil
+}
+
+func (s *stubInventoryRepository) CreateBatchWithTxBranch(ctx context.Context, branch *dalmodel.InventoryTxBranch, stocks []*dalmodel.InventoryStock) ([]*dalmodel.InventoryStock, error) {
+	if s.createBatchWithTxBranchFn != nil {
+		return s.createBatchWithTxBranchFn(ctx, branch, stocks)
+	}
+	return s.CreateBatch(ctx, stocks)
+}
+
+func (s *stubInventoryRepository) CompensateInitWithTxBranch(ctx context.Context, branch *dalmodel.InventoryTxBranch, skuIDs []int64) error {
+	if s.compensateInitWithTxBranchFn != nil {
+		return s.compensateInitWithTxBranchFn(ctx, branch, skuIDs)
+	}
+	return nil
+}
+
+func (s *stubInventoryRepository) GetTxBranch(ctx context.Context, globalTxID, branchID, action string) (*dalmodel.InventoryTxBranch, error) {
+	if s.getTxBranchFn != nil {
+		return s.getTxBranchFn(ctx, globalTxID, branchID, action)
+	}
+	return nil, nil
 }
 
 func (s *stubInventoryRepository) FreezeBySKUIDs(ctx context.Context, skuIDs []int64) ([]*dalmodel.InventoryStock, error) {

@@ -2,6 +2,7 @@ package product
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"meshcart/app/common"
@@ -16,6 +17,7 @@ import (
 	inventorypb "meshcart/kitex_gen/meshcart/inventory"
 	productpb "meshcart/kitex_gen/meshcart/product"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	oteltrace "go.opentelemetry.io/otel/trace"
@@ -26,6 +28,11 @@ type CreateLogic struct {
 	ctx    context.Context
 	svcCtx *svc.ServiceContext
 }
+
+const (
+	sagaBranchIDProductCreate = "product-create"
+	sagaBranchIDInventoryInit = "inventory-init"
+)
 
 func NewCreateLogic(ctx context.Context, svcCtx *svc.ServiceContext) *CreateLogic {
 	return &CreateLogic{ctx: ctx, svcCtx: svcCtx}
@@ -46,8 +53,19 @@ func (l *CreateLogic) Create(req *types.CreateProductRequest, identity *middlewa
 	if bizErr := validateInitialStocks(req.SKUs); bizErr != nil {
 		return nil, bizErr
 	}
+	if l.svcCtx.ProductCreateCoordinator != nil {
+		data, bizErr := l.svcCtx.ProductCreateCoordinator.CreateProduct(ctx, req, identity.UserID)
+		if bizErr != nil {
+			span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(bizErr.Code)), attribute.String("biz.message", bizErr.Msg))
+			return nil, bizErr
+		}
+		span.SetAttributes(attribute.Bool("biz.success", true))
+		span.SetStatus(codes.Ok, "ok")
+		return data, nil
+	}
 
-	resp, err := l.svcCtx.ProductClient.CreateProduct(ctx, buildCreateProductRPCRequest(req, identity.UserID))
+	txID := uuid.NewString()
+	resp, err := l.svcCtx.ProductClient.CreateProductSaga(ctx, buildCreateProductSagaRPCRequest(req, identity.UserID, txID))
 	if err != nil {
 		span.RecordError(err)
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "technical"))
@@ -60,8 +78,24 @@ func (l *CreateLogic) Create(req *types.CreateProductRequest, identity *middlewa
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
 
-	if bizErr := l.initStocksAfterProductCreate(ctx, req, resp, identity.UserID); bizErr != nil {
+	if bizErr := l.initStocksAfterProductCreate(ctx, req, resp, identity.UserID, txID); bizErr != nil {
 		return nil, bizErr
+	}
+
+	if req.Status == productStatusOnline {
+		statusResp, statusErr := l.svcCtx.ProductClient.ChangeProductStatus(ctx, &productpb.ChangeProductStatusRequest{
+			ProductId:  resp.ProductID,
+			Status:     productStatusOnline,
+			OperatorId: identity.UserID,
+		})
+		if statusErr != nil {
+			l.compensateInventoryAndProduct(ctx, txID, resp.ProductID, resp.Skus, identity.UserID)
+			return nil, logicutil.MapRPCError(statusErr)
+		}
+		if statusResp.Code != common.CodeOK {
+			l.compensateInventoryAndProduct(ctx, txID, resp.ProductID, resp.Skus, identity.UserID)
+			return nil, common.NewBizError(statusResp.Code, statusResp.Message)
+		}
 	}
 
 	span.SetAttributes(attribute.Bool("biz.success", true))
@@ -79,6 +113,21 @@ func buildCreateProductRPCRequest(req *types.CreateProductRequest, creatorID int
 		Status:      req.Status,
 		Skus:        buildSKUInputs(req.SKUs),
 		CreatorId:   creatorID,
+	}
+}
+
+func buildCreateProductSagaRPCRequest(req *types.CreateProductRequest, creatorID int64, txID string) *productpb.CreateProductSagaRequest {
+	return &productpb.CreateProductSagaRequest{
+		GlobalTxId:   txID,
+		BranchId:     sagaBranchIDProductCreate,
+		Title:        req.Title,
+		SubTitle:     req.SubTitle,
+		CategoryId:   req.CategoryID,
+		Brand:        req.Brand,
+		Description:  req.Description,
+		TargetStatus: req.Status,
+		Skus:         buildSKUInputs(req.SKUs),
+		CreatorId:    creatorID,
 	}
 }
 
@@ -116,22 +165,26 @@ func validateInitialStocks(items []types.ProductSkuInput) *common.BizError {
 	return nil
 }
 
-func (l *CreateLogic) initStocksAfterProductCreate(ctx context.Context, req *types.CreateProductRequest, resp *productrpc.CreateProductResponse, operatorID int64) *common.BizError {
+func (l *CreateLogic) initStocksAfterProductCreate(ctx context.Context, req *types.CreateProductRequest, resp *productrpc.CreateProductResponse, operatorID int64, txID string) *common.BizError {
 	initItems := buildInitStockItems(req.SKUs, resp.Skus)
 	if len(initItems) != len(resp.Skus) {
 		logx.L(ctx).Error("created sku ids do not match requested initial stocks", zap.Int64("product_id", resp.ProductID))
-		l.bestEffortDemoteProduct(ctx, resp.ProductID, req.Status, operatorID)
+		l.compensateProductCreate(ctx, txID, resp.ProductID, operatorID)
 		return common.ErrInternalError
 	}
 
-	initResp, err := l.svcCtx.InventoryClient.InitSkuStocks(ctx, &inventorypb.InitSkuStocksRequest{Stocks: initItems})
+	initResp, err := l.svcCtx.InventoryClient.InitSkuStocksSaga(ctx, &inventorypb.InitSkuStocksSagaRequest{
+		GlobalTxId: txID,
+		BranchId:   sagaBranchIDInventoryInit,
+		Stocks:     initItems,
+	})
 	if err != nil {
 		logx.L(ctx).Error("inventory rpc init sku stocks failed after create product", zap.Error(err), zap.Int64("product_id", resp.ProductID))
-		l.bestEffortDemoteProduct(ctx, resp.ProductID, req.Status, operatorID)
+		l.compensateProductCreate(ctx, txID, resp.ProductID, operatorID)
 		return logicutil.MapRPCError(err)
 	}
 	if initResp.Code != common.CodeOK {
-		l.bestEffortDemoteProduct(ctx, resp.ProductID, req.Status, operatorID)
+		l.compensateProductCreate(ctx, txID, resp.ProductID, operatorID)
 		return common.NewBizError(initResp.Code, initResp.Message)
 	}
 	return nil
@@ -155,18 +208,37 @@ func buildInitStockItems(requestSKUs []types.ProductSkuInput, createdSKUs []*pro
 	return result
 }
 
-func (l *CreateLogic) bestEffortDemoteProduct(ctx context.Context, productID int64, requestedStatus int32, operatorID int64) {
-	if requestedStatus != productStatusOnline {
-		return
-	}
-	_, err := l.svcCtx.ProductClient.ChangeProductStatus(ctx, &productpb.ChangeProductStatusRequest{
+func (l *CreateLogic) compensateProductCreate(ctx context.Context, txID string, productID int64, operatorID int64) {
+	_, err := l.svcCtx.ProductClient.CompensateCreateProductSaga(ctx, &productpb.CompensateCreateProductSagaRequest{
+		GlobalTxId: txID,
+		BranchId:   sagaBranchIDProductCreate,
 		ProductId:  productID,
-		Status:     productStatusOffline,
 		OperatorId: operatorID,
 	})
 	if err != nil {
-		logx.L(ctx).Warn("best effort demote product after inventory init failure failed", zap.Error(err), zap.Int64("product_id", productID))
+		logx.L(ctx).Warn("compensate product create saga failed", zap.Error(err), zap.Int64("product_id", productID), zap.String("global_tx_id", txID))
 	}
+}
+
+func (l *CreateLogic) compensateInventoryAndProduct(ctx context.Context, txID string, productID int64, skus []*productpb.ProductSku, operatorID int64) {
+	skuIDs := make([]int64, 0, len(skus))
+	for _, sku := range skus {
+		if sku == nil {
+			continue
+		}
+		skuIDs = append(skuIDs, sku.GetId())
+	}
+	if len(skuIDs) > 0 {
+		_, err := l.svcCtx.InventoryClient.CompensateInitSkuStocksSaga(ctx, &inventorypb.CompensateInitSkuStocksSagaRequest{
+			GlobalTxId: txID,
+			BranchId:   sagaBranchIDInventoryInit,
+			SkuIds:     skuIDs,
+		})
+		if err != nil {
+			logx.L(ctx).Warn("compensate inventory init saga failed", zap.Error(err), zap.String("global_tx_id", txID), zap.String("sku_ids", fmt.Sprint(skuIDs)))
+		}
+	}
+	l.compensateProductCreate(ctx, txID, productID, operatorID)
 }
 
 func toCreatedProductSKUs(skus []*productpb.ProductSku) []types.CreatedProductSKUData {

@@ -13,6 +13,25 @@ services:
     networks:
       - meshcart
 
+  dtm:
+    image: yedf/dtm:1.19.0
+    container_name: meshcart-dtm
+    restart: unless-stopped
+    environment:
+      STORE_DRIVER: boltdb
+      LOG_LEVEL: info
+      HTTP_PORT: 36789
+      GRPC_PORT: 36790
+      JSON_RPC_PORT: 36791
+    ports:
+      - "36789:36789"
+      - "36790:36790"
+      - "36791:36791"
+    volumes:
+      - dtm_data:/app
+    networks:
+      - meshcart
+
   prometheus:
     image: prom/prometheus:v3.2.1
     container_name: meshcart-prometheus
@@ -110,6 +129,7 @@ services:
 
 volumes:
   consul_data:
+  dtm_data:
   prometheus_data:
   grafana_data:
   loki_data:

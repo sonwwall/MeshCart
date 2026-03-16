@@ -125,11 +125,13 @@
 #### 商品创建后的库存初始化
 
 1. 管理端调用创建商品接口，并在 SKU 中提交 `initial_stock`
-2. `gateway` 调用 `product-service.CreateProduct`
-3. `product-service` 返回新建商品 ID 和 SKU ID
-4. `gateway` 调用 `inventory-service.InitSkuStocks`
-5. `inventory-service` 写入每个 SKU 对应的库存记录
-6. 若库存初始化失败，`gateway` 对在线商品执行最佳努力降级到 `offline`
+2. `gateway` 发起 `DTM workflow`
+3. `gateway` 调用 `product-service.CreateProductSaga`
+4. `product-service` 返回新建商品 ID 和 SKU ID
+5. `gateway` 调用 `inventory-service.InitSkuStocksSaga`
+6. `inventory-service` 写入每个 SKU 对应的库存记录
+7. 如果目标状态是 `online`，`gateway` 再调用商品最终上架
+8. 任一步失败时，由 `DTM` 驱动前序成功分支补偿
 
 #### 商品更新新增 SKU 后的库存初始化
 
@@ -147,7 +149,7 @@
 - 当前已接入调用方
   - `gateway`
     - 在购物车加购链路里调用 `CheckSaleableStock`
-    - 在商品创建链路里调用 `InitSkuStocks`
+    - 在商品创建链路里调用 `InitSkuStocksSaga`
     - 在商品更新删除 SKU 链路里调用 `FreezeSkuStocks`
     - 在后台库存管理链路里调用 `GetSkuStock`、`BatchGetSkuStock`、`AdjustStock`
 - 当前可直接接入但尚未开放 HTTP 的内部调用方
@@ -308,6 +310,8 @@ services/inventory-service/
 - `BatchGetSkuStock`
 - `CheckSaleableStock`
 - `InitSkuStocks`
+- `InitSkuStocksSaga`
+- `CompensateInitSkuStocksSaga`
 - `FreezeSkuStocks`
 - `AdjustStock`
 
@@ -468,6 +472,41 @@ IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/
   }
 }
 ```
+
+### 9.6.1 `InitSkuStocksSaga`
+
+- 作用：在商品创建分布式事务中初始化 SKU 库存
+- 请求字段：
+  - `global_tx_id`
+  - `branch_id`
+  - `stocks[].sku_id`
+  - `stocks[].total_stock`
+- 返回字段：
+  - `stocks`
+  - `base.code`
+  - `base.message`
+
+补充说明：
+
+- `InitSkuStocksSaga` 和普通 `InitSkuStocks` 的差异在于会记录事务分支日志
+- 该接口用于 `DTM workflow` 编排，不建议在普通单步初始化链路里直接替代所有库存写入
+
+### 9.6.2 `CompensateInitSkuStocksSaga`
+
+- 作用：回滚本次事务初始化的库存记录
+- 请求字段：
+  - `global_tx_id`
+  - `branch_id`
+  - `sku_ids`
+- 返回字段：
+  - `base.code`
+  - `base.message`
+
+语义约束：
+
+- 已补偿过则直接成功
+- 正向分支不存在时按空补偿处理
+- 只允许删除当前事务初始化的库存记录
 
 ### 9.7 `FreezeSkuStocks`
 
@@ -671,10 +710,13 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 当前实现如下：
 
 1. 管理端创建商品时，请求中的每个 SKU 可带 `initial_stock`
-2. `gateway` 先调用 `product-service.CreateProduct`
-3. 商品和 SKU 创建成功后，`gateway` 拿到新生成的 `sku_id`
-4. `gateway` 调用 `inventory-service.InitSkuStocks`
-5. `inventory-service` 为每个 `sku_id` 创建对应库存记录
+2. `gateway` 通过 `DTM workflow` 发起全局事务
+3. `gateway` 先调用 `product-service.CreateProductSaga`
+4. 商品和 SKU 创建成功后，`gateway` 拿到新生成的 `sku_id`
+5. `gateway` 调用 `inventory-service.InitSkuStocksSaga`
+6. `inventory-service` 为每个 `sku_id` 创建对应库存记录
+7. 如果目标状态是 `online`，`gateway` 最后再调用商品最终上架
+8. 任一步失败时，由 `DTM` 驱动前序成功分支补偿
 
 补充约定：
 
@@ -682,7 +724,7 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 - 未传时默认按 `0` 初始化
 - 因此当前设计保证“商品侧有 SKU，就应有对应库存记录”
 - 商品创建时的 `sku_code` 现在只是可选业务编码，不参与库存初始化映射
-- `gateway` 按创建返回的 `sku_id` 顺序调用 `InitSkuStocks`，库存域只依赖 `sku_id`
+- `gateway` 按创建返回的 `sku_id` 顺序调用 `InitSkuStocksSaga`，库存域只依赖 `sku_id`
 
 这个设计的核心原则是：
 
@@ -709,25 +751,64 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 
 1. 后台请求到达 `gateway`
 2. `gateway` 校验商品参数和 `initial_stock`
-3. `gateway` 调用 `product-service.CreateProduct`
-4. `product-service` 返回商品 ID 和 SKU ID
-5. `gateway` 调用 `inventory-service.InitSkuStocks`
-6. `inventory-service` 写入 `inventory_stocks`
-7. 两边都成功后，再返回创建成功
+3. `gateway` 创建 `gid` 并发起 `DTM workflow`
+4. `gateway` 调用 `product-service.CreateProductSaga`
+5. `product-service` 返回商品 ID 和 SKU ID
+6. `gateway` 调用 `inventory-service.InitSkuStocksSaga`
+7. `inventory-service` 写入 `inventory_stocks`
+8. 如果目标状态是 `online`，`gateway` 最后调用商品上架
+9. 所有分支都成功后，再返回创建成功
 
 ### 14.5 已落地的初始化库存失败处理
 
-当前阶段已经按简单补偿方案处理，不引入分布式事务：
+当前阶段已经接入分布式事务，而不是简单补偿。
 
-- 当前实现
-  - 商品创建成功但库存初始化失败时，接口整体返回失败
-  - 如果商品原本请求创建为 `online`，`gateway` 会最佳努力把商品降级为 `offline`
-- 后续再考虑
-  - 异步补偿任务
-  - 事务消息
-  - 更严格的一致性方案
+当前实现：
 
-### 14.6 建议新增模型
+- 商品创建成功但库存初始化失败时，接口整体返回失败
+- `DTM` 会触发商品补偿删除，不再保留“接口失败但商品已创建”的脏数据
+- 如果商品目标状态是 `online`，商品会先以 `offline` 创建，库存成功后再上架
+- 如果库存初始化分支根本没有成功，回滚阶段会跳过库存补偿，继续执行商品补偿
+
+当前已做：
+
+- `DTM workflow`
+- 商品侧 Saga 正向和补偿
+- 库存侧 Saga 正向和补偿
+- 商品侧与库存侧事务分支日志
+
+当前仍未做：
+
+- Kafka 事件广播
+- Outbox
+- 复杂补偿任务系统
+
+### 14.6 已落地的库存侧事务设计
+
+当前库存侧新增事务分支日志表：
+
+- `inventory_tx_branches`
+
+主要动作：
+
+- `init_sku_stocks_saga`
+- `compensate_init_sku_stocks_saga`
+
+库存侧 Saga 行为：
+
+1. `InitSkuStocksSaga` 先检查补偿分支是否已执行，防悬挂
+2. 再检查正向分支是否已成功，支持幂等
+3. 创建库存记录并写入正向分支日志
+4. `CompensateInitSkuStocksSaga` 删除本次事务初始化的库存记录
+5. 写入补偿分支日志
+
+排障经验：
+
+- 库存服务不可达时，不能盲目执行库存补偿
+- 否则库存补偿自己会先失败，并阻断商品补偿
+- 所以编排层必须只对“真正成功过的库存分支”执行回滚
+
+### 14.7 建议新增模型
 
 后续建议至少补其中一种：
 
@@ -749,7 +830,7 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 - `created_at`
 - `updated_at`
 
-### 14.7 已落地的后台库存写能力
+### 14.8 已落地的后台库存写能力
 
 在订单链路正式接入前，当前已经先开放两类：
 
@@ -763,7 +844,7 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 - 任意业务侧直接加减库存
 - 多来源并发修改库存且没有流水记录
 
-### 14.8 下一阶段订单协作设计
+### 14.9 下一阶段订单协作设计
 
 后续推荐链路：
 
@@ -772,7 +853,7 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 3. 支付成功后调用 `DeductStock`
 4. 支付失败、取消订单或超时关闭时调用 `ReleaseReservedStock`
 
-### 14.9 已落地的商品删除与库存记录处理方案
+### 14.10 已落地的商品删除与库存记录处理方案
 
 当前实现：
 
@@ -816,7 +897,7 @@ go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./ga
 - 商品删除或 SKU 删除后，不应默认联动物理删除库存记录
 - 当前已落地的方案就是“商品 SKU 失效 + 库存冻结”，而不是“数据硬删”
 
-### 14.10 当前不建议过早做的事情
+### 14.11 当前不建议过早做的事情
 
 当前不建议直接推进：
 

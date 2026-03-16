@@ -404,6 +404,53 @@ var fieldIDToName_InitSkuStocksRequest = map[int16]string{
 	1: "stocks",
 }
 
+type InitSkuStocksSagaRequest struct {
+	GlobalTxId string              `thrift:"global_tx_id,1" frugal:"1,default,string" json:"global_tx_id"`
+	BranchId   string              `thrift:"branch_id,2" frugal:"2,default,string" json:"branch_id"`
+	Stocks     []*InitSkuStockItem `thrift:"stocks,3" frugal:"3,default,list<InitSkuStockItem>" json:"stocks"`
+}
+
+func NewInitSkuStocksSagaRequest() *InitSkuStocksSagaRequest {
+	return &InitSkuStocksSagaRequest{}
+}
+
+func (p *InitSkuStocksSagaRequest) InitDefault() {
+}
+
+func (p *InitSkuStocksSagaRequest) GetGlobalTxId() (v string) {
+	return p.GlobalTxId
+}
+
+func (p *InitSkuStocksSagaRequest) GetBranchId() (v string) {
+	return p.BranchId
+}
+
+func (p *InitSkuStocksSagaRequest) GetStocks() (v []*InitSkuStockItem) {
+	return p.Stocks
+}
+func (p *InitSkuStocksSagaRequest) SetGlobalTxId(val string) {
+	p.GlobalTxId = val
+}
+func (p *InitSkuStocksSagaRequest) SetBranchId(val string) {
+	p.BranchId = val
+}
+func (p *InitSkuStocksSagaRequest) SetStocks(val []*InitSkuStockItem) {
+	p.Stocks = val
+}
+
+func (p *InitSkuStocksSagaRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("InitSkuStocksSagaRequest(%+v)", *p)
+}
+
+var fieldIDToName_InitSkuStocksSagaRequest = map[int16]string{
+	1: "global_tx_id",
+	2: "branch_id",
+	3: "stocks",
+}
+
 type InitSkuStocksResponse struct {
 	Stocks []*SkuStock        `thrift:"stocks,1" frugal:"1,default,list<SkuStock>" json:"stocks"`
 	Base   *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
@@ -448,6 +495,91 @@ func (p *InitSkuStocksResponse) String() string {
 
 var fieldIDToName_InitSkuStocksResponse = map[int16]string{
 	1:   "stocks",
+	255: "base",
+}
+
+type CompensateInitSkuStocksSagaRequest struct {
+	GlobalTxId string  `thrift:"global_tx_id,1" frugal:"1,default,string" json:"global_tx_id"`
+	BranchId   string  `thrift:"branch_id,2" frugal:"2,default,string" json:"branch_id"`
+	SkuIds     []int64 `thrift:"sku_ids,3" frugal:"3,default,list<i64>" json:"sku_ids"`
+}
+
+func NewCompensateInitSkuStocksSagaRequest() *CompensateInitSkuStocksSagaRequest {
+	return &CompensateInitSkuStocksSagaRequest{}
+}
+
+func (p *CompensateInitSkuStocksSagaRequest) InitDefault() {
+}
+
+func (p *CompensateInitSkuStocksSagaRequest) GetGlobalTxId() (v string) {
+	return p.GlobalTxId
+}
+
+func (p *CompensateInitSkuStocksSagaRequest) GetBranchId() (v string) {
+	return p.BranchId
+}
+
+func (p *CompensateInitSkuStocksSagaRequest) GetSkuIds() (v []int64) {
+	return p.SkuIds
+}
+func (p *CompensateInitSkuStocksSagaRequest) SetGlobalTxId(val string) {
+	p.GlobalTxId = val
+}
+func (p *CompensateInitSkuStocksSagaRequest) SetBranchId(val string) {
+	p.BranchId = val
+}
+func (p *CompensateInitSkuStocksSagaRequest) SetSkuIds(val []int64) {
+	p.SkuIds = val
+}
+
+func (p *CompensateInitSkuStocksSagaRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CompensateInitSkuStocksSagaRequest(%+v)", *p)
+}
+
+var fieldIDToName_CompensateInitSkuStocksSagaRequest = map[int16]string{
+	1: "global_tx_id",
+	2: "branch_id",
+	3: "sku_ids",
+}
+
+type CompensateInitSkuStocksSagaResponse struct {
+	Base *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+}
+
+func NewCompensateInitSkuStocksSagaResponse() *CompensateInitSkuStocksSagaResponse {
+	return &CompensateInitSkuStocksSagaResponse{}
+}
+
+func (p *CompensateInitSkuStocksSagaResponse) InitDefault() {
+}
+
+var CompensateInitSkuStocksSagaResponse_Base_DEFAULT *base.BaseResponse
+
+func (p *CompensateInitSkuStocksSagaResponse) GetBase() (v *base.BaseResponse) {
+	if !p.IsSetBase() {
+		return CompensateInitSkuStocksSagaResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+func (p *CompensateInitSkuStocksSagaResponse) SetBase(val *base.BaseResponse) {
+	p.Base = val
+}
+
+func (p *CompensateInitSkuStocksSagaResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *CompensateInitSkuStocksSagaResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CompensateInitSkuStocksSagaResponse(%+v)", *p)
+}
+
+var fieldIDToName_CompensateInitSkuStocksSagaResponse = map[int16]string{
 	255: "base",
 }
 
@@ -674,6 +806,10 @@ type InventoryService interface {
 	CheckSaleableStock(ctx context.Context, request *CheckSaleableStockRequest) (r *CheckSaleableStockResponse, err error)
 
 	InitSkuStocks(ctx context.Context, request *InitSkuStocksRequest) (r *InitSkuStocksResponse, err error)
+
+	InitSkuStocksSaga(ctx context.Context, request *InitSkuStocksSagaRequest) (r *InitSkuStocksResponse, err error)
+
+	CompensateInitSkuStocksSaga(ctx context.Context, request *CompensateInitSkuStocksSagaRequest) (r *CompensateInitSkuStocksSagaResponse, err error)
 
 	FreezeSkuStocks(ctx context.Context, request *FreezeSkuStocksRequest) (r *FreezeSkuStocksResponse, err error)
 
@@ -981,6 +1117,158 @@ func (p *InventoryServiceInitSkuStocksResult) String() string {
 }
 
 var fieldIDToName_InventoryServiceInitSkuStocksResult = map[int16]string{
+	0: "success",
+}
+
+type InventoryServiceInitSkuStocksSagaArgs struct {
+	Request *InitSkuStocksSagaRequest `thrift:"request,1" frugal:"1,default,InitSkuStocksSagaRequest" json:"request"`
+}
+
+func NewInventoryServiceInitSkuStocksSagaArgs() *InventoryServiceInitSkuStocksSagaArgs {
+	return &InventoryServiceInitSkuStocksSagaArgs{}
+}
+
+func (p *InventoryServiceInitSkuStocksSagaArgs) InitDefault() {
+}
+
+var InventoryServiceInitSkuStocksSagaArgs_Request_DEFAULT *InitSkuStocksSagaRequest
+
+func (p *InventoryServiceInitSkuStocksSagaArgs) GetRequest() (v *InitSkuStocksSagaRequest) {
+	if !p.IsSetRequest() {
+		return InventoryServiceInitSkuStocksSagaArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *InventoryServiceInitSkuStocksSagaArgs) SetRequest(val *InitSkuStocksSagaRequest) {
+	p.Request = val
+}
+
+func (p *InventoryServiceInitSkuStocksSagaArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *InventoryServiceInitSkuStocksSagaArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("InventoryServiceInitSkuStocksSagaArgs(%+v)", *p)
+}
+
+var fieldIDToName_InventoryServiceInitSkuStocksSagaArgs = map[int16]string{
+	1: "request",
+}
+
+type InventoryServiceInitSkuStocksSagaResult struct {
+	Success *InitSkuStocksResponse `thrift:"success,0,optional" frugal:"0,optional,InitSkuStocksResponse" json:"success,omitempty"`
+}
+
+func NewInventoryServiceInitSkuStocksSagaResult() *InventoryServiceInitSkuStocksSagaResult {
+	return &InventoryServiceInitSkuStocksSagaResult{}
+}
+
+func (p *InventoryServiceInitSkuStocksSagaResult) InitDefault() {
+}
+
+var InventoryServiceInitSkuStocksSagaResult_Success_DEFAULT *InitSkuStocksResponse
+
+func (p *InventoryServiceInitSkuStocksSagaResult) GetSuccess() (v *InitSkuStocksResponse) {
+	if !p.IsSetSuccess() {
+		return InventoryServiceInitSkuStocksSagaResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *InventoryServiceInitSkuStocksSagaResult) SetSuccess(x interface{}) {
+	p.Success = x.(*InitSkuStocksResponse)
+}
+
+func (p *InventoryServiceInitSkuStocksSagaResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *InventoryServiceInitSkuStocksSagaResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("InventoryServiceInitSkuStocksSagaResult(%+v)", *p)
+}
+
+var fieldIDToName_InventoryServiceInitSkuStocksSagaResult = map[int16]string{
+	0: "success",
+}
+
+type InventoryServiceCompensateInitSkuStocksSagaArgs struct {
+	Request *CompensateInitSkuStocksSagaRequest `thrift:"request,1" frugal:"1,default,CompensateInitSkuStocksSagaRequest" json:"request"`
+}
+
+func NewInventoryServiceCompensateInitSkuStocksSagaArgs() *InventoryServiceCompensateInitSkuStocksSagaArgs {
+	return &InventoryServiceCompensateInitSkuStocksSagaArgs{}
+}
+
+func (p *InventoryServiceCompensateInitSkuStocksSagaArgs) InitDefault() {
+}
+
+var InventoryServiceCompensateInitSkuStocksSagaArgs_Request_DEFAULT *CompensateInitSkuStocksSagaRequest
+
+func (p *InventoryServiceCompensateInitSkuStocksSagaArgs) GetRequest() (v *CompensateInitSkuStocksSagaRequest) {
+	if !p.IsSetRequest() {
+		return InventoryServiceCompensateInitSkuStocksSagaArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *InventoryServiceCompensateInitSkuStocksSagaArgs) SetRequest(val *CompensateInitSkuStocksSagaRequest) {
+	p.Request = val
+}
+
+func (p *InventoryServiceCompensateInitSkuStocksSagaArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *InventoryServiceCompensateInitSkuStocksSagaArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("InventoryServiceCompensateInitSkuStocksSagaArgs(%+v)", *p)
+}
+
+var fieldIDToName_InventoryServiceCompensateInitSkuStocksSagaArgs = map[int16]string{
+	1: "request",
+}
+
+type InventoryServiceCompensateInitSkuStocksSagaResult struct {
+	Success *CompensateInitSkuStocksSagaResponse `thrift:"success,0,optional" frugal:"0,optional,CompensateInitSkuStocksSagaResponse" json:"success,omitempty"`
+}
+
+func NewInventoryServiceCompensateInitSkuStocksSagaResult() *InventoryServiceCompensateInitSkuStocksSagaResult {
+	return &InventoryServiceCompensateInitSkuStocksSagaResult{}
+}
+
+func (p *InventoryServiceCompensateInitSkuStocksSagaResult) InitDefault() {
+}
+
+var InventoryServiceCompensateInitSkuStocksSagaResult_Success_DEFAULT *CompensateInitSkuStocksSagaResponse
+
+func (p *InventoryServiceCompensateInitSkuStocksSagaResult) GetSuccess() (v *CompensateInitSkuStocksSagaResponse) {
+	if !p.IsSetSuccess() {
+		return InventoryServiceCompensateInitSkuStocksSagaResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *InventoryServiceCompensateInitSkuStocksSagaResult) SetSuccess(x interface{}) {
+	p.Success = x.(*CompensateInitSkuStocksSagaResponse)
+}
+
+func (p *InventoryServiceCompensateInitSkuStocksSagaResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *InventoryServiceCompensateInitSkuStocksSagaResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("InventoryServiceCompensateInitSkuStocksSagaResult(%+v)", *p)
+}
+
+var fieldIDToName_InventoryServiceCompensateInitSkuStocksSagaResult = map[int16]string{
 	0: "success",
 }
 

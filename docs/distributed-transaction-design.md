@@ -511,211 +511,252 @@
 整体流程如下：
 
 1. 管理端请求到达 `gateway`
-2. `gateway` 创建 Saga 事务
-3. `gateway` 向 `DTM` 注册两个分支：
-   - 商品正向创建 / 商品补偿
-   - 库存正向初始化 / 库存补偿
-4. `DTM` 依次调用各分支
-5. 某一步失败时，`DTM` 自动触发已成功分支的补偿
+2. `gateway` 通过 `DTM workflow` 创建全局事务
+3. `gateway` 在 workflow 中串行注册商品创建、库存初始化和可选的最终上架步骤
+4. `DTM` 依次驱动各分支执行
+5. 某一步失败时，`DTM` 按逆序执行已成功分支的补偿
 6. `gateway` 根据全局事务结果返回成功或失败
 
-### 19.2 当前推荐的服务职责
+### 19.2 当前代码落地形态
 
-#### `gateway`
+当前仓库中的落地点如下：
 
-负责：
+- `gateway/internal/tx/product_create.go`
+  - 负责创建 `DTM workflow`
+  - 负责商品创建链路的全局事务编排
+- `services/product-service/biz/service/saga.go`
+  - 负责商品侧正向创建和补偿删除
+- `services/inventory-service/biz/service/saga.go`
+  - 负责库存侧正向初始化和补偿删除
+- `services/product-service/migrations/000006_create_product_tx_branches.up.sql`
+  - 负责商品侧事务分支日志表
+- `services/inventory-service/migrations/000003_create_inventory_tx_branches.up.sql`
+  - 负责库存侧事务分支日志表
 
-- 构造 Saga 请求
-- 组织每个分支的正向 URL 和补偿 URL
-- 传递 `operator_id`、目标商品状态、SKU 初始化信息
-- 接收事务结果并对外返回
+当前没有采用经典的 `Saga.Add(actionURL, compensateURL)` HTTP 分支模式，而是采用 `DTM workflow`。
 
-不负责：
+原因：
 
-- 自己维护全局事务状态机
-- 自己轮询分支状态
+- 现有参与方主要通过 Kitex RPC 暴露能力
+- 商品创建分支执行后需要把 `product_id`、`sku_ids` 继续传给下一个分支
+- workflow 形态更容易在 `gateway` 内聚合上下文并返回最终创建结果
 
-#### `DTM`
+### 19.3 本次链路的详细实现
 
-负责：
+当前这条链路的全局事务名为：
 
-- 生成全局事务 ID
-- 管理 Saga 分支调用顺序
-- 记录全局事务状态
-- 某分支失败时触发补偿
-- 对失败事务执行重试策略
+- `gateway.product.create`
 
-#### `product-service`
+事务发起流程如下：
 
-负责：
+1. 管理端调用 `POST /api/v1/admin/products`
+2. `gateway` 生成 `gid`
+3. `gateway` 调用 `workflow.ExecuteCtx`
+4. workflow 内部按顺序执行三个分支
 
-- 实现商品正向创建分支
-- 实现商品补偿分支
-- 维护本地事务分支幂等记录
+三个分支分别是：
 
-#### `inventory-service`
+1. 商品创建分支
+2. 库存初始化分支
+3. 商品最终上架分支，可选
 
-负责：
+#### 19.3.1 商品创建分支
 
-- 实现库存正向初始化分支
-- 实现库存补偿分支
-- 维护本地事务分支幂等记录
-
-### 19.3 DTM 下的分支设计
-
-建议分成两个 Saga 分支：
-
-#### 分支一：商品创建
-
-正向动作：
-
-- `POST /rpc/saga/product/create`
-
-补偿动作：
-
-- `POST /rpc/saga/product/create/compensate`
-
-正向职责：
-
-- 创建商品
-- 创建 SKU
-- 记录本次事务和 `product_id / sku_ids` 的映射
-
-补偿职责：
-
-- 删除本次事务创建的商品和 SKU
-- 或在后续不允许物理删除时，收口为失败态
-
-#### 分支二：库存初始化
-
-正向动作：
-
-- `POST /rpc/saga/inventory/init`
-
-补偿动作：
-
-- `POST /rpc/saga/inventory/init/compensate`
-
-正向职责：
-
-- 为指定 `sku_ids` 初始化库存记录
-
-补偿职责：
-
-- 删除本次事务初始化的库存记录
-
-### 19.4 `gateway` 发起 Saga 的推荐方式
-
-建议在 `gateway` 创建商品逻辑中：
-
-1. 先校验创建商品请求
-2. 构造 Saga 分支参数
-3. 向 `DTM` 提交 Saga
-4. 等待提交结果
-5. 根据事务结果返回创建成功或失败
-
-`gateway` 侧最核心的改造是：
-
-- 现有同步顺序 RPC 调用
-  - `CreateProduct`
-  - `InitSkuStocks`
-- 改为通过 `DTM Saga` 统一编排
-
-### 19.5 分支入参建议
-
-#### 商品分支正向入参
+`gateway` 调用 `product-service.CreateProductSaga`，入参里带：
 
 - `global_tx_id`
-- `operator_id`
+- `branch_id`
+- 商品主信息
+- SKU 信息
+- `creator_id`
 - `target_status`
-- 商品基础信息
-- SKU 列表
 
-#### 商品分支补偿入参
+`product-service` 在本地事务中完成：
 
-- `global_tx_id`
-- `operator_id`
+1. 检查补偿分支是否已执行，防悬挂
+2. 检查正向分支是否已成功，支持幂等返回
+3. 创建 `products`
+4. 创建 `product_skus`
+5. 创建 `product_sku_attrs`
+6. 写入 `product_tx_branches`
+
+这里有一个关键设计：
+
+- 如果目标状态是 `online`
+- 商品正向创建时不会直接落为 `online`
+- 而是先落为 `offline`
+
+这样可以保证：
+
+- 库存未初始化完成前，商品不会以最终可售态暴露
+
+#### 19.3.2 库存初始化分支
+
+商品创建成功后，`gateway` 用返回的 `sku_ids` 组装库存初始化请求，再调用 `inventory-service.InitSkuStocksSaga`。
+
+`inventory-service` 在本地事务中完成：
+
+1. 检查补偿分支是否已执行，防悬挂
+2. 检查正向分支是否已成功，支持幂等返回
+3. 为每个 `sku_id` 创建 `inventory_stocks`
+4. 写入 `inventory_tx_branches`
+
+#### 19.3.3 商品最终上架分支
+
+如果原始请求目标状态是 `online`，workflow 还会追加一个最终上架分支：
+
+1. `gateway` 调用 `product-service.ChangeProductStatus`
+2. 把商品从 `offline` 切到 `online`
+
+如果原始请求目标状态不是 `online`，这一步不会执行。
+
+这样设计的原因是：
+
+- 商品主数据创建和商品最终发布不是同一个语义步骤
+- 只有库存初始化成功后，商品才允许变成最终可售态
+
+### 19.4 失败与补偿时序
+
+#### 19.4.1 库存初始化失败
+
+这是当前 `P0` 的核心场景。
+
+时序如下：
+
+1. 商品创建分支成功
+2. 库存初始化分支失败
+3. `DTM` 开始全局回滚
+4. 如果库存初始化分支根本没有成功，则跳过库存补偿
+5. `DTM` 调用商品补偿分支
+6. `product-service.CompensateCreateProductSaga` 删除本次事务创建的商品、SKU、SKU attrs
+7. 全局事务失败，接口返回失败
+
+#### 19.4.2 最终上架失败
+
+如果库存初始化成功，但最终上架失败，当前回滚顺序为：
+
+1. 商品最终上架分支失败
+2. `DTM` 先回滚库存初始化分支
+3. 再回滚商品创建分支
+4. 商品和库存都删除
+5. 接口返回失败
+
+这意味着当前链路的业务语义是：
+
+- “创建商品”只在商品主数据、库存初始化和目标状态切换都成功后才算真正成功
+
+### 19.5 商品补偿如何实现
+
+`product-service.CompensateCreateProductSaga` 的补偿逻辑如下：
+
+1. 先查 `product_tx_branches` 是否已经存在 `compensate_create_product_saga`
+2. 如果已补偿，直接成功返回
+3. 再查 `create_product_saga` 是否存在
+4. 如果不存在，按空补偿处理并记录补偿分支
+5. 如果存在，则删除本次事务创建的：
+   - `products`
+   - `product_skus`
+   - `product_sku_attrs`
+6. 写入补偿分支日志
+
+当前补偿口径是“物理删除本次事务新建数据”，而不是“把商品改成失败态”。
+
+这样做是因为：
+
+- 当前补偿只针对刚创建且未进入后续引用链路的数据
+- 这类数据对外语义应当是“不存在”，不是“失败商品”
+
+### 19.6 库存补偿如何实现
+
+`inventory-service.CompensateInitSkuStocksSaga` 的补偿逻辑如下：
+
+1. 先查 `inventory_tx_branches` 是否已经存在补偿成功记录
+2. 如果已补偿，直接成功返回
+3. 读取正向分支日志中的 `sku_ids`
+4. 删除本次事务初始化的库存记录
+5. 写入补偿分支日志
+
+需要注意的是，当前 `gateway` 还增加了一层编排保护：
+
+- 只有库存初始化分支真正成功后，才允许执行库存补偿
+- 如果库存分支是网络错误直接失败，回滚阶段会跳过库存补偿
+
+这样做是为了避免：
+
+- 一个根本没成功的分支在回滚阶段继续调用不可达服务
+- 从而挡住前序已经成功分支的补偿
+
+### 19.7 本次落地中的关键经验
+
+这次开发和排障确认了两条必须写进规范的经验。
+
+#### 19.7.1 需要回滚的错误必须显式告诉 DTM
+
+在 `DTM workflow` 模式下：
+
+- 普通 `error` 不一定代表“立刻全局失败并执行补偿”
+- 需要整体回滚的错误必须显式包装为 `dtmcli.ErrFailure`
+
+否则可能出现：
+
+- 商品创建分支已经成功
+- 库存分支失败
+- 但事务只被视为待重试，而不是立即回滚
+
+#### 19.7.2 只能补偿真正成功过的分支
+
+库存服务下线的排障结果表明：
+
+- 如果库存初始化分支是网络失败
+- 该分支的 `OnRollback` 不能无条件执行
+
+否则会出现：
+
+- 库存补偿 RPC 自己先失败
+- 回滚链被卡住
+- 商品补偿根本没有机会执行
+
+所以当前实现增加了分支成功标记，保证：
+
+- 未成功的分支跳过补偿
+- 已成功的前序分支继续回滚
+
+### 19.8 当前链路的可观测字段
+
+为了排障，这条链路当前统一记录以下字段：
+
+- `gid`
+- `branch_id`
 - `product_id`
-
-#### 库存分支正向入参
-
-- `global_tx_id`
+- `sku_ids`
 - `operator_id`
-- `sku_ids`
-- `initial_stocks`
+- `code`
+- `message`
+- `trace_id`
 
-#### 库存分支补偿入参
+排障时优先看三段日志：
 
-- `global_tx_id`
-- `sku_ids`
+1. `gateway` 的 workflow 分支日志
+2. `product-service` 的 create/compensate saga 日志
+3. `inventory-service` 的 init/compensate saga 日志
 
-### 19.6 本地事务分支日志表建议
+当前保留的日志节点遵循“主干事件优先”原则，只保留以下几类：
 
-即使使用 DTM，各参与方仍需要本地分支日志表。
+- 全局事务 `start / succeeded / failed`
+- 分支 `start / succeeded / failed`
+- 补偿 `start / succeeded / failed / skipped`
 
-建议商品服务增加：
+不再鼓励保留以下类型的日志：
 
-- `product_tx_branches`
+- 与相邻主干日志表达同一语义的重复日志
+- 没有 `gid`、`branch_id` 等事务上下文的调试输出
+- 只为一次性手工排障临时加的变量 dump
 
-建议字段：
+这次链路里保留这些日志的原因是：
 
-- `id`
-- `global_tx_id`
-- `branch_action`
-- `biz_type`
-- `biz_id`
-- `status`
-- `payload`
-- `created_at`
-- `updated_at`
-
-库存服务同理增加：
-
-- `inventory_tx_branches`
-
-用途包括：
-
-- 接口幂等判断
-- 空补偿判断
-- 防悬挂判断
-- 事务排障
-
-### 19.7 幂等策略
-
-在 DTM 下，仍然不能把幂等完全交给框架。
-
-业务参与方需要自己保证：
-
-- 同一个 `global_tx_id + branch_action` 重复执行不重复落库
-- 补偿重复调用时直接成功
-- 已补偿事务的迟到正向请求被拒绝
-
-建议处理方式：
-
-1. 正向请求到达时，先查本地分支日志
-2. 如果已成功执行，直接返回成功
-3. 如果已补偿完成，拒绝再执行正向动作
-4. 补偿请求到达时，如果正向根本未成功，则按空补偿返回成功
-
-### 19.8 商品与库存的当前补偿口径
-
-当前阶段推荐补偿口径如下：
-
-- 商品分支补偿：
-  - 删除本次事务创建的商品和 SKU
-- 库存分支补偿：
-  - 删除本次事务创建的库存记录
-
-这样处理的原因是：
-
-- 问题发生在创建链路当次
-- 事务失败时不应留下半成品主数据
-- 当前阶段创建链路还没有进入订单引用
-
-如果未来业务约束变化，再把补偿策略收紧为：
-
-- 商品改为 `create_failed`
-- 库存改为 `frozen`
+- 分布式事务失败往往跨 `gateway` 和多个参与方
+- 没有统一事务日志时，无法快速判断是“没进回滚”还是“回滚失败”
+- 结构化日志比临时 debug 日志更适合长期运维
 
 ### 19.9 DTM 接入后的运行依赖
 

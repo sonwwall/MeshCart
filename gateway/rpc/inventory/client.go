@@ -63,11 +63,18 @@ type AdjustStockResponse struct {
 	Stock   *inventorypb.SkuStock
 }
 
+type CompensateInitSkuStocksResponse struct {
+	Code    int32
+	Message string
+}
+
 type Client interface {
 	GetSkuStock(ctx context.Context, req *inventorypb.GetSkuStockRequest) (*GetSkuStockResponse, error)
 	BatchGetSkuStock(ctx context.Context, req *inventorypb.BatchGetSkuStockRequest) (*BatchGetSkuStockResponse, error)
 	CheckSaleableStock(ctx context.Context, req *inventorypb.CheckSaleableStockRequest) (*CheckSaleableStockResponse, error)
 	InitSkuStocks(ctx context.Context, req *inventorypb.InitSkuStocksRequest) (*InitSkuStocksResponse, error)
+	InitSkuStocksSaga(ctx context.Context, req *inventorypb.InitSkuStocksSagaRequest) (*InitSkuStocksResponse, error)
+	CompensateInitSkuStocksSaga(ctx context.Context, req *inventorypb.CompensateInitSkuStocksSagaRequest) (*CompensateInitSkuStocksResponse, error)
 	FreezeSkuStocks(ctx context.Context, req *inventorypb.FreezeSkuStocksRequest) (*FreezeSkuStocksResponse, error)
 	AdjustStock(ctx context.Context, req *inventorypb.AdjustStockRequest) (*AdjustStockResponse, error)
 }
@@ -164,6 +171,30 @@ func (c *kitexClient) InitSkuStocks(ctx context.Context, req *inventorypb.InitSk
 	}
 	code, message := baseCodeMessage(resp.Base)
 	return &InitSkuStocksResponse{Code: code, Message: message, Stocks: resp.Stocks}, nil
+}
+
+func (c *kitexClient) InitSkuStocksSaga(ctx context.Context, req *inventorypb.InitSkuStocksSagaRequest) (*InitSkuStocksResponse, error) {
+	resp, err := c.cli.InitSkuStocksSaga(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilInitSkuStocksResponse
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &InitSkuStocksResponse{Code: code, Message: message, Stocks: resp.Stocks}, nil
+}
+
+func (c *kitexClient) CompensateInitSkuStocksSaga(ctx context.Context, req *inventorypb.CompensateInitSkuStocksSagaRequest) (*CompensateInitSkuStocksResponse, error) {
+	resp, err := c.cli.CompensateInitSkuStocksSaga(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilFreezeSkuStocksResponse
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &CompensateInitSkuStocksResponse{Code: code, Message: message}, nil
 }
 
 func (c *kitexClient) FreezeSkuStocks(ctx context.Context, req *inventorypb.FreezeSkuStocksRequest) (*FreezeSkuStocksResponse, error) {

@@ -74,9 +74,33 @@ struct CreateProductRequest {
     8: i64 creator_id
 }
 
+struct CreateProductSagaRequest {
+    1: string global_tx_id
+    2: string branch_id
+    3: string title
+    4: string sub_title
+    5: i64 category_id
+    6: string brand
+    7: string description
+    8: i32 target_status
+    9: list<ProductSkuInput> skus
+    10: i64 creator_id
+}
+
 struct CreateProductResponse {
     1: i64 product_id
     2: list<ProductSku> skus
+    255: base.BaseResponse base
+}
+
+struct CompensateCreateProductSagaRequest {
+    1: string global_tx_id
+    2: string branch_id
+    3: i64 product_id
+    4: i64 operator_id
+}
+
+struct CompensateCreateProductSagaResponse {
     255: base.BaseResponse base
 }
 
@@ -142,6 +166,8 @@ struct BatchGetSkuResponse {
 
 service ProductService {
     CreateProductResponse createProduct(1: CreateProductRequest request)
+    CreateProductResponse createProductSaga(1: CreateProductSagaRequest request)
+    CompensateCreateProductSagaResponse compensateCreateProductSaga(1: CompensateCreateProductSagaRequest request)
     UpdateProductResponse updateProduct(1: UpdateProductRequest request)
     ChangeProductStatusResponse changeProductStatus(1: ChangeProductStatusRequest request)
     GetProductDetailResponse getProductDetail(1: GetProductDetailRequest request)

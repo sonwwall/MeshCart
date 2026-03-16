@@ -65,6 +65,8 @@ type BatchGetSKUResponse struct {
 
 type Client interface {
 	CreateProduct(ctx context.Context, req *productpb.CreateProductRequest) (*CreateProductResponse, error)
+	CreateProductSaga(ctx context.Context, req *productpb.CreateProductSagaRequest) (*CreateProductResponse, error)
+	CompensateCreateProductSaga(ctx context.Context, req *productpb.CompensateCreateProductSagaRequest) (*ChangeProductStatusResponse, error)
 	UpdateProduct(ctx context.Context, req *productpb.UpdateProductRequest) (*UpdateProductResponse, error)
 	ChangeProductStatus(ctx context.Context, req *productpb.ChangeProductStatusRequest) (*ChangeProductStatusResponse, error)
 	GetProductDetail(ctx context.Context, req *productpb.GetProductDetailRequest) (*GetProductDetailResponse, error)
@@ -123,6 +125,30 @@ func (c *kitexClient) CreateProduct(ctx context.Context, req *productpb.CreatePr
 	}
 	code, message := baseCodeMessage(resp.Base)
 	return &CreateProductResponse{Code: code, Message: message, ProductID: resp.ProductId, Skus: resp.Skus}, nil
+}
+
+func (c *kitexClient) CreateProductSaga(ctx context.Context, req *productpb.CreateProductSagaRequest) (*CreateProductResponse, error) {
+	resp, err := c.cli.CreateProductSaga(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilCreateResponse
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &CreateProductResponse{Code: code, Message: message, ProductID: resp.ProductId, Skus: resp.Skus}, nil
+}
+
+func (c *kitexClient) CompensateCreateProductSaga(ctx context.Context, req *productpb.CompensateCreateProductSagaRequest) (*ChangeProductStatusResponse, error) {
+	resp, err := c.cli.CompensateCreateProductSaga(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilChangeStatusResponse
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &ChangeProductStatusResponse{Code: code, Message: message}, nil
 }
 
 func (c *kitexClient) UpdateProduct(ctx context.Context, req *productpb.UpdateProductRequest) (*UpdateProductResponse, error) {

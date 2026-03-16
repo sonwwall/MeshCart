@@ -12,12 +12,14 @@ import (
 )
 
 type stubKitexInventoryClient struct {
-	getSkuStockFn      func(context.Context, *inventorypb.GetSkuStockRequest) (*inventorypb.GetSkuStockResponse, error)
-	batchGetSkuStockFn func(context.Context, *inventorypb.BatchGetSkuStockRequest) (*inventorypb.BatchGetSkuStockResponse, error)
-	checkSaleableFn    func(context.Context, *inventorypb.CheckSaleableStockRequest) (*inventorypb.CheckSaleableStockResponse, error)
-	initSkuStocksFn    func(context.Context, *inventorypb.InitSkuStocksRequest) (*inventorypb.InitSkuStocksResponse, error)
-	freezeSkuStocksFn  func(context.Context, *inventorypb.FreezeSkuStocksRequest) (*inventorypb.FreezeSkuStocksResponse, error)
-	adjustStockFn      func(context.Context, *inventorypb.AdjustStockRequest) (*inventorypb.AdjustStockResponse, error)
+	getSkuStockFn                 func(context.Context, *inventorypb.GetSkuStockRequest) (*inventorypb.GetSkuStockResponse, error)
+	batchGetSkuStockFn            func(context.Context, *inventorypb.BatchGetSkuStockRequest) (*inventorypb.BatchGetSkuStockResponse, error)
+	checkSaleableFn               func(context.Context, *inventorypb.CheckSaleableStockRequest) (*inventorypb.CheckSaleableStockResponse, error)
+	initSkuStocksFn               func(context.Context, *inventorypb.InitSkuStocksRequest) (*inventorypb.InitSkuStocksResponse, error)
+	initSkuStocksSagaFn           func(context.Context, *inventorypb.InitSkuStocksSagaRequest) (*inventorypb.InitSkuStocksResponse, error)
+	compensateInitSkuStocksSagaFn func(context.Context, *inventorypb.CompensateInitSkuStocksSagaRequest) (*inventorypb.CompensateInitSkuStocksSagaResponse, error)
+	freezeSkuStocksFn             func(context.Context, *inventorypb.FreezeSkuStocksRequest) (*inventorypb.FreezeSkuStocksResponse, error)
+	adjustStockFn                 func(context.Context, *inventorypb.AdjustStockRequest) (*inventorypb.AdjustStockResponse, error)
 }
 
 var _ inventoryservice.Client = (*stubKitexInventoryClient)(nil)
@@ -36,6 +38,14 @@ func (s *stubKitexInventoryClient) CheckSaleableStock(ctx context.Context, reque
 
 func (s *stubKitexInventoryClient) InitSkuStocks(ctx context.Context, request *inventorypb.InitSkuStocksRequest, _ ...callopt.Option) (*inventorypb.InitSkuStocksResponse, error) {
 	return s.initSkuStocksFn(ctx, request)
+}
+
+func (s *stubKitexInventoryClient) InitSkuStocksSaga(ctx context.Context, request *inventorypb.InitSkuStocksSagaRequest, _ ...callopt.Option) (*inventorypb.InitSkuStocksResponse, error) {
+	return s.initSkuStocksSagaFn(ctx, request)
+}
+
+func (s *stubKitexInventoryClient) CompensateInitSkuStocksSaga(ctx context.Context, request *inventorypb.CompensateInitSkuStocksSagaRequest, _ ...callopt.Option) (*inventorypb.CompensateInitSkuStocksSagaResponse, error) {
+	return s.compensateInitSkuStocksSagaFn(ctx, request)
 }
 
 func (s *stubKitexInventoryClient) FreezeSkuStocks(ctx context.Context, request *inventorypb.FreezeSkuStocksRequest, _ ...callopt.Option) (*inventorypb.FreezeSkuStocksResponse, error) {

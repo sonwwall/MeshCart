@@ -77,7 +77,9 @@
 
 - 商品创建请求当前可以携带 SKU 的 `initial_stock`
 - 但 `product-service` 仍不直接保存库存字段
-- 商品创建成功后，由 `gateway` 调用 `inventory-service.InitSkuStocks` 完成库存初始化
+- 商品创建链路当前通过 `gateway + DTM workflow` 编排
+- `product-service` 先执行 `CreateProductSaga`
+- 再由 `gateway` 调用 `inventory-service.InitSkuStocksSaga` 完成库存初始化
 - 商品或 SKU 删除时，当前已经落地“商品 SKU 失效 / 不可售 + 库存冻结”方案，不默认物理删除商品 SKU 或库存记录
 
 ## 4. 核心模型
@@ -335,6 +337,48 @@ CREATE TABLE `product_sku_attrs` (
 - `000002_create_product_skus`：创建 `product_skus`
 - `000003_create_product_sku_attrs`：创建 `product_sku_attrs`
 - `000004_add_product_owner_fields`：为 `products` 增加 `creator_id`、`updated_by`
+- `000005_relax_product_sku_code_constraint`：放宽 `sku_code` 唯一约束
+- `000006_create_product_tx_branches`：创建 `product_tx_branches`
+
+### 5.6 `product_tx_branches`
+
+用于记录商品侧 Saga 分支执行结果。
+
+核心字段：
+
+- `global_tx_id`：全局事务 ID，也就是一整笔分布式事务的唯一标识。比如一次“创建商品 + 初始化库存”的整体事务，会有一个统一的 gid。
+
+- `branch_id`：分支 ID，表示这笔全局事务里的第几个分支。在当前链路里，商品创建分支和它的补偿分支会共用同一个商品分支编号
+- `action`：这个分支在商品服务里执行的具体动作名，用来区分“正向创建”还是“补偿删除”。
+- `biz_id`：这条分支记录对应的业务主键。商品侧这里通常存 product_id。
+- `status`：分支当前状态。当前主要是 succeeded 或 compensated，表示正向已成功，或者补偿已完成。
+- `payload_snapshot`：当时执行这条分支时保存的业务快照，通常会存 product_id、sku_ids、target_status 这类信息，补偿时直接拿来用，也方便排障。
+- `created_at`
+- `updated_at`
+
+当前主要记录两个动作：
+
+- `create_product_saga`：商品侧正向分支。表示这笔事务在商品服务里执行了“创建商品、创建 SKU、创建 SKU attrs”。
+- `compensate_create_product_saga`：商品侧补偿分支。表示这笔事务因为后续失败，商品服务执行了“删除本次创建的商品、SKU、SKU attrs”。
+
+作用：
+
+- 正向幂等
+- 补偿幂等
+- 空补偿
+- 防悬挂
+- 事务排障
+
+它们的作用主要有四个：
+
+幂等
+如果同一个 global_tx_id + branch_id + action 又来一次，发现已经成功过，就直接返回，不重复创建。
+空补偿
+如果先收到补偿，但正向分支根本没成功，就记一条补偿完成记录并直接成功。
+防悬挂
+如果补偿已经做完，后面迟到的正向请求再来，就不能继续创建商品。
+排障
+通过 global_tx_id 能查出这笔事务在商品服务里到底是只创建了，还是已经补偿删掉了。
 
 ## 6. 对外能力
 
@@ -377,6 +421,8 @@ CREATE TABLE `product_sku_attrs` (
 `product-service` 当前提供以下 RPC：
 
 - `CreateProduct`
+- `CreateProductSaga`
+- `CompensateCreateProductSaga`
 - `UpdateProduct`
 - `ChangeProductStatus`
 - `GetProductDetail`
@@ -409,9 +455,71 @@ IDL 文件：
 说明：
 
 - `CreateProductRequest` 当前会携带 `creator_id`
+- `CreateProductSagaRequest` 当前会携带 `global_tx_id`、`branch_id`、`target_status`
 - `UpdateProductRequest` 当前会携带 `operator_id`
 - `ChangeProductStatusRequest` 当前会携带 `operator_id`
 - `ListProductsRequest` 当前支持按 `creator_id` 过滤
+
+### 8.1 商品创建事务链路
+
+当前商品创建已经不是单纯的“商品服务写库成功即可返回”。
+
+实际链路如下：
+
+1. `gateway` 发起 `DTM workflow`
+2. `product-service.CreateProductSaga` 创建商品、SKU、SKU attrs
+3. `inventory-service.InitSkuStocksSaga` 初始化库存
+4. 如果目标状态是 `online`，`gateway` 再调用 `ChangeProductStatus`
+5. 全部成功后，接口才返回成功
+
+### 8.2 商品侧 Saga 语义
+
+#### `CreateProductSaga`
+
+正向语义：
+
+- 创建商品主数据
+- 创建 SKU
+- 创建 SKU attrs
+- 写入事务分支日志
+
+状态隔离约束：
+
+- 如果目标状态是 `online`
+- 商品正向创建时先落为 `offline`
+- 只有库存初始化成功后才允许最终上架
+
+#### `CompensateCreateProductSaga`
+
+补偿语义：
+
+- 删除本次事务创建的商品
+- 删除本次事务创建的 SKU
+- 删除本次事务创建的 SKU attrs
+- 写入补偿分支日志
+
+幂等约束：
+
+- 已补偿过则直接成功
+- 正向分支不存在则按空补偿处理
+- 如果补偿先到，后续正向分支必须被拦住
+
+### 8.3 当前与库存服务的事务边界
+
+商品服务和库存服务当前按以下边界协作：
+
+- 商品服务负责商品主数据和商品补偿删除
+- 库存服务负责库存初始化和库存补偿删除
+- `gateway` 负责 `DTM workflow` 编排
+- `DTM` 负责全局事务状态和回滚顺序
+
+这条链路当前的成功条件是：
+
+- 商品创建成功
+- 库存初始化成功
+- 如果目标状态是 `online`，最终上架也成功
+
+任何一步失败，前序成功步骤都要补偿。
 
 ## 9. 与库存服务的边界
 

@@ -49,8 +49,24 @@ struct InitSkuStocksRequest {
     1: list<InitSkuStockItem> stocks
 }
 
+struct InitSkuStocksSagaRequest {
+    1: string global_tx_id
+    2: string branch_id
+    3: list<InitSkuStockItem> stocks
+}
+
 struct InitSkuStocksResponse {
     1: list<SkuStock> stocks
+    255: base.BaseResponse base
+}
+
+struct CompensateInitSkuStocksSagaRequest {
+    1: string global_tx_id
+    2: string branch_id
+    3: list<i64> sku_ids
+}
+
+struct CompensateInitSkuStocksSagaResponse {
     255: base.BaseResponse base
 }
 
@@ -81,6 +97,8 @@ service InventoryService {
     BatchGetSkuStockResponse batchGetSkuStock(1: BatchGetSkuStockRequest request)
     CheckSaleableStockResponse checkSaleableStock(1: CheckSaleableStockRequest request)
     InitSkuStocksResponse initSkuStocks(1: InitSkuStocksRequest request)
+    InitSkuStocksResponse initSkuStocksSaga(1: InitSkuStocksSagaRequest request)
+    CompensateInitSkuStocksSagaResponse compensateInitSkuStocksSaga(1: CompensateInitSkuStocksSagaRequest request)
     FreezeSkuStocksResponse freezeSkuStocks(1: FreezeSkuStocksRequest request)
     AdjustStockResponse adjustStock(1: AdjustStockRequest request)
 }

@@ -4,6 +4,7 @@ import (
 	"meshcart/gateway/config"
 	"meshcart/gateway/internal/authz"
 	"meshcart/gateway/internal/middleware"
+	"meshcart/gateway/internal/tx"
 	cartrpc "meshcart/gateway/rpc/cart"
 	inventoryrpc "meshcart/gateway/rpc/inventory"
 	productrpc "meshcart/gateway/rpc/product"
@@ -14,15 +15,16 @@ import (
 )
 
 type ServiceContext struct {
-	Config          config.Config
-	UserClient      userrpc.Client
-	CartClient      cartrpc.Client
-	ProductClient   productrpc.Client
-	InventoryClient inventoryrpc.Client
-	AccessControl   *authz.AccessController
-	JWT             *jwtmw.HertzJWTMiddleware
-	RateLimiter     *middleware.RateLimitStore
-	Draining        *atomic.Bool
+	Config                   config.Config
+	UserClient               userrpc.Client
+	CartClient               cartrpc.Client
+	ProductClient            productrpc.Client
+	InventoryClient          inventoryrpc.Client
+	ProductCreateCoordinator tx.ProductCreateCoordinator
+	AccessControl            *authz.AccessController
+	JWT                      *jwtmw.HertzJWTMiddleware
+	RateLimiter              *middleware.RateLimitStore
+	Draining                 *atomic.Bool
 }
 
 func NewServiceContext(cfg config.Config) *ServiceContext {
@@ -85,14 +87,15 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 	}
 
 	return &ServiceContext{
-		Config:          cfg,
-		UserClient:      userClient,
-		CartClient:      cartClient,
-		ProductClient:   productClient,
-		InventoryClient: inventoryClient,
-		AccessControl:   accessController,
-		JWT:             jwtMiddleware,
-		RateLimiter:     middleware.NewRateLimitStore(cfg.RateLimit),
-		Draining:        &atomic.Bool{},
+		Config:                   cfg,
+		UserClient:               userClient,
+		CartClient:               cartClient,
+		ProductClient:            productClient,
+		InventoryClient:          inventoryClient,
+		ProductCreateCoordinator: tx.NewProductCreateCoordinator(cfg.DTM, productClient, inventoryClient),
+		AccessControl:            accessController,
+		JWT:                      jwtMiddleware,
+		RateLimiter:              middleware.NewRateLimitStore(cfg.RateLimit),
+		Draining:                 &atomic.Bool{},
 	}
 }

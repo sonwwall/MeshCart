@@ -27,6 +27,8 @@ MeshCart 当前采用 Gateway + RPC 微服务架构。
 
 - [Gateway 分层设计](./gateway-design.md)
 - [服务开发设计规范](./service-development-spec.md)
+- [分布式事务与事件流程规范](./distributed-transaction-process-spec.md)
+- [商品创建分布式事务设计](./distributed-transaction-design.md)
 - [Consul 服务发现设计](./consul-service-discovery.md)
 - [微服务治理规划](./microservice-governance.md)
 - [后续演进规划](./evolution-plan.md)

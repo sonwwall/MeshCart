@@ -15,6 +15,8 @@ type Client interface {
 	BatchGetSkuStock(ctx context.Context, request *inventory.BatchGetSkuStockRequest, callOptions ...callopt.Option) (r *inventory.BatchGetSkuStockResponse, err error)
 	CheckSaleableStock(ctx context.Context, request *inventory.CheckSaleableStockRequest, callOptions ...callopt.Option) (r *inventory.CheckSaleableStockResponse, err error)
 	InitSkuStocks(ctx context.Context, request *inventory.InitSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.InitSkuStocksResponse, err error)
+	InitSkuStocksSaga(ctx context.Context, request *inventory.InitSkuStocksSagaRequest, callOptions ...callopt.Option) (r *inventory.InitSkuStocksResponse, err error)
+	CompensateInitSkuStocksSaga(ctx context.Context, request *inventory.CompensateInitSkuStocksSagaRequest, callOptions ...callopt.Option) (r *inventory.CompensateInitSkuStocksSagaResponse, err error)
 	FreezeSkuStocks(ctx context.Context, request *inventory.FreezeSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.FreezeSkuStocksResponse, err error)
 	AdjustStock(ctx context.Context, request *inventory.AdjustStockRequest, callOptions ...callopt.Option) (r *inventory.AdjustStockResponse, err error)
 }
@@ -66,6 +68,16 @@ func (p *kInventoryServiceClient) CheckSaleableStock(ctx context.Context, reques
 func (p *kInventoryServiceClient) InitSkuStocks(ctx context.Context, request *inventory.InitSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.InitSkuStocksResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.InitSkuStocks(ctx, request)
+}
+
+func (p *kInventoryServiceClient) InitSkuStocksSaga(ctx context.Context, request *inventory.InitSkuStocksSagaRequest, callOptions ...callopt.Option) (r *inventory.InitSkuStocksResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.InitSkuStocksSaga(ctx, request)
+}
+
+func (p *kInventoryServiceClient) CompensateInitSkuStocksSaga(ctx context.Context, request *inventory.CompensateInitSkuStocksSagaRequest, callOptions ...callopt.Option) (r *inventory.CompensateInitSkuStocksSagaResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.CompensateInitSkuStocksSaga(ctx, request)
 }
 
 func (p *kInventoryServiceClient) FreezeSkuStocks(ctx context.Context, request *inventory.FreezeSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.FreezeSkuStocksResponse, err error) {

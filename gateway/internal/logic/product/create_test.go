@@ -17,16 +17,35 @@ import (
 )
 
 type stubProductClient struct {
-	createProductFn    func(context.Context, *productpb.CreateProductRequest) (*productrpc.CreateProductResponse, error)
-	updateProductFn    func(context.Context, *productpb.UpdateProductRequest) (*productrpc.UpdateProductResponse, error)
-	changeStatusFn     func(context.Context, *productpb.ChangeProductStatusRequest) (*productrpc.ChangeProductStatusResponse, error)
-	getProductDetailFn func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error)
-	listProductsFn     func(context.Context, *productpb.ListProductsRequest) (*productrpc.ListProductsResponse, error)
-	batchGetSkuFn      func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error)
+	createProductFn               func(context.Context, *productpb.CreateProductRequest) (*productrpc.CreateProductResponse, error)
+	createProductSagaFn           func(context.Context, *productpb.CreateProductSagaRequest) (*productrpc.CreateProductResponse, error)
+	compensateCreateProductSagaFn func(context.Context, *productpb.CompensateCreateProductSagaRequest) (*productrpc.ChangeProductStatusResponse, error)
+	updateProductFn               func(context.Context, *productpb.UpdateProductRequest) (*productrpc.UpdateProductResponse, error)
+	changeStatusFn                func(context.Context, *productpb.ChangeProductStatusRequest) (*productrpc.ChangeProductStatusResponse, error)
+	getProductDetailFn            func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error)
+	listProductsFn                func(context.Context, *productpb.ListProductsRequest) (*productrpc.ListProductsResponse, error)
+	batchGetSkuFn                 func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error)
 }
 
 func (s *stubProductClient) CreateProduct(ctx context.Context, req *productpb.CreateProductRequest) (*productrpc.CreateProductResponse, error) {
 	return s.createProductFn(ctx, req)
+}
+func (s *stubProductClient) CreateProductSaga(ctx context.Context, req *productpb.CreateProductSagaRequest) (*productrpc.CreateProductResponse, error) {
+	if s.createProductSagaFn != nil {
+		return s.createProductSagaFn(ctx, req)
+	}
+	if s.createProductFn != nil {
+		return s.createProductFn(ctx, &productpb.CreateProductRequest{
+			Title: req.GetTitle(), SubTitle: req.GetSubTitle(), CategoryId: req.GetCategoryId(), Brand: req.GetBrand(), Description: req.GetDescription(), Status: req.GetTargetStatus(), Skus: req.GetSkus(), CreatorId: req.GetCreatorId(),
+		})
+	}
+	return &productrpc.CreateProductResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+func (s *stubProductClient) CompensateCreateProductSaga(ctx context.Context, req *productpb.CompensateCreateProductSagaRequest) (*productrpc.ChangeProductStatusResponse, error) {
+	if s.compensateCreateProductSagaFn != nil {
+		return s.compensateCreateProductSagaFn(ctx, req)
+	}
+	return &productrpc.ChangeProductStatusResponse{Code: common.CodeOK, Message: "成功"}, nil
 }
 func (s *stubProductClient) UpdateProduct(ctx context.Context, req *productpb.UpdateProductRequest) (*productrpc.UpdateProductResponse, error) {
 	if s.updateProductFn != nil {
@@ -54,12 +73,14 @@ func (s *stubProductClient) BatchGetSKU(ctx context.Context, req *productpb.Batc
 }
 
 type stubInventoryClient struct {
-	getSkuStockFn        func(context.Context, *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error)
-	batchGetSkuStockFn   func(context.Context, *inventorypb.BatchGetSkuStockRequest) (*inventoryrpc.BatchGetSkuStockResponse, error)
-	checkSaleableStockFn func(context.Context, *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error)
-	initSkuStocksFn      func(context.Context, *inventorypb.InitSkuStocksRequest) (*inventoryrpc.InitSkuStocksResponse, error)
-	freezeSkuStocksFn    func(context.Context, *inventorypb.FreezeSkuStocksRequest) (*inventoryrpc.FreezeSkuStocksResponse, error)
-	adjustStockFn        func(context.Context, *inventorypb.AdjustStockRequest) (*inventoryrpc.AdjustStockResponse, error)
+	getSkuStockFn                 func(context.Context, *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error)
+	batchGetSkuStockFn            func(context.Context, *inventorypb.BatchGetSkuStockRequest) (*inventoryrpc.BatchGetSkuStockResponse, error)
+	checkSaleableStockFn          func(context.Context, *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error)
+	initSkuStocksFn               func(context.Context, *inventorypb.InitSkuStocksRequest) (*inventoryrpc.InitSkuStocksResponse, error)
+	initSkuStocksSagaFn           func(context.Context, *inventorypb.InitSkuStocksSagaRequest) (*inventoryrpc.InitSkuStocksResponse, error)
+	compensateInitSkuStocksSagaFn func(context.Context, *inventorypb.CompensateInitSkuStocksSagaRequest) (*inventoryrpc.CompensateInitSkuStocksResponse, error)
+	freezeSkuStocksFn             func(context.Context, *inventorypb.FreezeSkuStocksRequest) (*inventoryrpc.FreezeSkuStocksResponse, error)
+	adjustStockFn                 func(context.Context, *inventorypb.AdjustStockRequest) (*inventoryrpc.AdjustStockResponse, error)
 }
 
 func (s *stubInventoryClient) GetSkuStock(ctx context.Context, req *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error) {
@@ -73,6 +94,21 @@ func (s *stubInventoryClient) CheckSaleableStock(ctx context.Context, req *inven
 }
 func (s *stubInventoryClient) InitSkuStocks(ctx context.Context, req *inventorypb.InitSkuStocksRequest) (*inventoryrpc.InitSkuStocksResponse, error) {
 	return s.initSkuStocksFn(ctx, req)
+}
+func (s *stubInventoryClient) InitSkuStocksSaga(ctx context.Context, req *inventorypb.InitSkuStocksSagaRequest) (*inventoryrpc.InitSkuStocksResponse, error) {
+	if s.initSkuStocksSagaFn != nil {
+		return s.initSkuStocksSagaFn(ctx, req)
+	}
+	if s.initSkuStocksFn != nil {
+		return s.initSkuStocksFn(ctx, &inventorypb.InitSkuStocksRequest{Stocks: req.GetStocks()})
+	}
+	return &inventoryrpc.InitSkuStocksResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+func (s *stubInventoryClient) CompensateInitSkuStocksSaga(ctx context.Context, req *inventorypb.CompensateInitSkuStocksSagaRequest) (*inventoryrpc.CompensateInitSkuStocksResponse, error) {
+	if s.compensateInitSkuStocksSagaFn != nil {
+		return s.compensateInitSkuStocksSagaFn(ctx, req)
+	}
+	return &inventoryrpc.CompensateInitSkuStocksResponse{Code: common.CodeOK, Message: "成功"}, nil
 }
 func (s *stubInventoryClient) FreezeSkuStocks(ctx context.Context, req *inventorypb.FreezeSkuStocksRequest) (*inventoryrpc.FreezeSkuStocksResponse, error) {
 	if s.freezeSkuStocksFn != nil {
@@ -228,5 +264,101 @@ func TestCreateLogic_AllowsEmptySKUCodeAndInitializesByOrder(t *testing.T) {
 	}
 	if data == nil || len(data.SKUs) != 2 || data.SKUs[0].ID != 3003 || data.SKUs[1].ID != 3004 {
 		t.Fatalf("unexpected data: %+v", data)
+	}
+}
+
+func TestCreateLogic_CompensatesProductWhenInventoryInitFails(t *testing.T) {
+	compensated := false
+	logic := NewCreateLogic(context.Background(), newCreateProductSvcCtx(t, &stubProductClient{
+		createProductSagaFn: func(_ context.Context, req *productpb.CreateProductSagaRequest) (*productrpc.CreateProductResponse, error) {
+			if req.GetBranchId() != sagaBranchIDProductCreate {
+				t.Fatalf("unexpected product branch id: %s", req.GetBranchId())
+			}
+			return &productrpc.CreateProductResponse{
+				Code:      common.CodeOK,
+				Message:   "成功",
+				ProductID: 2004,
+				Skus:      []*productpb.ProductSku{{Id: 3005, SkuCode: "black-l"}},
+			}, nil
+		},
+		compensateCreateProductSagaFn: func(_ context.Context, req *productpb.CompensateCreateProductSagaRequest) (*productrpc.ChangeProductStatusResponse, error) {
+			compensated = true
+			if req.GetProductId() != 2004 || req.GetBranchId() != sagaBranchIDProductCreate {
+				t.Fatalf("unexpected compensate request: %+v", req)
+			}
+			return &productrpc.ChangeProductStatusResponse{Code: common.CodeOK, Message: "成功"}, nil
+		},
+	}, &stubInventoryClient{
+		initSkuStocksSagaFn: func(_ context.Context, req *inventorypb.InitSkuStocksSagaRequest) (*inventoryrpc.InitSkuStocksResponse, error) {
+			if req.GetBranchId() != sagaBranchIDInventoryInit {
+				t.Fatalf("unexpected inventory branch id: %s", req.GetBranchId())
+			}
+			return &inventoryrpc.InitSkuStocksResponse{Code: common.ErrInternalError.Code, Message: "库存初始化失败"}, nil
+		},
+	}))
+
+	data, bizErr := logic.Create(&types.CreateProductRequest{
+		Title:  "Tee",
+		Status: productStatusOffline,
+		SKUs: []types.ProductSkuInput{
+			{SKUCode: "black-l", Title: "Black L", SalePrice: 100, Status: 1},
+		},
+	}, &middleware.AuthIdentity{UserID: 1, Role: authz.RoleAdmin})
+	if data != nil {
+		t.Fatalf("expected nil data, got %+v", data)
+	}
+	if bizErr == nil {
+		t.Fatal("expected inventory failure to be returned")
+	}
+	if !compensated {
+		t.Fatal("expected product compensation to be triggered")
+	}
+}
+
+func TestCreateLogic_OnlineProductPromotesAfterInventoryInit(t *testing.T) {
+	statusChanged := false
+	logic := NewCreateLogic(context.Background(), newCreateProductSvcCtx(t, &stubProductClient{
+		createProductSagaFn: func(_ context.Context, req *productpb.CreateProductSagaRequest) (*productrpc.CreateProductResponse, error) {
+			if req.GetTargetStatus() != productStatusOnline {
+				t.Fatalf("expected target status online, got %d", req.GetTargetStatus())
+			}
+			return &productrpc.CreateProductResponse{
+				Code:      common.CodeOK,
+				Message:   "成功",
+				ProductID: 2005,
+				Skus:      []*productpb.ProductSku{{Id: 3006, SkuCode: "green-m"}},
+			}, nil
+		},
+		changeStatusFn: func(_ context.Context, req *productpb.ChangeProductStatusRequest) (*productrpc.ChangeProductStatusResponse, error) {
+			statusChanged = true
+			if req.GetProductId() != 2005 || req.GetStatus() != productStatusOnline {
+				t.Fatalf("unexpected change status request: %+v", req)
+			}
+			return &productrpc.ChangeProductStatusResponse{Code: common.CodeOK, Message: "成功"}, nil
+		},
+	}, &stubInventoryClient{
+		initSkuStocksSagaFn: func(_ context.Context, req *inventorypb.InitSkuStocksSagaRequest) (*inventoryrpc.InitSkuStocksResponse, error) {
+			if len(req.GetStocks()) != 1 || req.GetStocks()[0].GetSkuId() != 3006 {
+				t.Fatalf("unexpected init saga request: %+v", req)
+			}
+			return &inventoryrpc.InitSkuStocksResponse{Code: common.CodeOK, Message: "成功"}, nil
+		},
+	}))
+
+	data, bizErr := logic.Create(&types.CreateProductRequest{
+		Title:  "Tee",
+		Status: productStatusOnline,
+		SKUs: []types.ProductSkuInput{
+			{SKUCode: "green-m", Title: "Green M", SalePrice: 100, Status: 1},
+		},
+	}, &middleware.AuthIdentity{UserID: 1, Role: authz.RoleAdmin})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if data == nil || data.ProductID != 2005 {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+	if !statusChanged {
+		t.Fatal("expected online product to be promoted after inventory init")
 	}
 }

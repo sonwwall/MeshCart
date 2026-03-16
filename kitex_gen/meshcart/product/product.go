@@ -616,6 +616,116 @@ var fieldIDToName_CreateProductRequest = map[int16]string{
 	8: "creator_id",
 }
 
+type CreateProductSagaRequest struct {
+	GlobalTxId   string             `thrift:"global_tx_id,1" frugal:"1,default,string" json:"global_tx_id"`
+	BranchId     string             `thrift:"branch_id,2" frugal:"2,default,string" json:"branch_id"`
+	Title        string             `thrift:"title,3" frugal:"3,default,string" json:"title"`
+	SubTitle     string             `thrift:"sub_title,4" frugal:"4,default,string" json:"sub_title"`
+	CategoryId   int64              `thrift:"category_id,5" frugal:"5,default,i64" json:"category_id"`
+	Brand        string             `thrift:"brand,6" frugal:"6,default,string" json:"brand"`
+	Description  string             `thrift:"description,7" frugal:"7,default,string" json:"description"`
+	TargetStatus int32              `thrift:"target_status,8" frugal:"8,default,i32" json:"target_status"`
+	Skus         []*ProductSkuInput `thrift:"skus,9" frugal:"9,default,list<ProductSkuInput>" json:"skus"`
+	CreatorId    int64              `thrift:"creator_id,10" frugal:"10,default,i64" json:"creator_id"`
+}
+
+func NewCreateProductSagaRequest() *CreateProductSagaRequest {
+	return &CreateProductSagaRequest{}
+}
+
+func (p *CreateProductSagaRequest) InitDefault() {
+}
+
+func (p *CreateProductSagaRequest) GetGlobalTxId() (v string) {
+	return p.GlobalTxId
+}
+
+func (p *CreateProductSagaRequest) GetBranchId() (v string) {
+	return p.BranchId
+}
+
+func (p *CreateProductSagaRequest) GetTitle() (v string) {
+	return p.Title
+}
+
+func (p *CreateProductSagaRequest) GetSubTitle() (v string) {
+	return p.SubTitle
+}
+
+func (p *CreateProductSagaRequest) GetCategoryId() (v int64) {
+	return p.CategoryId
+}
+
+func (p *CreateProductSagaRequest) GetBrand() (v string) {
+	return p.Brand
+}
+
+func (p *CreateProductSagaRequest) GetDescription() (v string) {
+	return p.Description
+}
+
+func (p *CreateProductSagaRequest) GetTargetStatus() (v int32) {
+	return p.TargetStatus
+}
+
+func (p *CreateProductSagaRequest) GetSkus() (v []*ProductSkuInput) {
+	return p.Skus
+}
+
+func (p *CreateProductSagaRequest) GetCreatorId() (v int64) {
+	return p.CreatorId
+}
+func (p *CreateProductSagaRequest) SetGlobalTxId(val string) {
+	p.GlobalTxId = val
+}
+func (p *CreateProductSagaRequest) SetBranchId(val string) {
+	p.BranchId = val
+}
+func (p *CreateProductSagaRequest) SetTitle(val string) {
+	p.Title = val
+}
+func (p *CreateProductSagaRequest) SetSubTitle(val string) {
+	p.SubTitle = val
+}
+func (p *CreateProductSagaRequest) SetCategoryId(val int64) {
+	p.CategoryId = val
+}
+func (p *CreateProductSagaRequest) SetBrand(val string) {
+	p.Brand = val
+}
+func (p *CreateProductSagaRequest) SetDescription(val string) {
+	p.Description = val
+}
+func (p *CreateProductSagaRequest) SetTargetStatus(val int32) {
+	p.TargetStatus = val
+}
+func (p *CreateProductSagaRequest) SetSkus(val []*ProductSkuInput) {
+	p.Skus = val
+}
+func (p *CreateProductSagaRequest) SetCreatorId(val int64) {
+	p.CreatorId = val
+}
+
+func (p *CreateProductSagaRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CreateProductSagaRequest(%+v)", *p)
+}
+
+var fieldIDToName_CreateProductSagaRequest = map[int16]string{
+	1:  "global_tx_id",
+	2:  "branch_id",
+	3:  "title",
+	4:  "sub_title",
+	5:  "category_id",
+	6:  "brand",
+	7:  "description",
+	8:  "target_status",
+	9:  "skus",
+	10: "creator_id",
+}
+
 type CreateProductResponse struct {
 	ProductId int64              `thrift:"product_id,1" frugal:"1,default,i64" json:"product_id"`
 	Skus      []*ProductSku      `thrift:"skus,2" frugal:"2,default,list<ProductSku>" json:"skus"`
@@ -669,6 +779,100 @@ func (p *CreateProductResponse) String() string {
 var fieldIDToName_CreateProductResponse = map[int16]string{
 	1:   "product_id",
 	2:   "skus",
+	255: "base",
+}
+
+type CompensateCreateProductSagaRequest struct {
+	GlobalTxId string `thrift:"global_tx_id,1" frugal:"1,default,string" json:"global_tx_id"`
+	BranchId   string `thrift:"branch_id,2" frugal:"2,default,string" json:"branch_id"`
+	ProductId  int64  `thrift:"product_id,3" frugal:"3,default,i64" json:"product_id"`
+	OperatorId int64  `thrift:"operator_id,4" frugal:"4,default,i64" json:"operator_id"`
+}
+
+func NewCompensateCreateProductSagaRequest() *CompensateCreateProductSagaRequest {
+	return &CompensateCreateProductSagaRequest{}
+}
+
+func (p *CompensateCreateProductSagaRequest) InitDefault() {
+}
+
+func (p *CompensateCreateProductSagaRequest) GetGlobalTxId() (v string) {
+	return p.GlobalTxId
+}
+
+func (p *CompensateCreateProductSagaRequest) GetBranchId() (v string) {
+	return p.BranchId
+}
+
+func (p *CompensateCreateProductSagaRequest) GetProductId() (v int64) {
+	return p.ProductId
+}
+
+func (p *CompensateCreateProductSagaRequest) GetOperatorId() (v int64) {
+	return p.OperatorId
+}
+func (p *CompensateCreateProductSagaRequest) SetGlobalTxId(val string) {
+	p.GlobalTxId = val
+}
+func (p *CompensateCreateProductSagaRequest) SetBranchId(val string) {
+	p.BranchId = val
+}
+func (p *CompensateCreateProductSagaRequest) SetProductId(val int64) {
+	p.ProductId = val
+}
+func (p *CompensateCreateProductSagaRequest) SetOperatorId(val int64) {
+	p.OperatorId = val
+}
+
+func (p *CompensateCreateProductSagaRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CompensateCreateProductSagaRequest(%+v)", *p)
+}
+
+var fieldIDToName_CompensateCreateProductSagaRequest = map[int16]string{
+	1: "global_tx_id",
+	2: "branch_id",
+	3: "product_id",
+	4: "operator_id",
+}
+
+type CompensateCreateProductSagaResponse struct {
+	Base *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+}
+
+func NewCompensateCreateProductSagaResponse() *CompensateCreateProductSagaResponse {
+	return &CompensateCreateProductSagaResponse{}
+}
+
+func (p *CompensateCreateProductSagaResponse) InitDefault() {
+}
+
+var CompensateCreateProductSagaResponse_Base_DEFAULT *base.BaseResponse
+
+func (p *CompensateCreateProductSagaResponse) GetBase() (v *base.BaseResponse) {
+	if !p.IsSetBase() {
+		return CompensateCreateProductSagaResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+func (p *CompensateCreateProductSagaResponse) SetBase(val *base.BaseResponse) {
+	p.Base = val
+}
+
+func (p *CompensateCreateProductSagaResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *CompensateCreateProductSagaResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CompensateCreateProductSagaResponse(%+v)", *p)
+}
+
+var fieldIDToName_CompensateCreateProductSagaResponse = map[int16]string{
 	255: "base",
 }
 
@@ -1235,6 +1439,10 @@ var fieldIDToName_BatchGetSkuResponse = map[int16]string{
 type ProductService interface {
 	CreateProduct(ctx context.Context, request *CreateProductRequest) (r *CreateProductResponse, err error)
 
+	CreateProductSaga(ctx context.Context, request *CreateProductSagaRequest) (r *CreateProductResponse, err error)
+
+	CompensateCreateProductSaga(ctx context.Context, request *CompensateCreateProductSagaRequest) (r *CompensateCreateProductSagaResponse, err error)
+
 	UpdateProduct(ctx context.Context, request *UpdateProductRequest) (r *UpdateProductResponse, err error)
 
 	ChangeProductStatus(ctx context.Context, request *ChangeProductStatusRequest) (r *ChangeProductStatusResponse, err error)
@@ -1319,6 +1527,158 @@ func (p *ProductServiceCreateProductResult) String() string {
 }
 
 var fieldIDToName_ProductServiceCreateProductResult = map[int16]string{
+	0: "success",
+}
+
+type ProductServiceCreateProductSagaArgs struct {
+	Request *CreateProductSagaRequest `thrift:"request,1" frugal:"1,default,CreateProductSagaRequest" json:"request"`
+}
+
+func NewProductServiceCreateProductSagaArgs() *ProductServiceCreateProductSagaArgs {
+	return &ProductServiceCreateProductSagaArgs{}
+}
+
+func (p *ProductServiceCreateProductSagaArgs) InitDefault() {
+}
+
+var ProductServiceCreateProductSagaArgs_Request_DEFAULT *CreateProductSagaRequest
+
+func (p *ProductServiceCreateProductSagaArgs) GetRequest() (v *CreateProductSagaRequest) {
+	if !p.IsSetRequest() {
+		return ProductServiceCreateProductSagaArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *ProductServiceCreateProductSagaArgs) SetRequest(val *CreateProductSagaRequest) {
+	p.Request = val
+}
+
+func (p *ProductServiceCreateProductSagaArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *ProductServiceCreateProductSagaArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ProductServiceCreateProductSagaArgs(%+v)", *p)
+}
+
+var fieldIDToName_ProductServiceCreateProductSagaArgs = map[int16]string{
+	1: "request",
+}
+
+type ProductServiceCreateProductSagaResult struct {
+	Success *CreateProductResponse `thrift:"success,0,optional" frugal:"0,optional,CreateProductResponse" json:"success,omitempty"`
+}
+
+func NewProductServiceCreateProductSagaResult() *ProductServiceCreateProductSagaResult {
+	return &ProductServiceCreateProductSagaResult{}
+}
+
+func (p *ProductServiceCreateProductSagaResult) InitDefault() {
+}
+
+var ProductServiceCreateProductSagaResult_Success_DEFAULT *CreateProductResponse
+
+func (p *ProductServiceCreateProductSagaResult) GetSuccess() (v *CreateProductResponse) {
+	if !p.IsSetSuccess() {
+		return ProductServiceCreateProductSagaResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *ProductServiceCreateProductSagaResult) SetSuccess(x interface{}) {
+	p.Success = x.(*CreateProductResponse)
+}
+
+func (p *ProductServiceCreateProductSagaResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ProductServiceCreateProductSagaResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ProductServiceCreateProductSagaResult(%+v)", *p)
+}
+
+var fieldIDToName_ProductServiceCreateProductSagaResult = map[int16]string{
+	0: "success",
+}
+
+type ProductServiceCompensateCreateProductSagaArgs struct {
+	Request *CompensateCreateProductSagaRequest `thrift:"request,1" frugal:"1,default,CompensateCreateProductSagaRequest" json:"request"`
+}
+
+func NewProductServiceCompensateCreateProductSagaArgs() *ProductServiceCompensateCreateProductSagaArgs {
+	return &ProductServiceCompensateCreateProductSagaArgs{}
+}
+
+func (p *ProductServiceCompensateCreateProductSagaArgs) InitDefault() {
+}
+
+var ProductServiceCompensateCreateProductSagaArgs_Request_DEFAULT *CompensateCreateProductSagaRequest
+
+func (p *ProductServiceCompensateCreateProductSagaArgs) GetRequest() (v *CompensateCreateProductSagaRequest) {
+	if !p.IsSetRequest() {
+		return ProductServiceCompensateCreateProductSagaArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *ProductServiceCompensateCreateProductSagaArgs) SetRequest(val *CompensateCreateProductSagaRequest) {
+	p.Request = val
+}
+
+func (p *ProductServiceCompensateCreateProductSagaArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *ProductServiceCompensateCreateProductSagaArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ProductServiceCompensateCreateProductSagaArgs(%+v)", *p)
+}
+
+var fieldIDToName_ProductServiceCompensateCreateProductSagaArgs = map[int16]string{
+	1: "request",
+}
+
+type ProductServiceCompensateCreateProductSagaResult struct {
+	Success *CompensateCreateProductSagaResponse `thrift:"success,0,optional" frugal:"0,optional,CompensateCreateProductSagaResponse" json:"success,omitempty"`
+}
+
+func NewProductServiceCompensateCreateProductSagaResult() *ProductServiceCompensateCreateProductSagaResult {
+	return &ProductServiceCompensateCreateProductSagaResult{}
+}
+
+func (p *ProductServiceCompensateCreateProductSagaResult) InitDefault() {
+}
+
+var ProductServiceCompensateCreateProductSagaResult_Success_DEFAULT *CompensateCreateProductSagaResponse
+
+func (p *ProductServiceCompensateCreateProductSagaResult) GetSuccess() (v *CompensateCreateProductSagaResponse) {
+	if !p.IsSetSuccess() {
+		return ProductServiceCompensateCreateProductSagaResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *ProductServiceCompensateCreateProductSagaResult) SetSuccess(x interface{}) {
+	p.Success = x.(*CompensateCreateProductSagaResponse)
+}
+
+func (p *ProductServiceCompensateCreateProductSagaResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ProductServiceCompensateCreateProductSagaResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ProductServiceCompensateCreateProductSagaResult(%+v)", *p)
+}
+
+var fieldIDToName_ProductServiceCompensateCreateProductSagaResult = map[int16]string{
 	0: "success",
 }
 

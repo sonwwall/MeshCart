@@ -53,3 +53,20 @@ type ProductSKUAttr struct {
 func (ProductSKUAttr) TableName() string {
 	return "product_sku_attrs"
 }
+
+type ProductTxBranch struct {
+	ID              int64     `gorm:"column:id;primaryKey"`
+	GlobalTxID      string    `gorm:"column:global_tx_id;type:varchar(128);not null;uniqueIndex:uk_product_tx_branch_action,priority:1"`
+	BranchID        string    `gorm:"column:branch_id;type:varchar(128);not null;uniqueIndex:uk_product_tx_branch_action,priority:2"`
+	Action          string    `gorm:"column:action;type:varchar(64);not null;uniqueIndex:uk_product_tx_branch_action,priority:3"`
+	BizID           int64     `gorm:"column:biz_id;not null;default:0;index:idx_product_tx_branch_biz_id"`
+	Status          string    `gorm:"column:status;type:varchar(32);not null"`
+	PayloadSnapshot string    `gorm:"column:payload_snapshot;type:text;not null"`
+	ErrorMessage    string    `gorm:"column:error_message;type:varchar(255);not null;default:''"`
+	CreatedAt       time.Time `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt       time.Time `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (ProductTxBranch) TableName() string {
+	return "product_tx_branches"
+}

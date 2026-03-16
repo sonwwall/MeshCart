@@ -20,6 +20,20 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"createProductSaga": kitex.NewMethodInfo(
+		createProductSagaHandler,
+		newProductServiceCreateProductSagaArgs,
+		newProductServiceCreateProductSagaResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"compensateCreateProductSaga": kitex.NewMethodInfo(
+		compensateCreateProductSagaHandler,
+		newProductServiceCompensateCreateProductSagaArgs,
+		newProductServiceCompensateCreateProductSagaResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"updateProduct": kitex.NewMethodInfo(
 		updateProductHandler,
 		newProductServiceUpdateProductArgs,
@@ -139,6 +153,42 @@ func newProductServiceCreateProductResult() interface{} {
 	return product.NewProductServiceCreateProductResult()
 }
 
+func createProductSagaHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*product.ProductServiceCreateProductSagaArgs)
+	realResult := result.(*product.ProductServiceCreateProductSagaResult)
+	success, err := handler.(product.ProductService).CreateProductSaga(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newProductServiceCreateProductSagaArgs() interface{} {
+	return product.NewProductServiceCreateProductSagaArgs()
+}
+
+func newProductServiceCreateProductSagaResult() interface{} {
+	return product.NewProductServiceCreateProductSagaResult()
+}
+
+func compensateCreateProductSagaHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*product.ProductServiceCompensateCreateProductSagaArgs)
+	realResult := result.(*product.ProductServiceCompensateCreateProductSagaResult)
+	success, err := handler.(product.ProductService).CompensateCreateProductSaga(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newProductServiceCompensateCreateProductSagaArgs() interface{} {
+	return product.NewProductServiceCompensateCreateProductSagaArgs()
+}
+
+func newProductServiceCompensateCreateProductSagaResult() interface{} {
+	return product.NewProductServiceCompensateCreateProductSagaResult()
+}
+
 func updateProductHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*product.ProductServiceUpdateProductArgs)
 	realResult := result.(*product.ProductServiceUpdateProductResult)
@@ -244,6 +294,26 @@ func (p *kClient) CreateProduct(ctx context.Context, request *product.CreateProd
 	_args.Request = request
 	var _result product.ProductServiceCreateProductResult
 	if err = p.c.Call(ctx, "createProduct", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) CreateProductSaga(ctx context.Context, request *product.CreateProductSagaRequest) (r *product.CreateProductResponse, err error) {
+	var _args product.ProductServiceCreateProductSagaArgs
+	_args.Request = request
+	var _result product.ProductServiceCreateProductSagaResult
+	if err = p.c.Call(ctx, "createProductSaga", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) CompensateCreateProductSaga(ctx context.Context, request *product.CompensateCreateProductSagaRequest) (r *product.CompensateCreateProductSagaResponse, err error) {
+	var _args product.ProductServiceCompensateCreateProductSagaArgs
+	_args.Request = request
+	var _result product.ProductServiceCompensateCreateProductSagaResult
+	if err = p.c.Call(ctx, "compensateCreateProductSaga", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil
