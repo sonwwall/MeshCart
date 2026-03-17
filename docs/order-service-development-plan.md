@@ -752,6 +752,203 @@
 - 用户可通过 `gateway` 下单、查单、取消订单
 - 权限边界清晰
 
+当前实现设计：
+
+- gateway 接入
+  - 已新增 `gateway -> order-service` 的 RPC client：
+    - `gateway/rpc/order/client.go`
+  - 已在网关配置与依赖容器中完成装配：
+    - `gateway/config/config.go`
+    - `gateway/internal/svc/service_context.go`
+  - 当前新增的配置组是：
+    - `OrderRPC`
+- 对外 HTTP 路由
+  - 当前用户侧订单接口都挂在：
+    - `/api/v1/orders`
+  - 路由注册在：
+    - `gateway/internal/handler/order/routes.go`
+  - 已开放接口：
+    - `POST /api/v1/orders`
+    - `GET /api/v1/orders`
+    - `GET /api/v1/orders/:order_id`
+    - `POST /api/v1/orders/:order_id/cancel`
+  - 这些接口都要求 JWT 登录态
+- handler / logic / types 落点
+  - handler：
+    - `gateway/internal/handler/order/`
+  - logic：
+    - `gateway/internal/logic/order/`
+  - HTTP 类型：
+    - `gateway/internal/types/order.go`
+
+接口文档：
+
+- `POST /api/v1/orders`
+  - 作用：
+    - 提交订单
+  - 认证：
+    - 需要 JWT
+  - 请求体：
+    - `request_id: string`
+      - 可选
+      - 用于透传到订单服务做下单幂等
+    - `items: []`
+      - 至少一项
+    - `items[].product_id: int64`
+    - `items[].sku_id: int64`
+    - `items[].quantity: int32`
+  - 示例请求：
+    ```json
+    {
+      "request_id": "req-order-1001",
+      "items": [
+        {
+          "product_id": 2001,
+          "sku_id": 3001,
+          "quantity": 2
+        }
+      ]
+    }
+    ```
+  - 成功响应 data：
+    - `order_id`
+    - `user_id`
+    - `status`
+    - `total_amount`
+    - `pay_amount`
+    - `expire_at`
+    - `cancel_reason`
+    - `payment_id`
+    - `paid_at`
+    - `items`
+  - 关键语义：
+    - 只允许为当前登录用户创建订单
+    - 网关不会信任客户端传商品快照，实际快照由订单服务内部生成
+    - 创建成功后的订单当前会直接进入 `reserved`
+
+- `GET /api/v1/orders`
+  - 作用：
+    - 查询当前登录用户的订单列表
+  - 认证：
+    - 需要 JWT
+  - 查询参数：
+    - `page: int32`
+      - 可选，默认 `1`
+    - `page_size: int32`
+      - 可选，默认 `20`
+      - 当前最大会被网关裁剪到 `100`
+  - 成功响应 data：
+    - `orders`
+    - `total`
+  - `orders[]` 字段与单笔订单详情一致
+  - 关键语义：
+    - 只能查询自己的订单
+    - 不支持跨用户查询
+
+- `GET /api/v1/orders/:order_id`
+  - 作用：
+    - 查询当前登录用户的单笔订单详情
+  - 认证：
+    - 需要 JWT
+  - 路径参数：
+    - `order_id: int64`
+  - 成功响应 data：
+    - `order_id`
+    - `user_id`
+    - `status`
+    - `total_amount`
+    - `pay_amount`
+    - `expire_at`
+    - `cancel_reason`
+    - `payment_id`
+    - `paid_at`
+    - `items`
+  - `items[]` 字段：
+    - `item_id`
+    - `order_id`
+    - `product_id`
+    - `sku_id`
+    - `product_title_snapshot`
+    - `sku_title_snapshot`
+    - `sale_price_snapshot`
+    - `quantity`
+    - `subtotal_amount`
+  - 关键语义：
+    - 当前依赖订单服务按 `user_id + order_id` 做资源隔离
+
+- `POST /api/v1/orders/:order_id/cancel`
+  - 作用：
+    - 取消当前登录用户自己的订单
+  - 认证：
+    - 需要 JWT
+  - 路径参数：
+    - `order_id: int64`
+  - 请求体：
+    - `request_id: string`
+      - 可选
+      - 用于透传到订单服务做取消幂等
+    - `cancel_reason: string`
+      - 可选
+  - 示例请求：
+    ```json
+    {
+      "request_id": "req-cancel-2001",
+      "cancel_reason": "changed_mind"
+    }
+    ```
+  - 成功响应 data：
+    - 返回取消后的订单对象
+  - 关键语义：
+    - 已支付订单不可取消
+    - 重复取消会按订单服务当前状态做幂等返回
+
+当前未对外暴露的订单能力：
+
+- `ConfirmOrderPaid`
+  - 当前仍只保留在 `order-service` 内部 RPC
+  - 不通过 `gateway` 对外开放
+- `CloseExpiredOrders`
+  - 当前也只作为内部扫描 RPC 使用
+  - 不对用户暴露 HTTP 接口
+
+代码落点：
+
+- 网关 RPC client：
+  - `gateway/rpc/order/client.go`
+- HTTP handler：
+  - `gateway/internal/handler/order/create.go`
+  - `gateway/internal/handler/order/list.go`
+  - `gateway/internal/handler/order/get.go`
+  - `gateway/internal/handler/order/cancel.go`
+- 业务 logic：
+  - `gateway/internal/logic/order/create.go`
+  - `gateway/internal/logic/order/list.go`
+  - `gateway/internal/logic/order/get.go`
+  - `gateway/internal/logic/order/cancel.go`
+- 类型定义：
+  - `gateway/internal/types/order.go`
+
+本阶段设计取舍：
+
+- 先只开放用户侧最小闭环接口，不把支付确认和过期关闭暴露到 HTTP
+- 先沿用订单服务的 `user_id` 资源隔离，不额外在网关重复做复杂资源查询
+- 先让 `gateway` 只是代理与轻编排层，不在网关重写订单状态机
+
+当前阶段七交付边界：
+
+- 已完成：
+  - 订单 RPC client
+  - 提交订单 HTTP 接口
+  - 我的订单列表 HTTP 接口
+  - 订单详情 HTTP 接口
+  - 取消订单 HTTP 接口
+  - JWT 鉴权接入
+  - gateway 订单逻辑测试
+- 暂未完成：
+  - 管理端订单查询
+  - 支付确认 HTTP 接口
+  - 内部订单关闭调度入口的网关暴露
+
 ### 阶段八：高并发增强版订单服务
 
 目标：

@@ -7,6 +7,7 @@ import (
 	"meshcart/gateway/internal/tx"
 	cartrpc "meshcart/gateway/rpc/cart"
 	inventoryrpc "meshcart/gateway/rpc/inventory"
+	orderrpc "meshcart/gateway/rpc/order"
 	productrpc "meshcart/gateway/rpc/product"
 	userrpc "meshcart/gateway/rpc/user"
 	"sync/atomic"
@@ -18,6 +19,7 @@ type ServiceContext struct {
 	Config                   config.Config
 	UserClient               userrpc.Client
 	CartClient               cartrpc.Client
+	OrderClient              orderrpc.Client
 	ProductClient            productrpc.Client
 	InventoryClient          inventoryrpc.Client
 	ProductCreateCoordinator tx.ProductCreateCoordinator
@@ -47,6 +49,18 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		cfg.CartRPC.ConsulAddress,
 		cfg.CartRPC.ConnectTimeout,
 		cfg.CartRPC.RPCTimeout,
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	orderClient, err := orderrpc.NewClient(
+		cfg.OrderRPC.ServiceName,
+		cfg.OrderRPC.Address,
+		cfg.OrderRPC.DiscoveryType,
+		cfg.OrderRPC.ConsulAddress,
+		cfg.OrderRPC.ConnectTimeout,
+		cfg.OrderRPC.RPCTimeout,
 	)
 	if err != nil {
 		panic(err)
@@ -90,6 +104,7 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		Config:                   cfg,
 		UserClient:               userClient,
 		CartClient:               cartClient,
+		OrderClient:              orderClient,
 		ProductClient:            productClient,
 		InventoryClient:          inventoryClient,
 		ProductCreateCoordinator: tx.NewProductCreateCoordinator(cfg.DTM, productClient, inventoryClient),

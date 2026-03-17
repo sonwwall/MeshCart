@@ -16,6 +16,7 @@ type Config struct {
 	RateLimit    RateLimitConfig
 	UserRPC      UserRPCConfig
 	CartRPC      CartRPCConfig
+	OrderRPC     OrderRPCConfig
 	ProductRPC   ProductRPCConfig
 	InventoryRPC InventoryRPCConfig
 	JWT          JWTConfig
@@ -92,6 +93,15 @@ type ProductRPCConfig struct {
 }
 
 type CartRPCConfig struct {
+	ServiceName    string
+	Address        string
+	DiscoveryType  string
+	ConsulAddress  string
+	ConnectTimeout time.Duration
+	RPCTimeout     time.Duration
+}
+
+type OrderRPCConfig struct {
 	ServiceName    string
 	Address        string
 	DiscoveryType  string
@@ -188,6 +198,14 @@ func Load() Config {
 			ConsulAddress:  getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
 			ConnectTimeout: getEnvAsDuration("CART_RPC_CONNECT_TIMEOUT_MS", 500*time.Millisecond),
 			RPCTimeout:     getEnvAsDuration("CART_RPC_TIMEOUT_MS", 2*time.Second),
+		},
+		OrderRPC: OrderRPCConfig{
+			ServiceName:    getEnv("ORDER_RPC_SERVICE", "meshcart.order"),
+			Address:        getEnv("ORDER_RPC_ADDR", "127.0.0.1:8892"),
+			DiscoveryType:  getEnv("ORDER_RPC_DISCOVERY", "direct"),
+			ConsulAddress:  getEnv("CONSUL_ADDR", "127.0.0.1:8500"),
+			ConnectTimeout: getEnvAsDuration("ORDER_RPC_CONNECT_TIMEOUT_MS", 500*time.Millisecond),
+			RPCTimeout:     getEnvAsDuration("ORDER_RPC_TIMEOUT_MS", 2*time.Second),
 		},
 		ProductRPC: ProductRPCConfig{
 			ServiceName:    getEnv("PRODUCT_RPC_SERVICE", "meshcart.product"),
