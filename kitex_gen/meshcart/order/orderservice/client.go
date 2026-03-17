@@ -12,8 +12,10 @@ import (
 // Client is designed to provide IDL-compatible methods with call-option parameter for kitex framework.
 type Client interface {
 	CreateOrder(ctx context.Context, request *order.CreateOrderRequest, callOptions ...callopt.Option) (r *order.CreateOrderResponse, err error)
+	CancelOrder(ctx context.Context, request *order.CancelOrderRequest, callOptions ...callopt.Option) (r *order.CancelOrderResponse, err error)
 	GetOrder(ctx context.Context, request *order.GetOrderRequest, callOptions ...callopt.Option) (r *order.GetOrderResponse, err error)
 	ListOrders(ctx context.Context, request *order.ListOrdersRequest, callOptions ...callopt.Option) (r *order.ListOrdersResponse, err error)
+	CloseExpiredOrders(ctx context.Context, request *order.CloseExpiredOrdersRequest, callOptions ...callopt.Option) (r *order.CloseExpiredOrdersResponse, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -50,6 +52,11 @@ func (p *kOrderServiceClient) CreateOrder(ctx context.Context, request *order.Cr
 	return p.kClient.CreateOrder(ctx, request)
 }
 
+func (p *kOrderServiceClient) CancelOrder(ctx context.Context, request *order.CancelOrderRequest, callOptions ...callopt.Option) (r *order.CancelOrderResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.CancelOrder(ctx, request)
+}
+
 func (p *kOrderServiceClient) GetOrder(ctx context.Context, request *order.GetOrderRequest, callOptions ...callopt.Option) (r *order.GetOrderResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.GetOrder(ctx, request)
@@ -58,4 +65,9 @@ func (p *kOrderServiceClient) GetOrder(ctx context.Context, request *order.GetOr
 func (p *kOrderServiceClient) ListOrders(ctx context.Context, request *order.ListOrdersRequest, callOptions ...callopt.Option) (r *order.ListOrdersResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.ListOrders(ctx, request)
+}
+
+func (p *kOrderServiceClient) CloseExpiredOrders(ctx context.Context, request *order.CloseExpiredOrdersRequest, callOptions ...callopt.Option) (r *order.CloseExpiredOrdersResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.CloseExpiredOrders(ctx, request)
 }

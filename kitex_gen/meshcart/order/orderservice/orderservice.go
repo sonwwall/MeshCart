@@ -20,6 +20,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"cancelOrder": kitex.NewMethodInfo(
+		cancelOrderHandler,
+		newOrderServiceCancelOrderArgs,
+		newOrderServiceCancelOrderResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"getOrder": kitex.NewMethodInfo(
 		getOrderHandler,
 		newOrderServiceGetOrderArgs,
@@ -31,6 +38,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		listOrdersHandler,
 		newOrderServiceListOrdersArgs,
 		newOrderServiceListOrdersResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"closeExpiredOrders": kitex.NewMethodInfo(
+		closeExpiredOrdersHandler,
+		newOrderServiceCloseExpiredOrdersArgs,
+		newOrderServiceCloseExpiredOrdersResult,
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
@@ -118,6 +132,24 @@ func newOrderServiceCreateOrderResult() interface{} {
 	return order.NewOrderServiceCreateOrderResult()
 }
 
+func cancelOrderHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*order.OrderServiceCancelOrderArgs)
+	realResult := result.(*order.OrderServiceCancelOrderResult)
+	success, err := handler.(order.OrderService).CancelOrder(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newOrderServiceCancelOrderArgs() interface{} {
+	return order.NewOrderServiceCancelOrderArgs()
+}
+
+func newOrderServiceCancelOrderResult() interface{} {
+	return order.NewOrderServiceCancelOrderResult()
+}
+
 func getOrderHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*order.OrderServiceGetOrderArgs)
 	realResult := result.(*order.OrderServiceGetOrderResult)
@@ -154,6 +186,24 @@ func newOrderServiceListOrdersResult() interface{} {
 	return order.NewOrderServiceListOrdersResult()
 }
 
+func closeExpiredOrdersHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*order.OrderServiceCloseExpiredOrdersArgs)
+	realResult := result.(*order.OrderServiceCloseExpiredOrdersResult)
+	success, err := handler.(order.OrderService).CloseExpiredOrders(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newOrderServiceCloseExpiredOrdersArgs() interface{} {
+	return order.NewOrderServiceCloseExpiredOrdersArgs()
+}
+
+func newOrderServiceCloseExpiredOrdersResult() interface{} {
+	return order.NewOrderServiceCloseExpiredOrdersResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -174,6 +224,16 @@ func (p *kClient) CreateOrder(ctx context.Context, request *order.CreateOrderReq
 	return _result.GetSuccess(), nil
 }
 
+func (p *kClient) CancelOrder(ctx context.Context, request *order.CancelOrderRequest) (r *order.CancelOrderResponse, err error) {
+	var _args order.OrderServiceCancelOrderArgs
+	_args.Request = request
+	var _result order.OrderServiceCancelOrderResult
+	if err = p.c.Call(ctx, "cancelOrder", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
 func (p *kClient) GetOrder(ctx context.Context, request *order.GetOrderRequest) (r *order.GetOrderResponse, err error) {
 	var _args order.OrderServiceGetOrderArgs
 	_args.Request = request
@@ -189,6 +249,16 @@ func (p *kClient) ListOrders(ctx context.Context, request *order.ListOrdersReque
 	_args.Request = request
 	var _result order.OrderServiceListOrdersResult
 	if err = p.c.Call(ctx, "listOrders", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) CloseExpiredOrders(ctx context.Context, request *order.CloseExpiredOrdersRequest) (r *order.CloseExpiredOrdersResponse, err error) {
+	var _args order.OrderServiceCloseExpiredOrdersArgs
+	_args.Request = request
+	var _result order.OrderServiceCloseExpiredOrdersResult
+	if err = p.c.Call(ctx, "closeExpiredOrders", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

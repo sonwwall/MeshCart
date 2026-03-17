@@ -16,3 +16,19 @@ snowflake:
 
 timeout:
   db_query_ms: 1500
+
+product_rpc:
+  service_name: meshcart.product
+  host_port: 127.0.0.1:8890
+  discovery_type: consul
+  consul_address: 127.0.0.1:8500
+  connect_timeout_ms: 500
+  rpc_timeout_ms: 2000
+
+inventory_rpc:
+  service_name: meshcart.inventory
+  host_port: 127.0.0.1:8891
+  discovery_type: consul
+  consul_address: 127.0.0.1:8500
+  connect_timeout_ms: 500
+  rpc_timeout_ms: 2000

@@ -18,12 +18,13 @@ func TestRepository_CreateGetList(t *testing.T) {
 	repo := NewMySQLOrderRepository(db, time.Second)
 
 	order, err := repo.CreateWithItems(context.Background(), &dalmodel.Order{
-		OrderID:     1,
-		UserID:      101,
-		Status:      1,
-		TotalAmount: 3998,
-		PayAmount:   3998,
-		ExpireAt:    time.Now().Add(30 * time.Minute),
+		OrderID:      1,
+		UserID:       101,
+		Status:       1,
+		TotalAmount:  3998,
+		PayAmount:    3998,
+		ExpireAt:     time.Now().Add(30 * time.Minute),
+		CancelReason: "",
 	}, []*dalmodel.OrderItem{
 		{
 			ID:                   11,
@@ -87,6 +88,45 @@ func TestRepository_CreateWithItems_InvalidOrder(t *testing.T) {
 	}
 }
 
+func TestRepository_UpdateStatus(t *testing.T) {
+	db := newOrderSQLiteDB(t)
+	repo := NewMySQLOrderRepository(db, time.Second)
+	seedOrder(t, db, &dalmodel.Order{
+		OrderID:      1,
+		UserID:       101,
+		Status:       2,
+		TotalAmount:  100,
+		PayAmount:    100,
+		ExpireAt:     time.Now().Add(30 * time.Minute),
+		CancelReason: "",
+	})
+
+	order, err := repo.UpdateStatus(context.Background(), 1, []int32{1, 2}, 4, "user_cancelled")
+	if err != nil {
+		t.Fatalf("update status: %v", err)
+	}
+	if order.Status != 4 || order.CancelReason != "user_cancelled" {
+		t.Fatalf("unexpected updated order: %+v", order)
+	}
+}
+
+func TestRepository_ListExpiredOrders(t *testing.T) {
+	db := newOrderSQLiteDB(t)
+	repo := NewMySQLOrderRepository(db, time.Second)
+	now := time.Now()
+	seedOrder(t, db, &dalmodel.Order{OrderID: 1, UserID: 101, Status: 2, TotalAmount: 100, PayAmount: 100, ExpireAt: now.Add(-time.Minute)})
+	seedOrder(t, db, &dalmodel.Order{OrderID: 2, UserID: 101, Status: 4, TotalAmount: 100, PayAmount: 100, ExpireAt: now.Add(-time.Minute)})
+	seedOrder(t, db, &dalmodel.Order{OrderID: 3, UserID: 101, Status: 2, TotalAmount: 100, PayAmount: 100, ExpireAt: now.Add(time.Minute)})
+
+	orders, err := repo.ListExpiredOrders(context.Background(), now, 10)
+	if err != nil {
+		t.Fatalf("list expired: %v", err)
+	}
+	if len(orders) != 1 || orders[0].OrderID != 1 {
+		t.Fatalf("unexpected expired orders: %+v", orders)
+	}
+}
+
 func newOrderSQLiteDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
@@ -98,4 +138,12 @@ func newOrderSQLiteDB(t *testing.T) *gorm.DB {
 		t.Fatalf("migrate sqlite schema: %v", err)
 	}
 	return db
+}
+
+func seedOrder(t *testing.T, db *gorm.DB, order *dalmodel.Order) {
+	t.Helper()
+
+	if err := db.Create(order).Error; err != nil {
+		t.Fatalf("seed order: %v", err)
+	}
 }

@@ -5,10 +5,7 @@ include "base.thrift"
 struct OrderItemInput {
     1: i64 product_id
     2: i64 sku_id
-    3: string product_title_snapshot
-    4: string sku_title_snapshot
-    5: i64 sale_price_snapshot
-    6: i32 quantity
+    3: i32 quantity
 }
 
 struct OrderItem {
@@ -31,6 +28,7 @@ struct Order {
     5: i64 pay_amount
     6: i64 expire_at
     7: list<OrderItem> items
+    8: string cancel_reason
 }
 
 struct CreateOrderRequest {
@@ -39,6 +37,17 @@ struct CreateOrderRequest {
 }
 
 struct CreateOrderResponse {
+    1: Order order
+    255: base.BaseResponse base
+}
+
+struct CancelOrderRequest {
+    1: i64 user_id
+    2: i64 order_id
+    3: optional string cancel_reason
+}
+
+struct CancelOrderResponse {
     1: Order order
     255: base.BaseResponse base
 }
@@ -65,8 +74,20 @@ struct ListOrdersResponse {
     255: base.BaseResponse base
 }
 
+struct CloseExpiredOrdersRequest {
+    1: optional i32 limit
+}
+
+struct CloseExpiredOrdersResponse {
+    1: i32 closed_count
+    2: list<i64> order_ids
+    255: base.BaseResponse base
+}
+
 service OrderService {
     CreateOrderResponse createOrder(1: CreateOrderRequest request)
+    CancelOrderResponse cancelOrder(1: CancelOrderRequest request)
     GetOrderResponse getOrder(1: GetOrderRequest request)
     ListOrdersResponse listOrders(1: ListOrdersRequest request)
+    CloseExpiredOrdersResponse closeExpiredOrders(1: CloseExpiredOrdersRequest request)
 }

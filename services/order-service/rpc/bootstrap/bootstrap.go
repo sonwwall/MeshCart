@@ -32,6 +32,8 @@ import (
 	"meshcart/services/order-service/config"
 	"meshcart/services/order-service/dal/db"
 	rpchandler "meshcart/services/order-service/rpc/handler"
+	inventoryrpc "meshcart/services/order-service/rpcclient/inventory"
+	productrpc "meshcart/services/order-service/rpcclient/product"
 )
 
 func Run() {
@@ -148,7 +150,29 @@ func initService(mysqlDB *gorm.DB, cfg config.Config) *bizservice.OrderService {
 	if err != nil {
 		logx.L(nil).Fatal("init snowflake node failed", zap.Error(err), zap.Int64("node", cfg.Snowflake.Node))
 	}
-	return bizservice.NewOrderService(repo, node)
+	productClient, err := productrpc.NewClient(
+		cfg.ProductRPC.ServiceName,
+		cfg.ProductRPC.HostPort,
+		cfg.ProductRPC.DiscoveryType,
+		cfg.ProductRPC.ConsulAddress,
+		time.Duration(cfg.ProductRPC.ConnectTimeoutMS)*time.Millisecond,
+		time.Duration(cfg.ProductRPC.RPCTimeoutMS)*time.Millisecond,
+	)
+	if err != nil {
+		logx.L(nil).Fatal("init product rpc client failed", zap.Error(err))
+	}
+	inventoryClient, err := inventoryrpc.NewClient(
+		cfg.InventoryRPC.ServiceName,
+		cfg.InventoryRPC.HostPort,
+		cfg.InventoryRPC.DiscoveryType,
+		cfg.InventoryRPC.ConsulAddress,
+		time.Duration(cfg.InventoryRPC.ConnectTimeoutMS)*time.Millisecond,
+		time.Duration(cfg.InventoryRPC.RPCTimeoutMS)*time.Millisecond,
+	)
+	if err != nil {
+		logx.L(nil).Fatal("init inventory rpc client failed", zap.Error(err))
+	}
+	return bizservice.NewOrderService(repo, node, productClient, inventoryClient)
 }
 
 func startAdminServer(sqlDB *sql.DB, draining *atomic.Bool) *http.Server {

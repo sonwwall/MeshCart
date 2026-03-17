@@ -1,9 +1,13 @@
 package service
 
 import (
+	"time"
+
 	"github.com/bwmarrin/snowflake"
 
 	"meshcart/services/order-service/biz/repository"
+	inventoryrpc "meshcart/services/order-service/rpcclient/inventory"
+	productrpc "meshcart/services/order-service/rpcclient/product"
 )
 
 const (
@@ -15,10 +19,19 @@ const (
 )
 
 type OrderService struct {
-	repo repository.OrderRepository
-	node *snowflake.Node
+	repo            repository.OrderRepository
+	node            *snowflake.Node
+	productClient   productrpc.Client
+	inventoryClient inventoryrpc.Client
+	nowFunc         func() time.Time
 }
 
-func NewOrderService(repo repository.OrderRepository, node *snowflake.Node) *OrderService {
-	return &OrderService{repo: repo, node: node}
+func NewOrderService(repo repository.OrderRepository, node *snowflake.Node, productClient productrpc.Client, inventoryClient inventoryrpc.Client) *OrderService {
+	return &OrderService{
+		repo:            repo,
+		node:            node,
+		productClient:   productClient,
+		inventoryClient: inventoryClient,
+		nowFunc:         time.Now,
+	}
 }

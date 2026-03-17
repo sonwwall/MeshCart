@@ -9,12 +9,9 @@ import (
 )
 
 type OrderItemInput struct {
-	ProductId            int64  `thrift:"product_id,1" frugal:"1,default,i64" json:"product_id"`
-	SkuId                int64  `thrift:"sku_id,2" frugal:"2,default,i64" json:"sku_id"`
-	ProductTitleSnapshot string `thrift:"product_title_snapshot,3" frugal:"3,default,string" json:"product_title_snapshot"`
-	SkuTitleSnapshot     string `thrift:"sku_title_snapshot,4" frugal:"4,default,string" json:"sku_title_snapshot"`
-	SalePriceSnapshot    int64  `thrift:"sale_price_snapshot,5" frugal:"5,default,i64" json:"sale_price_snapshot"`
-	Quantity             int32  `thrift:"quantity,6" frugal:"6,default,i32" json:"quantity"`
+	ProductId int64 `thrift:"product_id,1" frugal:"1,default,i64" json:"product_id"`
+	SkuId     int64 `thrift:"sku_id,2" frugal:"2,default,i64" json:"sku_id"`
+	Quantity  int32 `thrift:"quantity,3" frugal:"3,default,i32" json:"quantity"`
 }
 
 func NewOrderItemInput() *OrderItemInput {
@@ -32,18 +29,6 @@ func (p *OrderItemInput) GetSkuId() (v int64) {
 	return p.SkuId
 }
 
-func (p *OrderItemInput) GetProductTitleSnapshot() (v string) {
-	return p.ProductTitleSnapshot
-}
-
-func (p *OrderItemInput) GetSkuTitleSnapshot() (v string) {
-	return p.SkuTitleSnapshot
-}
-
-func (p *OrderItemInput) GetSalePriceSnapshot() (v int64) {
-	return p.SalePriceSnapshot
-}
-
 func (p *OrderItemInput) GetQuantity() (v int32) {
 	return p.Quantity
 }
@@ -52,15 +37,6 @@ func (p *OrderItemInput) SetProductId(val int64) {
 }
 func (p *OrderItemInput) SetSkuId(val int64) {
 	p.SkuId = val
-}
-func (p *OrderItemInput) SetProductTitleSnapshot(val string) {
-	p.ProductTitleSnapshot = val
-}
-func (p *OrderItemInput) SetSkuTitleSnapshot(val string) {
-	p.SkuTitleSnapshot = val
-}
-func (p *OrderItemInput) SetSalePriceSnapshot(val int64) {
-	p.SalePriceSnapshot = val
 }
 func (p *OrderItemInput) SetQuantity(val int32) {
 	p.Quantity = val
@@ -76,10 +52,7 @@ func (p *OrderItemInput) String() string {
 var fieldIDToName_OrderItemInput = map[int16]string{
 	1: "product_id",
 	2: "sku_id",
-	3: "product_title_snapshot",
-	4: "sku_title_snapshot",
-	5: "sale_price_snapshot",
-	6: "quantity",
+	3: "quantity",
 }
 
 type OrderItem struct {
@@ -184,13 +157,14 @@ var fieldIDToName_OrderItem = map[int16]string{
 }
 
 type Order struct {
-	OrderId     int64        `thrift:"order_id,1" frugal:"1,default,i64" json:"order_id"`
-	UserId      int64        `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
-	Status      int32        `thrift:"status,3" frugal:"3,default,i32" json:"status"`
-	TotalAmount int64        `thrift:"total_amount,4" frugal:"4,default,i64" json:"total_amount"`
-	PayAmount   int64        `thrift:"pay_amount,5" frugal:"5,default,i64" json:"pay_amount"`
-	ExpireAt    int64        `thrift:"expire_at,6" frugal:"6,default,i64" json:"expire_at"`
-	Items       []*OrderItem `thrift:"items,7" frugal:"7,default,list<OrderItem>" json:"items"`
+	OrderId      int64        `thrift:"order_id,1" frugal:"1,default,i64" json:"order_id"`
+	UserId       int64        `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	Status       int32        `thrift:"status,3" frugal:"3,default,i32" json:"status"`
+	TotalAmount  int64        `thrift:"total_amount,4" frugal:"4,default,i64" json:"total_amount"`
+	PayAmount    int64        `thrift:"pay_amount,5" frugal:"5,default,i64" json:"pay_amount"`
+	ExpireAt     int64        `thrift:"expire_at,6" frugal:"6,default,i64" json:"expire_at"`
+	Items        []*OrderItem `thrift:"items,7" frugal:"7,default,list<OrderItem>" json:"items"`
+	CancelReason string       `thrift:"cancel_reason,8" frugal:"8,default,string" json:"cancel_reason"`
 }
 
 func NewOrder() *Order {
@@ -227,6 +201,10 @@ func (p *Order) GetExpireAt() (v int64) {
 func (p *Order) GetItems() (v []*OrderItem) {
 	return p.Items
 }
+
+func (p *Order) GetCancelReason() (v string) {
+	return p.CancelReason
+}
 func (p *Order) SetOrderId(val int64) {
 	p.OrderId = val
 }
@@ -248,6 +226,9 @@ func (p *Order) SetExpireAt(val int64) {
 func (p *Order) SetItems(val []*OrderItem) {
 	p.Items = val
 }
+func (p *Order) SetCancelReason(val string) {
+	p.CancelReason = val
+}
 
 func (p *Order) String() string {
 	if p == nil {
@@ -264,6 +245,7 @@ var fieldIDToName_Order = map[int16]string{
 	5: "pay_amount",
 	6: "expire_at",
 	7: "items",
+	8: "cancel_reason",
 }
 
 type CreateOrderRequest struct {
@@ -356,6 +338,118 @@ func (p *CreateOrderResponse) String() string {
 }
 
 var fieldIDToName_CreateOrderResponse = map[int16]string{
+	1:   "order",
+	255: "base",
+}
+
+type CancelOrderRequest struct {
+	UserId       int64   `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
+	OrderId      int64   `thrift:"order_id,2" frugal:"2,default,i64" json:"order_id"`
+	CancelReason *string `thrift:"cancel_reason,3,optional" frugal:"3,optional,string" json:"cancel_reason,omitempty"`
+}
+
+func NewCancelOrderRequest() *CancelOrderRequest {
+	return &CancelOrderRequest{}
+}
+
+func (p *CancelOrderRequest) InitDefault() {
+}
+
+func (p *CancelOrderRequest) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *CancelOrderRequest) GetOrderId() (v int64) {
+	return p.OrderId
+}
+
+var CancelOrderRequest_CancelReason_DEFAULT string
+
+func (p *CancelOrderRequest) GetCancelReason() (v string) {
+	if !p.IsSetCancelReason() {
+		return CancelOrderRequest_CancelReason_DEFAULT
+	}
+	return *p.CancelReason
+}
+func (p *CancelOrderRequest) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *CancelOrderRequest) SetOrderId(val int64) {
+	p.OrderId = val
+}
+func (p *CancelOrderRequest) SetCancelReason(val *string) {
+	p.CancelReason = val
+}
+
+func (p *CancelOrderRequest) IsSetCancelReason() bool {
+	return p.CancelReason != nil
+}
+
+func (p *CancelOrderRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CancelOrderRequest(%+v)", *p)
+}
+
+var fieldIDToName_CancelOrderRequest = map[int16]string{
+	1: "user_id",
+	2: "order_id",
+	3: "cancel_reason",
+}
+
+type CancelOrderResponse struct {
+	Order *Order             `thrift:"order,1" frugal:"1,default,Order" json:"order"`
+	Base  *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+}
+
+func NewCancelOrderResponse() *CancelOrderResponse {
+	return &CancelOrderResponse{}
+}
+
+func (p *CancelOrderResponse) InitDefault() {
+}
+
+var CancelOrderResponse_Order_DEFAULT *Order
+
+func (p *CancelOrderResponse) GetOrder() (v *Order) {
+	if !p.IsSetOrder() {
+		return CancelOrderResponse_Order_DEFAULT
+	}
+	return p.Order
+}
+
+var CancelOrderResponse_Base_DEFAULT *base.BaseResponse
+
+func (p *CancelOrderResponse) GetBase() (v *base.BaseResponse) {
+	if !p.IsSetBase() {
+		return CancelOrderResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+func (p *CancelOrderResponse) SetOrder(val *Order) {
+	p.Order = val
+}
+func (p *CancelOrderResponse) SetBase(val *base.BaseResponse) {
+	p.Base = val
+}
+
+func (p *CancelOrderResponse) IsSetOrder() bool {
+	return p.Order != nil
+}
+
+func (p *CancelOrderResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *CancelOrderResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CancelOrderResponse(%+v)", *p)
+}
+
+var fieldIDToName_CancelOrderResponse = map[int16]string{
 	1:   "order",
 	255: "base",
 }
@@ -557,12 +651,110 @@ var fieldIDToName_ListOrdersResponse = map[int16]string{
 	255: "base",
 }
 
+type CloseExpiredOrdersRequest struct {
+	Limit *int32 `thrift:"limit,1,optional" frugal:"1,optional,i32" json:"limit,omitempty"`
+}
+
+func NewCloseExpiredOrdersRequest() *CloseExpiredOrdersRequest {
+	return &CloseExpiredOrdersRequest{}
+}
+
+func (p *CloseExpiredOrdersRequest) InitDefault() {
+}
+
+var CloseExpiredOrdersRequest_Limit_DEFAULT int32
+
+func (p *CloseExpiredOrdersRequest) GetLimit() (v int32) {
+	if !p.IsSetLimit() {
+		return CloseExpiredOrdersRequest_Limit_DEFAULT
+	}
+	return *p.Limit
+}
+func (p *CloseExpiredOrdersRequest) SetLimit(val *int32) {
+	p.Limit = val
+}
+
+func (p *CloseExpiredOrdersRequest) IsSetLimit() bool {
+	return p.Limit != nil
+}
+
+func (p *CloseExpiredOrdersRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CloseExpiredOrdersRequest(%+v)", *p)
+}
+
+var fieldIDToName_CloseExpiredOrdersRequest = map[int16]string{
+	1: "limit",
+}
+
+type CloseExpiredOrdersResponse struct {
+	ClosedCount int32              `thrift:"closed_count,1" frugal:"1,default,i32" json:"closed_count"`
+	OrderIds    []int64            `thrift:"order_ids,2" frugal:"2,default,list<i64>" json:"order_ids"`
+	Base        *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+}
+
+func NewCloseExpiredOrdersResponse() *CloseExpiredOrdersResponse {
+	return &CloseExpiredOrdersResponse{}
+}
+
+func (p *CloseExpiredOrdersResponse) InitDefault() {
+}
+
+func (p *CloseExpiredOrdersResponse) GetClosedCount() (v int32) {
+	return p.ClosedCount
+}
+
+func (p *CloseExpiredOrdersResponse) GetOrderIds() (v []int64) {
+	return p.OrderIds
+}
+
+var CloseExpiredOrdersResponse_Base_DEFAULT *base.BaseResponse
+
+func (p *CloseExpiredOrdersResponse) GetBase() (v *base.BaseResponse) {
+	if !p.IsSetBase() {
+		return CloseExpiredOrdersResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+func (p *CloseExpiredOrdersResponse) SetClosedCount(val int32) {
+	p.ClosedCount = val
+}
+func (p *CloseExpiredOrdersResponse) SetOrderIds(val []int64) {
+	p.OrderIds = val
+}
+func (p *CloseExpiredOrdersResponse) SetBase(val *base.BaseResponse) {
+	p.Base = val
+}
+
+func (p *CloseExpiredOrdersResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *CloseExpiredOrdersResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CloseExpiredOrdersResponse(%+v)", *p)
+}
+
+var fieldIDToName_CloseExpiredOrdersResponse = map[int16]string{
+	1:   "closed_count",
+	2:   "order_ids",
+	255: "base",
+}
+
 type OrderService interface {
 	CreateOrder(ctx context.Context, request *CreateOrderRequest) (r *CreateOrderResponse, err error)
+
+	CancelOrder(ctx context.Context, request *CancelOrderRequest) (r *CancelOrderResponse, err error)
 
 	GetOrder(ctx context.Context, request *GetOrderRequest) (r *GetOrderResponse, err error)
 
 	ListOrders(ctx context.Context, request *ListOrdersRequest) (r *ListOrdersResponse, err error)
+
+	CloseExpiredOrders(ctx context.Context, request *CloseExpiredOrdersRequest) (r *CloseExpiredOrdersResponse, err error)
 }
 
 type OrderServiceCreateOrderArgs struct {
@@ -638,6 +830,82 @@ func (p *OrderServiceCreateOrderResult) String() string {
 }
 
 var fieldIDToName_OrderServiceCreateOrderResult = map[int16]string{
+	0: "success",
+}
+
+type OrderServiceCancelOrderArgs struct {
+	Request *CancelOrderRequest `thrift:"request,1" frugal:"1,default,CancelOrderRequest" json:"request"`
+}
+
+func NewOrderServiceCancelOrderArgs() *OrderServiceCancelOrderArgs {
+	return &OrderServiceCancelOrderArgs{}
+}
+
+func (p *OrderServiceCancelOrderArgs) InitDefault() {
+}
+
+var OrderServiceCancelOrderArgs_Request_DEFAULT *CancelOrderRequest
+
+func (p *OrderServiceCancelOrderArgs) GetRequest() (v *CancelOrderRequest) {
+	if !p.IsSetRequest() {
+		return OrderServiceCancelOrderArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *OrderServiceCancelOrderArgs) SetRequest(val *CancelOrderRequest) {
+	p.Request = val
+}
+
+func (p *OrderServiceCancelOrderArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *OrderServiceCancelOrderArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("OrderServiceCancelOrderArgs(%+v)", *p)
+}
+
+var fieldIDToName_OrderServiceCancelOrderArgs = map[int16]string{
+	1: "request",
+}
+
+type OrderServiceCancelOrderResult struct {
+	Success *CancelOrderResponse `thrift:"success,0,optional" frugal:"0,optional,CancelOrderResponse" json:"success,omitempty"`
+}
+
+func NewOrderServiceCancelOrderResult() *OrderServiceCancelOrderResult {
+	return &OrderServiceCancelOrderResult{}
+}
+
+func (p *OrderServiceCancelOrderResult) InitDefault() {
+}
+
+var OrderServiceCancelOrderResult_Success_DEFAULT *CancelOrderResponse
+
+func (p *OrderServiceCancelOrderResult) GetSuccess() (v *CancelOrderResponse) {
+	if !p.IsSetSuccess() {
+		return OrderServiceCancelOrderResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *OrderServiceCancelOrderResult) SetSuccess(x interface{}) {
+	p.Success = x.(*CancelOrderResponse)
+}
+
+func (p *OrderServiceCancelOrderResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *OrderServiceCancelOrderResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("OrderServiceCancelOrderResult(%+v)", *p)
+}
+
+var fieldIDToName_OrderServiceCancelOrderResult = map[int16]string{
 	0: "success",
 }
 
@@ -790,5 +1058,81 @@ func (p *OrderServiceListOrdersResult) String() string {
 }
 
 var fieldIDToName_OrderServiceListOrdersResult = map[int16]string{
+	0: "success",
+}
+
+type OrderServiceCloseExpiredOrdersArgs struct {
+	Request *CloseExpiredOrdersRequest `thrift:"request,1" frugal:"1,default,CloseExpiredOrdersRequest" json:"request"`
+}
+
+func NewOrderServiceCloseExpiredOrdersArgs() *OrderServiceCloseExpiredOrdersArgs {
+	return &OrderServiceCloseExpiredOrdersArgs{}
+}
+
+func (p *OrderServiceCloseExpiredOrdersArgs) InitDefault() {
+}
+
+var OrderServiceCloseExpiredOrdersArgs_Request_DEFAULT *CloseExpiredOrdersRequest
+
+func (p *OrderServiceCloseExpiredOrdersArgs) GetRequest() (v *CloseExpiredOrdersRequest) {
+	if !p.IsSetRequest() {
+		return OrderServiceCloseExpiredOrdersArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *OrderServiceCloseExpiredOrdersArgs) SetRequest(val *CloseExpiredOrdersRequest) {
+	p.Request = val
+}
+
+func (p *OrderServiceCloseExpiredOrdersArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *OrderServiceCloseExpiredOrdersArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("OrderServiceCloseExpiredOrdersArgs(%+v)", *p)
+}
+
+var fieldIDToName_OrderServiceCloseExpiredOrdersArgs = map[int16]string{
+	1: "request",
+}
+
+type OrderServiceCloseExpiredOrdersResult struct {
+	Success *CloseExpiredOrdersResponse `thrift:"success,0,optional" frugal:"0,optional,CloseExpiredOrdersResponse" json:"success,omitempty"`
+}
+
+func NewOrderServiceCloseExpiredOrdersResult() *OrderServiceCloseExpiredOrdersResult {
+	return &OrderServiceCloseExpiredOrdersResult{}
+}
+
+func (p *OrderServiceCloseExpiredOrdersResult) InitDefault() {
+}
+
+var OrderServiceCloseExpiredOrdersResult_Success_DEFAULT *CloseExpiredOrdersResponse
+
+func (p *OrderServiceCloseExpiredOrdersResult) GetSuccess() (v *CloseExpiredOrdersResponse) {
+	if !p.IsSetSuccess() {
+		return OrderServiceCloseExpiredOrdersResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *OrderServiceCloseExpiredOrdersResult) SetSuccess(x interface{}) {
+	p.Success = x.(*CloseExpiredOrdersResponse)
+}
+
+func (p *OrderServiceCloseExpiredOrdersResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *OrderServiceCloseExpiredOrdersResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("OrderServiceCloseExpiredOrdersResult(%+v)", *p)
+}
+
+var fieldIDToName_OrderServiceCloseExpiredOrdersResult = map[int16]string{
 	0: "success",
 }

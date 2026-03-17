@@ -273,6 +273,104 @@
 - 用户成功下单时，库存已被预占
 - 任一步失败时，不留下不可解释的半成品订单或库存
 
+当前实现设计：
+
+- 下游依赖装配
+  - `order-service` 当前在启动期初始化两个下游 RPC client：
+    - `product-service`
+    - `inventory-service`
+  - 配置收口在：
+    - `services/order-service/config/config.go`
+    - `services/order-service/config/order-service.local.yaml`
+  - client 封装放在：
+    - `services/order-service/rpcclient/product`
+    - `services/order-service/rpcclient/inventory`
+- 订单入参调整
+  - `CreateOrderRequest.items` 现在只要求：
+    - `product_id`
+    - `sku_id`
+    - `quantity`
+  - 商品标题、SKU 标题、成交价快照不再由调用方传入，而是由订单服务在创建过程中实时拉取并生成
+- 商品校验链路
+  - 第一步调用 `product-service.BatchGetSku`
+    - 作用：
+      - 校验请求里的 `sku_id` 是否存在
+      - 校验 `sku_id -> product_id` 归属关系是否匹配
+      - 校验 SKU 是否 `active`
+  - 第二步按商品维度调用 `product-service.GetProductDetail`
+    - 作用：
+      - 校验商品是否 `online`
+      - 获取商品标题快照
+  - 当前阶段没有直接信任调用方提供的任何快照字段
+- 快照生成规则
+  - `product_title_snapshot`
+    - 来自商品详情的 `product.title`
+  - `sku_title_snapshot`
+    - 来自 SKU 详情的 `sku.title`
+  - `sale_price_snapshot`
+    - 来自 SKU 当前 `sale_price`
+  - `subtotal_amount`
+    - 由订单服务按 `sale_price_snapshot * quantity` 计算
+  - `total_amount / pay_amount`
+    - 由订单服务按所有订单项汇总
+- 库存预占链路
+  - 订单服务按 `sku_id` 聚合数量后，调用：
+    - `inventory-service.ReserveSkuStocks`
+  - 预占的业务幂等键约定为：
+    - `biz_type = order`
+    - `biz_id = order_id`
+  - 当前创建成功后订单直接进入：
+    - `reserved`
+  - 也就是说，阶段三已经把“草稿单”推进为“已完成库存预占的待支付订单”
+- 一致性口径
+  - 当前没有把订单创建和库存预占升级成完整 Saga
+  - 当前采用的是“库存先预占，订单后落库”的最小补偿方案：
+    1. 先完成商品校验与快照生成
+    2. 调用库存预占
+    3. 订单主表和订单项表落库
+    4. 如果订单落库失败，立即调用 `ReleaseReservedSkuStocks` 做补偿释放
+  - 这套口径至少保证：
+    - 库存预占失败时，订单不会伪成功
+    - 订单落库失败时，会立即做库存释放补偿
+- 状态设计
+  - 阶段二创建订单默认是 `pending`
+  - 阶段三落地后，新的正常下单链路会直接生成：
+    - `reserved`
+  - `pending` 状态仍然保留，目的是兼容历史草稿单和后续更复杂状态机扩展
+- 代码落点
+  - IDL：
+    - `idl/order.thrift`
+  - service：
+    - `services/order-service/biz/service/create_order.go`
+    - `services/order-service/biz/service/helpers.go`
+  - repository：
+    - `services/order-service/biz/repository/repository.go`
+  - bootstrap：
+    - `services/order-service/rpc/bootstrap/bootstrap.go`
+  - 下游 client：
+    - `services/order-service/rpcclient/product/client.go`
+    - `services/order-service/rpcclient/inventory/client.go`
+
+本阶段设计取舍：
+
+- 先用订单服务内编排 + 补偿释放收口，不在阶段三直接引入完整分布式事务框架
+- 先用同步 RPC 生成商品快照，保证订单快照和当前商品状态一致
+- 当前商品详情是按商品维度逐个拉取，而不是批量商品详情接口，优先保证边界清晰
+- 预占幂等依赖 `inventory-service` 已落地的 `biz_type + biz_id` 机制，订单服务自身暂未引入独立下单请求幂等键
+
+当前阶段三交付边界：
+
+- 已完成：
+  - 商品/SKU 实时校验
+  - 订单快照服务内生成
+  - 库存预占
+  - 创建失败后的库存释放补偿
+  - 订单创建成功即进入 `reserved`
+- 暂未完成：
+  - 支付成功后的确认扣减
+  - 下单请求幂等键
+  - 更重的一致性框架，比如 Saga/TCC
+
 ### 阶段四：取消订单、超时关闭、库存释放
 
 目标：
@@ -300,6 +398,102 @@
 - 未支付订单可被关闭
 - 库存会被正确释放
 - 重复取消不会造成重复释放
+
+当前实现设计：
+
+- 新增 RPC 接口
+  - `CancelOrder`
+    - 用于用户主动取消自己的订单
+  - `CloseExpiredOrders`
+    - 用于内部扫描并关闭已超时未支付订单
+  - 协议定义在：
+    - `idl/order.thrift`
+- 订单模型补充
+  - `orders` 表新增：
+    - `cancel_reason`
+  - 对应 migration：
+    - `services/order-service/migrations/000003_add_order_cancel_reason.up.sql`
+  - 作用：
+    - 记录用户取消原因或系统超时关闭原因
+    - 当前约定：
+      - 用户取消写 `user_cancelled`
+      - 超时关闭写 `order_expired`
+- repository 能力补充
+  - `GetByID`
+    - 供内部编排和状态回查使用
+  - `UpdateStatus`
+    - 按“允许的旧状态集合 -> 新状态”做条件更新
+    - 当前用于控制：
+      - `pending/reserved -> cancelled`
+      - `pending/reserved -> closed`
+  - `ListExpiredOrders`
+    - 查询 `expire_at <= now` 且状态仍是 `pending/reserved` 的订单
+- 主动取消链路
+  - 先按 `user_id + order_id` 查询订单
+  - 状态规则：
+    - `cancelled / closed`
+      - 直接按幂等成功返回
+    - `paid`
+      - 直接拒绝
+    - `pending / reserved`
+      - 允许进入取消流程
+  - 取消流程：
+    1. 调 `inventory-service.ReleaseReservedSkuStocks`
+    2. 成功后再把订单状态更新成 `cancelled`
+    3. 同时写入 `cancel_reason`
+  - 如果并发取消导致状态更新失败，会回查当前订单状态：
+    - 已经是 `cancelled / closed` 则按幂等成功处理
+    - 已经变成 `paid` 则返回“已支付订单不可取消”
+- 超时关闭链路
+  - `CloseExpiredOrders(limit)` 会：
+    1. 扫描一批已过期且仍未支付的订单
+    2. 对每笔订单调用库存释放
+    3. 状态更新成 `closed`
+    4. 写入 `cancel_reason = order_expired`
+  - 当前没有在服务内直接起常驻定时器，而是先暴露内部 RPC，后续由 cron / job / 调度器驱动
+- 释放库存的业务键
+  - 主动取消和超时关闭都会复用阶段三创建订单时的同一个预占业务键：
+    - `biz_type = order`
+    - `biz_id = order_id`
+  - 因为 `inventory-service` 的释放是幂等的，所以重复取消、重复超时扫描不会导致重复释放库存
+- 一致性口径
+  - 当前阶段四优先保证“库存释放幂等 + 订单状态条件更新”
+  - 取消和超时关闭都采用：
+    - 先释放库存
+    - 再条件更新订单状态
+  - 这样做的直接收益是：
+    - 释放动作天然复用库存域幂等能力
+    - 并发重复取消不会造成多次释放
+  - 当前仍未引入更重的订单域事务日志，因此极端异常下仍以“可重试 + 库存侧幂等”作为恢复策略
+- 代码落点
+  - service：
+    - `services/order-service/biz/service/cancel_order.go`
+    - `services/order-service/biz/service/close_expired_orders.go`
+  - repository：
+    - `services/order-service/biz/repository/repository.go`
+  - handler：
+    - `services/order-service/rpc/handler/cancel_order.go`
+    - `services/order-service/rpc/handler/close_expired_orders.go`
+
+本阶段设计取舍：
+
+- 先提供内部关闭扫描 RPC，不在阶段四直接实现常驻调度器
+- 先用 `cancel_reason` 承接审计语义，不额外引入 `cancelled_at / closed_at` 等更多状态时间字段
+- 先依赖库存域幂等释放，不在订单侧重复造一套库存释放幂等表
+
+当前阶段四交付边界：
+
+- 已完成：
+  - 主动取消订单
+  - 已支付订单禁止取消
+  - 超时订单扫描关闭
+  - 关闭/取消时释放库存
+  - 重复取消的幂等返回
+  - `cancel_reason` 字段落库
+- 暂未完成：
+  - 服务内定时扫描任务常驻执行
+  - 订单状态流转日志表
+  - 更强的订单域恢复任务与死信排障机制
 
 ### 阶段五：支付成功联动与确认扣减
 

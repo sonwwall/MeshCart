@@ -11,14 +11,18 @@ import (
 )
 
 var (
-	ErrOrderNotFound = errors.New("order not found")
-	ErrInvalidOrder  = errors.New("invalid order")
+	ErrOrderNotFound      = errors.New("order not found")
+	ErrInvalidOrder       = errors.New("invalid order")
+	ErrOrderStateConflict = errors.New("order state conflict")
 )
 
 type OrderRepository interface {
 	CreateWithItems(ctx context.Context, order *dalmodel.Order, items []*dalmodel.OrderItem) (*dalmodel.Order, error)
 	GetByOrderID(ctx context.Context, userID, orderID int64) (*dalmodel.Order, error)
+	GetByID(ctx context.Context, orderID int64) (*dalmodel.Order, error)
 	ListByUserID(ctx context.Context, userID int64, offset, limit int) ([]*dalmodel.Order, int64, error)
+	UpdateStatus(ctx context.Context, orderID int64, fromStatuses []int32, toStatus int32, cancelReason string) (*dalmodel.Order, error)
+	ListExpiredOrders(ctx context.Context, now time.Time, limit int) ([]*dalmodel.Order, error)
 }
 
 type MySQLOrderRepository struct {
@@ -75,6 +79,23 @@ func (r *MySQLOrderRepository) GetByOrderID(ctx context.Context, userID, orderID
 	return &order, nil
 }
 
+func (r *MySQLOrderRepository) GetByID(ctx context.Context, orderID int64) (*dalmodel.Order, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	var order dalmodel.Order
+	if err := r.db.WithContext(ctx).
+		Preload("Items").
+		Where("order_id = ?", orderID).
+		Take(&order).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrOrderNotFound
+		}
+		return nil, err
+	}
+	return &order, nil
+}
+
 func (r *MySQLOrderRepository) ListByUserID(ctx context.Context, userID int64, offset, limit int) ([]*dalmodel.Order, int64, error) {
 	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
 	defer cancel()
@@ -99,6 +120,50 @@ func (r *MySQLOrderRepository) ListByUserID(ctx context.Context, userID int64, o
 		return nil, 0, err
 	}
 	return orders, total, nil
+}
+
+func (r *MySQLOrderRepository) UpdateStatus(ctx context.Context, orderID int64, fromStatuses []int32, toStatus int32, cancelReason string) (*dalmodel.Order, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	if orderID <= 0 || len(fromStatuses) == 0 {
+		return nil, ErrInvalidOrder
+	}
+
+	result := r.db.WithContext(ctx).
+		Model(&dalmodel.Order{}).
+		Where("order_id = ? AND status IN ?", orderID, fromStatuses).
+		Updates(map[string]any{
+			"status":        toStatus,
+			"cancel_reason": cancelReason,
+		})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, ErrOrderStateConflict
+	}
+	return r.GetByID(ctx, orderID)
+}
+
+func (r *MySQLOrderRepository) ListExpiredOrders(ctx context.Context, now time.Time, limit int) ([]*dalmodel.Order, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	if limit <= 0 {
+		return nil, ErrInvalidOrder
+	}
+
+	var orders []*dalmodel.Order
+	if err := r.db.WithContext(ctx).
+		Preload("Items").
+		Where("status IN ? AND expire_at <= ?", []int32{1, 2}, now).
+		Order("expire_at ASC, order_id ASC").
+		Limit(limit).
+		Find(&orders).Error; err != nil {
+		return nil, err
+	}
+	return orders, nil
 }
 
 func withQueryTimeout(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

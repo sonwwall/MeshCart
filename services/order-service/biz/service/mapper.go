@@ -18,6 +18,8 @@ func mapRepositoryError(err error) *common.BizError {
 		return errno.ErrOrderNotFound
 	case errors.Is(err, repository.ErrInvalidOrder):
 		return errno.ErrInvalidOrderData
+	case errors.Is(err, repository.ErrOrderStateConflict):
+		return errno.ErrOrderStateConflict
 	default:
 		return common.ErrInternalError
 	}
@@ -46,13 +48,14 @@ func toRPCOrder(order *dalmodel.Order) *orderpb.Order {
 		expireAt = order.ExpireAt.Unix()
 	}
 	return &orderpb.Order{
-		OrderId:     order.OrderID,
-		UserId:      order.UserID,
-		Status:      order.Status,
-		TotalAmount: order.TotalAmount,
-		PayAmount:   order.PayAmount,
-		ExpireAt:    expireAt,
-		Items:       items,
+		OrderId:      order.OrderID,
+		UserId:       order.UserID,
+		Status:       order.Status,
+		TotalAmount:  order.TotalAmount,
+		PayAmount:    order.PayAmount,
+		ExpireAt:     expireAt,
+		Items:        items,
+		CancelReason: order.CancelReason,
 	}
 }
 

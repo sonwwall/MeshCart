@@ -10,10 +10,12 @@ import (
 )
 
 type Config struct {
-	MySQL     MySQLConfig     `mapstructure:"mysql"`
-	Migration MigrationConfig `mapstructure:"migration"`
-	Snowflake SnowflakeConfig `mapstructure:"snowflake"`
-	Timeout   TimeoutConfig   `mapstructure:"timeout"`
+	MySQL        MySQLConfig         `mapstructure:"mysql"`
+	Migration    MigrationConfig     `mapstructure:"migration"`
+	Snowflake    SnowflakeConfig     `mapstructure:"snowflake"`
+	Timeout      TimeoutConfig       `mapstructure:"timeout"`
+	ProductRPC   DownstreamRPCConfig `mapstructure:"product_rpc"`
+	InventoryRPC DownstreamRPCConfig `mapstructure:"inventory_rpc"`
 }
 
 type MySQLConfig struct {
@@ -37,6 +39,15 @@ type SnowflakeConfig struct {
 
 type TimeoutConfig struct {
 	DBQueryMS int `mapstructure:"db_query_ms"`
+}
+
+type DownstreamRPCConfig struct {
+	ServiceName      string `mapstructure:"service_name"`
+	HostPort         string `mapstructure:"host_port"`
+	DiscoveryType    string `mapstructure:"discovery_type"`
+	ConsulAddress    string `mapstructure:"consul_address"`
+	ConnectTimeoutMS int    `mapstructure:"connect_timeout_ms"`
+	RPCTimeoutMS     int    `mapstructure:"rpc_timeout_ms"`
 }
 
 type ApolloLoader interface {
@@ -80,6 +91,18 @@ func Load() (Config, error) {
 	v.SetDefault("migration.source", "file://services/order-service/migrations")
 	v.SetDefault("snowflake.node", 5)
 	v.SetDefault("timeout.db_query_ms", 1500)
+	v.SetDefault("product_rpc.service_name", "meshcart.product")
+	v.SetDefault("product_rpc.host_port", "127.0.0.1:8890")
+	v.SetDefault("product_rpc.discovery_type", "consul")
+	v.SetDefault("product_rpc.consul_address", "127.0.0.1:8500")
+	v.SetDefault("product_rpc.connect_timeout_ms", 500)
+	v.SetDefault("product_rpc.rpc_timeout_ms", 2000)
+	v.SetDefault("inventory_rpc.service_name", "meshcart.inventory")
+	v.SetDefault("inventory_rpc.host_port", "127.0.0.1:8891")
+	v.SetDefault("inventory_rpc.discovery_type", "consul")
+	v.SetDefault("inventory_rpc.consul_address", "127.0.0.1:8500")
+	v.SetDefault("inventory_rpc.connect_timeout_ms", 500)
+	v.SetDefault("inventory_rpc.rpc_timeout_ms", 2000)
 
 	if err := v.ReadInConfig(); err != nil {
 		return Config{}, err
