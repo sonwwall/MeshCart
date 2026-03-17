@@ -178,6 +178,84 @@ func TestRepository_AdjustTotalStock_NotFound(t *testing.T) {
 	}
 }
 
+func TestRepository_ReserveReleaseConfirmDeduct(t *testing.T) {
+	db := newInventorySQLiteDB(t)
+	repo := NewMySQLInventoryRepository(db, time.Second)
+
+	_, err := repo.CreateBatch(context.Background(), []*dalmodel.InventoryStock{
+		{ID: 1, SKUID: 3001, TotalStock: 10, ReservedStock: 0, AvailableStock: 10, Version: 1, Status: 1},
+	})
+	if err != nil {
+		t.Fatalf("seed create batch: %v", err)
+	}
+
+	stocks, err := repo.Reserve(context.Background(), "order", "order-1", []ReservationItem{{SKUID: 3001, Quantity: 2}})
+	if err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	if len(stocks) != 1 || stocks[0].ReservedStock != 2 || stocks[0].AvailableStock != 8 {
+		t.Fatalf("unexpected reserved stocks: %+v", stocks)
+	}
+
+	stocks, err = repo.ConfirmDeduct(context.Background(), "order", "order-1", []ReservationItem{{SKUID: 3001, Quantity: 2}})
+	if err != nil {
+		t.Fatalf("confirm deduct: %v", err)
+	}
+	if len(stocks) != 1 || stocks[0].TotalStock != 8 || stocks[0].ReservedStock != 0 || stocks[0].AvailableStock != 8 {
+		t.Fatalf("unexpected confirmed stocks: %+v", stocks)
+	}
+
+	stocks, err = repo.ConfirmDeduct(context.Background(), "order", "order-1", []ReservationItem{{SKUID: 3001, Quantity: 2}})
+	if err != nil {
+		t.Fatalf("confirm deduct idempotent: %v", err)
+	}
+	if len(stocks) != 1 || stocks[0].TotalStock != 8 {
+		t.Fatalf("unexpected idempotent confirmed stocks: %+v", stocks)
+	}
+}
+
+func TestRepository_ReleaseWithoutReserveCreatesReleasedMarker(t *testing.T) {
+	db := newInventorySQLiteDB(t)
+	repo := NewMySQLInventoryRepository(db, time.Second)
+
+	_, err := repo.CreateBatch(context.Background(), []*dalmodel.InventoryStock{
+		{ID: 1, SKUID: 3001, TotalStock: 10, ReservedStock: 0, AvailableStock: 10, Version: 1, Status: 1},
+	})
+	if err != nil {
+		t.Fatalf("seed create batch: %v", err)
+	}
+
+	stocks, err := repo.Release(context.Background(), "order", "order-2", []ReservationItem{{SKUID: 3001, Quantity: 2}})
+	if err != nil {
+		t.Fatalf("release without reserve: %v", err)
+	}
+	if len(stocks) != 1 || stocks[0].TotalStock != 10 || stocks[0].ReservedStock != 0 || stocks[0].AvailableStock != 10 {
+		t.Fatalf("unexpected released stocks: %+v", stocks)
+	}
+
+	_, err = repo.Reserve(context.Background(), "order", "order-2", []ReservationItem{{SKUID: 3001, Quantity: 2}})
+	if !errors.Is(err, ErrReservationStateConflict) {
+		t.Fatalf("expected ErrReservationStateConflict, got %v", err)
+	}
+}
+
+func TestRepository_ReserveInsufficientStock(t *testing.T) {
+	db := newInventorySQLiteDB(t)
+	repo := NewMySQLInventoryRepository(db, time.Second)
+
+	_, err := repo.CreateBatch(context.Background(), []*dalmodel.InventoryStock{
+		{ID: 1, SKUID: 3001, TotalStock: 1, ReservedStock: 0, AvailableStock: 1, Version: 1, Status: 1},
+	})
+	if err != nil {
+		t.Fatalf("seed create batch: %v", err)
+	}
+
+	_, err = repo.Reserve(context.Background(), "order", "order-3", []ReservationItem{{SKUID: 3001, Quantity: 2}})
+	if !errors.Is(err, ErrInsufficientStock) {
+		t.Fatalf("expected ErrInsufficientStock, got %v", err)
+	}
+}
+
 func newInventorySQLiteDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
@@ -185,7 +263,7 @@ func newInventorySQLiteDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open sqlite db: %v", err)
 	}
-	if err := db.AutoMigrate(&dalmodel.InventoryStock{}); err != nil {
+	if err := db.AutoMigrate(&dalmodel.InventoryStock{}, &dalmodel.InventoryReservation{}); err != nil {
 		t.Fatalf("migrate sqlite schema: %v", err)
 	}
 	return db

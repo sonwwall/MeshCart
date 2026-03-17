@@ -24,6 +24,9 @@ var (
 	errNilInitSkuStocksResponse      = errors.New("inventory rpc returned nil init sku stocks response")
 	errNilFreezeSkuStocksResponse    = errors.New("inventory rpc returned nil freeze sku stocks response")
 	errNilAdjustStockResponse        = errors.New("inventory rpc returned nil adjust stock response")
+	errNilReserveSkuStocksResponse   = errors.New("inventory rpc returned nil reserve sku stocks response")
+	errNilReleaseSkuStocksResponse   = errors.New("inventory rpc returned nil release sku stocks response")
+	errNilConfirmDeductResponse      = errors.New("inventory rpc returned nil confirm deduct reserved sku stocks response")
 )
 
 type GetSkuStockResponse struct {
@@ -63,6 +66,24 @@ type AdjustStockResponse struct {
 	Stock   *inventorypb.SkuStock
 }
 
+type ReserveSkuStocksResponse struct {
+	Code    int32
+	Message string
+	Stocks  []*inventorypb.SkuStock
+}
+
+type ReleaseReservedSkuStocksResponse struct {
+	Code    int32
+	Message string
+	Stocks  []*inventorypb.SkuStock
+}
+
+type ConfirmDeductReservedSkuStocksResponse struct {
+	Code    int32
+	Message string
+	Stocks  []*inventorypb.SkuStock
+}
+
 type CompensateInitSkuStocksResponse struct {
 	Code    int32
 	Message string
@@ -77,6 +98,9 @@ type Client interface {
 	CompensateInitSkuStocksSaga(ctx context.Context, req *inventorypb.CompensateInitSkuStocksSagaRequest) (*CompensateInitSkuStocksResponse, error)
 	FreezeSkuStocks(ctx context.Context, req *inventorypb.FreezeSkuStocksRequest) (*FreezeSkuStocksResponse, error)
 	AdjustStock(ctx context.Context, req *inventorypb.AdjustStockRequest) (*AdjustStockResponse, error)
+	ReserveSkuStocks(ctx context.Context, req *inventorypb.ReserveSkuStocksRequest) (*ReserveSkuStocksResponse, error)
+	ReleaseReservedSkuStocks(ctx context.Context, req *inventorypb.ReleaseReservedSkuStocksRequest) (*ReleaseReservedSkuStocksResponse, error)
+	ConfirmDeductReservedSkuStocks(ctx context.Context, req *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*ConfirmDeductReservedSkuStocksResponse, error)
 }
 
 type kitexClient struct {
@@ -219,6 +243,42 @@ func (c *kitexClient) AdjustStock(ctx context.Context, req *inventorypb.AdjustSt
 	}
 	code, message := baseCodeMessage(resp.Base)
 	return &AdjustStockResponse{Code: code, Message: message, Stock: resp.Stock}, nil
+}
+
+func (c *kitexClient) ReserveSkuStocks(ctx context.Context, req *inventorypb.ReserveSkuStocksRequest) (*ReserveSkuStocksResponse, error) {
+	resp, err := c.cli.ReserveSkuStocks(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilReserveSkuStocksResponse
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &ReserveSkuStocksResponse{Code: code, Message: message, Stocks: resp.Stocks}, nil
+}
+
+func (c *kitexClient) ReleaseReservedSkuStocks(ctx context.Context, req *inventorypb.ReleaseReservedSkuStocksRequest) (*ReleaseReservedSkuStocksResponse, error) {
+	resp, err := c.cli.ReleaseReservedSkuStocks(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilReleaseSkuStocksResponse
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &ReleaseReservedSkuStocksResponse{Code: code, Message: message, Stocks: resp.Stocks}, nil
+}
+
+func (c *kitexClient) ConfirmDeductReservedSkuStocks(ctx context.Context, req *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*ConfirmDeductReservedSkuStocksResponse, error) {
+	resp, err := c.cli.ConfirmDeductReservedSkuStocks(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilConfirmDeductResponse
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &ConfirmDeductReservedSkuStocksResponse{Code: code, Message: message, Stocks: resp.Stocks}, nil
 }
 
 func baseCodeMessage(base *basepb.BaseResponse) (int32, string) {

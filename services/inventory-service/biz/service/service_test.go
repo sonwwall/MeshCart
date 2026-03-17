@@ -24,6 +24,9 @@ type stubInventoryRepository struct {
 	getTxBranchFn                func(context.Context, string, string, string) (*dalmodel.InventoryTxBranch, error)
 	freezeBySKUsFn               func(context.Context, []int64) ([]*dalmodel.InventoryStock, error)
 	adjustStockFn                func(context.Context, int64, int64) (*dalmodel.InventoryStock, error)
+	reserveFn                    func(context.Context, string, string, []repository.ReservationItem) ([]*dalmodel.InventoryStock, error)
+	releaseFn                    func(context.Context, string, string, []repository.ReservationItem) ([]*dalmodel.InventoryStock, error)
+	confirmDeductFn              func(context.Context, string, string, []repository.ReservationItem) ([]*dalmodel.InventoryStock, error)
 }
 
 func (s *stubInventoryRepository) GetBySKUID(ctx context.Context, skuID int64) (*dalmodel.InventoryStock, error) {
@@ -80,6 +83,27 @@ func (s *stubInventoryRepository) AdjustTotalStock(ctx context.Context, skuID in
 		return s.adjustStockFn(ctx, skuID, totalStock)
 	}
 	return nil, repository.ErrStockNotFound
+}
+
+func (s *stubInventoryRepository) Reserve(ctx context.Context, bizType, bizID string, items []repository.ReservationItem) ([]*dalmodel.InventoryStock, error) {
+	if s.reserveFn != nil {
+		return s.reserveFn(ctx, bizType, bizID, items)
+	}
+	return []*dalmodel.InventoryStock{}, nil
+}
+
+func (s *stubInventoryRepository) Release(ctx context.Context, bizType, bizID string, items []repository.ReservationItem) ([]*dalmodel.InventoryStock, error) {
+	if s.releaseFn != nil {
+		return s.releaseFn(ctx, bizType, bizID, items)
+	}
+	return []*dalmodel.InventoryStock{}, nil
+}
+
+func (s *stubInventoryRepository) ConfirmDeduct(ctx context.Context, bizType, bizID string, items []repository.ReservationItem) ([]*dalmodel.InventoryStock, error) {
+	if s.confirmDeductFn != nil {
+		return s.confirmDeductFn(ctx, bizType, bizID, items)
+	}
+	return []*dalmodel.InventoryStock{}, nil
 }
 
 func TestInventoryService_GetSkuStock_NotFound(t *testing.T) {
@@ -322,6 +346,70 @@ func TestInventoryService_FreezeSkuStocks_Success(t *testing.T) {
 	}
 	if len(stocks) != 2 || stocks[0].GetStatus() != StockStatusFrozen || stocks[1].GetStatus() != StockStatusFrozen {
 		t.Fatalf("unexpected frozen stocks: %+v", stocks)
+	}
+}
+
+func TestInventoryService_ReserveSkuStocks_Success(t *testing.T) {
+	svc := NewInventoryService(&stubInventoryRepository{
+		reserveFn: func(_ context.Context, bizType, bizID string, items []repository.ReservationItem) ([]*dalmodel.InventoryStock, error) {
+			if bizType != "order" || bizID != "order-1" {
+				t.Fatalf("unexpected biz: %s %s", bizType, bizID)
+			}
+			if len(items) != 1 || items[0].SKUID != 3001 || items[0].Quantity != 2 {
+				t.Fatalf("unexpected items: %+v", items)
+			}
+			return []*dalmodel.InventoryStock{
+				{SKUID: 3001, TotalStock: 10, ReservedStock: 2, AvailableStock: 8, Status: StockStatusActive},
+			}, nil
+		},
+	})
+
+	stocks, bizErr := svc.ReserveSkuStocks(context.Background(), &inventorypb.ReserveSkuStocksRequest{
+		BizType: "order",
+		BizId:   "order-1",
+		Items:   []*inventorypb.StockReservationItem{{SkuId: 3001, Quantity: 2}},
+	})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if len(stocks) != 1 || stocks[0].GetReservedStock() != 2 || stocks[0].GetAvailableStock() != 8 {
+		t.Fatalf("unexpected stocks: %+v", stocks)
+	}
+}
+
+func TestInventoryService_ReleaseReservedSkuStocks_Conflict(t *testing.T) {
+	svc := NewInventoryService(&stubInventoryRepository{
+		releaseFn: func(context.Context, string, string, []repository.ReservationItem) ([]*dalmodel.InventoryStock, error) {
+			return nil, repository.ErrReservationStateConflict
+		},
+	})
+
+	stocks, bizErr := svc.ReleaseReservedSkuStocks(context.Background(), &inventorypb.ReleaseReservedSkuStocksRequest{
+		BizType: "order",
+		BizId:   "order-1",
+		Items:   []*inventorypb.StockReservationItem{{SkuId: 3001, Quantity: 2}},
+	})
+	if stocks != nil {
+		t.Fatalf("expected nil stocks, got %+v", stocks)
+	}
+	if bizErr != errno.ErrReservationConflict {
+		t.Fatalf("expected ErrReservationConflict, got %+v", bizErr)
+	}
+}
+
+func TestInventoryService_ConfirmDeductReservedSkuStocks_InvalidParam(t *testing.T) {
+	svc := NewInventoryService(&stubInventoryRepository{})
+
+	stocks, bizErr := svc.ConfirmDeductReservedSkuStocks(context.Background(), &inventorypb.ConfirmDeductReservedSkuStocksRequest{
+		BizType: "order",
+		BizId:   "",
+		Items:   []*inventorypb.StockReservationItem{{SkuId: 3001, Quantity: 2}},
+	})
+	if stocks != nil {
+		t.Fatalf("expected nil stocks, got %+v", stocks)
+	}
+	if bizErr != common.ErrInvalidParam {
+		t.Fatalf("expected ErrInvalidParam, got %+v", bizErr)
 	}
 }
 

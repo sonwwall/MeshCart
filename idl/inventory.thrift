@@ -45,6 +45,11 @@ struct InitSkuStockItem {
     2: i64 total_stock
 }
 
+struct StockReservationItem {
+    1: i64 sku_id
+    2: i64 quantity
+}
+
 struct InitSkuStocksRequest {
     1: list<InitSkuStockItem> stocks
 }
@@ -92,6 +97,39 @@ struct AdjustStockResponse {
     255: base.BaseResponse base
 }
 
+struct ReserveSkuStocksRequest {
+    1: string biz_type
+    2: string biz_id
+    3: list<StockReservationItem> items
+}
+
+struct ReserveSkuStocksResponse {
+    1: list<SkuStock> stocks
+    255: base.BaseResponse base
+}
+
+struct ReleaseReservedSkuStocksRequest {
+    1: string biz_type
+    2: string biz_id
+    3: list<StockReservationItem> items
+}
+
+struct ReleaseReservedSkuStocksResponse {
+    1: list<SkuStock> stocks
+    255: base.BaseResponse base
+}
+
+struct ConfirmDeductReservedSkuStocksRequest {
+    1: string biz_type
+    2: string biz_id
+    3: list<StockReservationItem> items
+}
+
+struct ConfirmDeductReservedSkuStocksResponse {
+    1: list<SkuStock> stocks
+    255: base.BaseResponse base
+}
+
 service InventoryService {
     GetSkuStockResponse getSkuStock(1: GetSkuStockRequest request)
     BatchGetSkuStockResponse batchGetSkuStock(1: BatchGetSkuStockRequest request)
@@ -101,4 +139,7 @@ service InventoryService {
     CompensateInitSkuStocksSagaResponse compensateInitSkuStocksSaga(1: CompensateInitSkuStocksSagaRequest request)
     FreezeSkuStocksResponse freezeSkuStocks(1: FreezeSkuStocksRequest request)
     AdjustStockResponse adjustStock(1: AdjustStockRequest request)
+    ReserveSkuStocksResponse reserveSkuStocks(1: ReserveSkuStocksRequest request)
+    ReleaseReservedSkuStocksResponse releaseReservedSkuStocks(1: ReleaseReservedSkuStocksRequest request)
+    ConfirmDeductReservedSkuStocksResponse confirmDeductReservedSkuStocks(1: ConfirmDeductReservedSkuStocksRequest request)
 }

@@ -34,3 +34,19 @@ type InventoryTxBranch struct {
 func (InventoryTxBranch) TableName() string {
 	return "inventory_tx_branches"
 }
+
+type InventoryReservation struct {
+	ID              int64     `gorm:"column:id;primaryKey"`
+	BizType         string    `gorm:"column:biz_type;type:varchar(64);not null;uniqueIndex:uk_inventory_reservation_biz_sku,priority:1"`
+	BizID           string    `gorm:"column:biz_id;type:varchar(128);not null;uniqueIndex:uk_inventory_reservation_biz_sku,priority:2"`
+	SKUID           int64     `gorm:"column:sku_id;not null;uniqueIndex:uk_inventory_reservation_biz_sku,priority:3;index:idx_inventory_reservation_sku_id"`
+	Quantity        int64     `gorm:"column:quantity;not null;default:0"`
+	Status          string    `gorm:"column:status;type:varchar(32);not null"`
+	PayloadSnapshot string    `gorm:"column:payload_snapshot;type:text;not null"`
+	CreatedAt       time.Time `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt       time.Time `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (InventoryReservation) TableName() string {
+	return "inventory_reservations"
+}

@@ -69,6 +69,27 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"reserveSkuStocks": kitex.NewMethodInfo(
+		reserveSkuStocksHandler,
+		newInventoryServiceReserveSkuStocksArgs,
+		newInventoryServiceReserveSkuStocksResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"releaseReservedSkuStocks": kitex.NewMethodInfo(
+		releaseReservedSkuStocksHandler,
+		newInventoryServiceReleaseReservedSkuStocksArgs,
+		newInventoryServiceReleaseReservedSkuStocksResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"confirmDeductReservedSkuStocks": kitex.NewMethodInfo(
+		confirmDeductReservedSkuStocksHandler,
+		newInventoryServiceConfirmDeductReservedSkuStocksArgs,
+		newInventoryServiceConfirmDeductReservedSkuStocksResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -279,6 +300,60 @@ func newInventoryServiceAdjustStockResult() interface{} {
 	return inventory.NewInventoryServiceAdjustStockResult()
 }
 
+func reserveSkuStocksHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*inventory.InventoryServiceReserveSkuStocksArgs)
+	realResult := result.(*inventory.InventoryServiceReserveSkuStocksResult)
+	success, err := handler.(inventory.InventoryService).ReserveSkuStocks(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newInventoryServiceReserveSkuStocksArgs() interface{} {
+	return inventory.NewInventoryServiceReserveSkuStocksArgs()
+}
+
+func newInventoryServiceReserveSkuStocksResult() interface{} {
+	return inventory.NewInventoryServiceReserveSkuStocksResult()
+}
+
+func releaseReservedSkuStocksHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*inventory.InventoryServiceReleaseReservedSkuStocksArgs)
+	realResult := result.(*inventory.InventoryServiceReleaseReservedSkuStocksResult)
+	success, err := handler.(inventory.InventoryService).ReleaseReservedSkuStocks(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newInventoryServiceReleaseReservedSkuStocksArgs() interface{} {
+	return inventory.NewInventoryServiceReleaseReservedSkuStocksArgs()
+}
+
+func newInventoryServiceReleaseReservedSkuStocksResult() interface{} {
+	return inventory.NewInventoryServiceReleaseReservedSkuStocksResult()
+}
+
+func confirmDeductReservedSkuStocksHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*inventory.InventoryServiceConfirmDeductReservedSkuStocksArgs)
+	realResult := result.(*inventory.InventoryServiceConfirmDeductReservedSkuStocksResult)
+	success, err := handler.(inventory.InventoryService).ConfirmDeductReservedSkuStocks(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newInventoryServiceConfirmDeductReservedSkuStocksArgs() interface{} {
+	return inventory.NewInventoryServiceConfirmDeductReservedSkuStocksArgs()
+}
+
+func newInventoryServiceConfirmDeductReservedSkuStocksResult() interface{} {
+	return inventory.NewInventoryServiceConfirmDeductReservedSkuStocksResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -364,6 +439,36 @@ func (p *kClient) AdjustStock(ctx context.Context, request *inventory.AdjustStoc
 	_args.Request = request
 	var _result inventory.InventoryServiceAdjustStockResult
 	if err = p.c.Call(ctx, "adjustStock", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ReserveSkuStocks(ctx context.Context, request *inventory.ReserveSkuStocksRequest) (r *inventory.ReserveSkuStocksResponse, err error) {
+	var _args inventory.InventoryServiceReserveSkuStocksArgs
+	_args.Request = request
+	var _result inventory.InventoryServiceReserveSkuStocksResult
+	if err = p.c.Call(ctx, "reserveSkuStocks", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ReleaseReservedSkuStocks(ctx context.Context, request *inventory.ReleaseReservedSkuStocksRequest) (r *inventory.ReleaseReservedSkuStocksResponse, err error) {
+	var _args inventory.InventoryServiceReleaseReservedSkuStocksArgs
+	_args.Request = request
+	var _result inventory.InventoryServiceReleaseReservedSkuStocksResult
+	if err = p.c.Call(ctx, "releaseReservedSkuStocks", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ConfirmDeductReservedSkuStocks(ctx context.Context, request *inventory.ConfirmDeductReservedSkuStocksRequest) (r *inventory.ConfirmDeductReservedSkuStocksResponse, err error) {
+	var _args inventory.InventoryServiceConfirmDeductReservedSkuStocksArgs
+	_args.Request = request
+	var _result inventory.InventoryServiceConfirmDeductReservedSkuStocksResult
+	if err = p.c.Call(ctx, "confirmDeductReservedSkuStocks", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

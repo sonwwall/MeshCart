@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,10 +13,20 @@ import (
 )
 
 var (
-	ErrStockNotFound   = errors.New("inventory stock not found")
-	ErrStockExists     = errors.New("inventory stock already exists")
-	ErrInvalidQuantity = errors.New("invalid stock quantity")
+	ErrStockNotFound            = errors.New("inventory stock not found")
+	ErrStockExists              = errors.New("inventory stock already exists")
+	ErrInvalidQuantity          = errors.New("invalid stock quantity")
+	ErrInsufficientStock        = errors.New("insufficient stock")
+	ErrStockFrozen              = errors.New("inventory stock frozen")
+	ErrReservationConflict      = errors.New("inventory reservation conflict")
+	ErrReservationNotFound      = errors.New("inventory reservation not found")
+	ErrReservationStateConflict = errors.New("inventory reservation state conflict")
 )
+
+type ReservationItem struct {
+	SKUID    int64
+	Quantity int64
+}
 
 type InventoryRepository interface {
 	GetBySKUID(ctx context.Context, skuID int64) (*dalmodel.InventoryStock, error)
@@ -26,6 +37,9 @@ type InventoryRepository interface {
 	FreezeBySKUIDs(ctx context.Context, skuIDs []int64) ([]*dalmodel.InventoryStock, error)
 	AdjustTotalStock(ctx context.Context, skuID int64, totalStock int64) (*dalmodel.InventoryStock, error)
 	GetTxBranch(ctx context.Context, globalTxID, branchID, action string) (*dalmodel.InventoryTxBranch, error)
+	Reserve(ctx context.Context, bizType, bizID string, items []ReservationItem) ([]*dalmodel.InventoryStock, error)
+	Release(ctx context.Context, bizType, bizID string, items []ReservationItem) ([]*dalmodel.InventoryStock, error)
+	ConfirmDeduct(ctx context.Context, bizType, bizID string, items []ReservationItem) ([]*dalmodel.InventoryStock, error)
 }
 
 type MySQLInventoryRepository struct {
@@ -277,4 +291,273 @@ func (r *MySQLInventoryRepository) GetTxBranch(ctx context.Context, globalTxID, 
 		return nil, err
 	}
 	return &branch, nil
+}
+
+const (
+	reservationStatusReserved  = "reserved"
+	reservationStatusReleased  = "released"
+	reservationStatusConfirmed = "confirmed"
+)
+
+func (r *MySQLInventoryRepository) Reserve(ctx context.Context, bizType, bizID string, items []ReservationItem) ([]*dalmodel.InventoryStock, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	skuIDs, err := validateReservationItems(items)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		existing, err := loadReservations(tx, bizType, bizID, skuIDs)
+		if err != nil {
+			return err
+		}
+		for _, item := range items {
+			reservation := existing[item.SKUID]
+			if reservation != nil {
+				if reservation.Quantity != item.Quantity {
+					return ErrReservationConflict
+				}
+				if reservation.Status == reservationStatusReserved {
+					continue
+				}
+				return ErrReservationStateConflict
+			}
+
+			result := tx.Model(&dalmodel.InventoryStock{}).
+				Where("sku_id = ? AND status = ? AND available_stock >= ?", item.SKUID, 1, item.Quantity).
+				Updates(map[string]any{
+					"reserved_stock":  gorm.Expr("reserved_stock + ?", item.Quantity),
+					"available_stock": gorm.Expr("available_stock - ?", item.Quantity),
+					"version":         gorm.Expr("version + 1"),
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return classifyReserveFailure(tx, item)
+			}
+
+			payload := buildReservationPayload(bizType, bizID, item)
+			if err := tx.Create(&dalmodel.InventoryReservation{
+				BizType:         bizType,
+				BizID:           bizID,
+				SKUID:           item.SKUID,
+				Quantity:        item.Quantity,
+				Status:          reservationStatusReserved,
+				PayloadSnapshot: payload,
+			}).Error; err != nil {
+				return normalizeDuplicateError(err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r.ListBySKUIDs(ctx, skuIDs)
+}
+
+func (r *MySQLInventoryRepository) Release(ctx context.Context, bizType, bizID string, items []ReservationItem) ([]*dalmodel.InventoryStock, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	skuIDs, err := validateReservationItems(items)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		existing, err := loadReservations(tx, bizType, bizID, skuIDs)
+		if err != nil {
+			return err
+		}
+		for _, item := range items {
+			reservation := existing[item.SKUID]
+			if reservation == nil {
+				payload := buildReservationPayload(bizType, bizID, item)
+				if err := tx.Create(&dalmodel.InventoryReservation{
+					BizType:         bizType,
+					BizID:           bizID,
+					SKUID:           item.SKUID,
+					Quantity:        item.Quantity,
+					Status:          reservationStatusReleased,
+					PayloadSnapshot: payload,
+				}).Error; err != nil {
+					return normalizeDuplicateError(err)
+				}
+				continue
+			}
+			if reservation.Quantity != item.Quantity {
+				return ErrReservationConflict
+			}
+			switch reservation.Status {
+			case reservationStatusReleased:
+				continue
+			case reservationStatusConfirmed:
+				return ErrReservationStateConflict
+			case reservationStatusReserved:
+				result := tx.Model(&dalmodel.InventoryStock{}).
+					Where("sku_id = ? AND reserved_stock >= ?", item.SKUID, item.Quantity).
+					Updates(map[string]any{
+						"reserved_stock":  gorm.Expr("reserved_stock - ?", item.Quantity),
+						"available_stock": gorm.Expr("available_stock + ?", item.Quantity),
+						"version":         gorm.Expr("version + 1"),
+					})
+				if result.Error != nil {
+					return result.Error
+				}
+				if result.RowsAffected == 0 {
+					return ErrReservationStateConflict
+				}
+				if err := tx.Model(&dalmodel.InventoryReservation{}).
+					Where("id = ?", reservation.ID).
+					Updates(map[string]any{
+						"status":           reservationStatusReleased,
+						"payload_snapshot": buildReservationPayload(bizType, bizID, item),
+					}).Error; err != nil {
+					return err
+				}
+			default:
+				return ErrReservationStateConflict
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r.ListBySKUIDs(ctx, skuIDs)
+}
+
+func (r *MySQLInventoryRepository) ConfirmDeduct(ctx context.Context, bizType, bizID string, items []ReservationItem) ([]*dalmodel.InventoryStock, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	skuIDs, err := validateReservationItems(items)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		existing, err := loadReservations(tx, bizType, bizID, skuIDs)
+		if err != nil {
+			return err
+		}
+		for _, item := range items {
+			reservation := existing[item.SKUID]
+			if reservation == nil {
+				return ErrReservationNotFound
+			}
+			if reservation.Quantity != item.Quantity {
+				return ErrReservationConflict
+			}
+			switch reservation.Status {
+			case reservationStatusConfirmed:
+				continue
+			case reservationStatusReleased:
+				return ErrReservationStateConflict
+			case reservationStatusReserved:
+				result := tx.Model(&dalmodel.InventoryStock{}).
+					Where("sku_id = ? AND reserved_stock >= ? AND total_stock >= ?", item.SKUID, item.Quantity, item.Quantity).
+					Updates(map[string]any{
+						"total_stock":    gorm.Expr("total_stock - ?", item.Quantity),
+						"reserved_stock": gorm.Expr("reserved_stock - ?", item.Quantity),
+						"version":        gorm.Expr("version + 1"),
+					})
+				if result.Error != nil {
+					return result.Error
+				}
+				if result.RowsAffected == 0 {
+					return ErrReservationStateConflict
+				}
+				if err := tx.Model(&dalmodel.InventoryReservation{}).
+					Where("id = ?", reservation.ID).
+					Updates(map[string]any{
+						"status":           reservationStatusConfirmed,
+						"payload_snapshot": buildReservationPayload(bizType, bizID, item),
+					}).Error; err != nil {
+					return err
+				}
+			default:
+				return ErrReservationStateConflict
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r.ListBySKUIDs(ctx, skuIDs)
+}
+
+func validateReservationItems(items []ReservationItem) ([]int64, error) {
+	if len(items) == 0 {
+		return nil, ErrInvalidQuantity
+	}
+	seen := make(map[int64]struct{}, len(items))
+	skuIDs := make([]int64, 0, len(items))
+	for _, item := range items {
+		if item.SKUID <= 0 || item.Quantity <= 0 {
+			return nil, ErrInvalidQuantity
+		}
+		if _, ok := seen[item.SKUID]; ok {
+			return nil, ErrReservationConflict
+		}
+		seen[item.SKUID] = struct{}{}
+		skuIDs = append(skuIDs, item.SKUID)
+	}
+	return skuIDs, nil
+}
+
+func loadReservations(tx *gorm.DB, bizType, bizID string, skuIDs []int64) (map[int64]*dalmodel.InventoryReservation, error) {
+	result := make(map[int64]*dalmodel.InventoryReservation, len(skuIDs))
+	if len(skuIDs) == 0 {
+		return result, nil
+	}
+	var reservations []*dalmodel.InventoryReservation
+	if err := tx.Where("biz_type = ? AND biz_id = ? AND sku_id IN ?", bizType, bizID, skuIDs).Find(&reservations).Error; err != nil {
+		return nil, err
+	}
+	for _, reservation := range reservations {
+		result[reservation.SKUID] = reservation
+	}
+	return result, nil
+}
+
+func classifyReserveFailure(tx *gorm.DB, item ReservationItem) error {
+	var stock dalmodel.InventoryStock
+	if err := tx.Where("sku_id = ?", item.SKUID).Take(&stock).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrStockNotFound
+		}
+		return err
+	}
+	if stock.Status != 1 {
+		return ErrStockFrozen
+	}
+	if stock.AvailableStock < item.Quantity {
+		return ErrInsufficientStock
+	}
+	return ErrReservationStateConflict
+}
+
+func normalizeDuplicateError(err error) error {
+	if err == nil {
+		return nil
+	}
+	lowerErr := strings.ToLower(err.Error())
+	if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(lowerErr, "duplicate") || strings.Contains(lowerErr, "unique constraint") {
+		return ErrReservationConflict
+	}
+	return err
+}
+
+func buildReservationPayload(bizType, bizID string, item ReservationItem) string {
+	return `{"biz_type":"` + bizType + `","biz_id":"` + bizID + `","sku_id":` + int64ToString(item.SKUID) + `,"quantity":` + int64ToString(item.Quantity) + `}`
+}
+
+func int64ToString(value int64) string {
+	return strconv.FormatInt(value, 10)
 }

@@ -19,6 +19,9 @@ type Client interface {
 	CompensateInitSkuStocksSaga(ctx context.Context, request *inventory.CompensateInitSkuStocksSagaRequest, callOptions ...callopt.Option) (r *inventory.CompensateInitSkuStocksSagaResponse, err error)
 	FreezeSkuStocks(ctx context.Context, request *inventory.FreezeSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.FreezeSkuStocksResponse, err error)
 	AdjustStock(ctx context.Context, request *inventory.AdjustStockRequest, callOptions ...callopt.Option) (r *inventory.AdjustStockResponse, err error)
+	ReserveSkuStocks(ctx context.Context, request *inventory.ReserveSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.ReserveSkuStocksResponse, err error)
+	ReleaseReservedSkuStocks(ctx context.Context, request *inventory.ReleaseReservedSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.ReleaseReservedSkuStocksResponse, err error)
+	ConfirmDeductReservedSkuStocks(ctx context.Context, request *inventory.ConfirmDeductReservedSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.ConfirmDeductReservedSkuStocksResponse, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -88,4 +91,19 @@ func (p *kInventoryServiceClient) FreezeSkuStocks(ctx context.Context, request *
 func (p *kInventoryServiceClient) AdjustStock(ctx context.Context, request *inventory.AdjustStockRequest, callOptions ...callopt.Option) (r *inventory.AdjustStockResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.AdjustStock(ctx, request)
+}
+
+func (p *kInventoryServiceClient) ReserveSkuStocks(ctx context.Context, request *inventory.ReserveSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.ReserveSkuStocksResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ReserveSkuStocks(ctx, request)
+}
+
+func (p *kInventoryServiceClient) ReleaseReservedSkuStocks(ctx context.Context, request *inventory.ReleaseReservedSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.ReleaseReservedSkuStocksResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ReleaseReservedSkuStocks(ctx, request)
+}
+
+func (p *kInventoryServiceClient) ConfirmDeductReservedSkuStocks(ctx context.Context, request *inventory.ConfirmDeductReservedSkuStocksRequest, callOptions ...callopt.Option) (r *inventory.ConfirmDeductReservedSkuStocksResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ConfirmDeductReservedSkuStocks(ctx, request)
 }

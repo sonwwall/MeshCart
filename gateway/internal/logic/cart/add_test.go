@@ -135,6 +135,9 @@ type stubInventoryClient struct {
 	compensateInitSkuStocksSagaFn func(context.Context, *inventorypb.CompensateInitSkuStocksSagaRequest) (*inventoryrpc.CompensateInitSkuStocksResponse, error)
 	freezeSkuStocksFn             func(context.Context, *inventorypb.FreezeSkuStocksRequest) (*inventoryrpc.FreezeSkuStocksResponse, error)
 	adjustStockFn                 func(context.Context, *inventorypb.AdjustStockRequest) (*inventoryrpc.AdjustStockResponse, error)
+	reserveSkuStocksFn            func(context.Context, *inventorypb.ReserveSkuStocksRequest) (*inventoryrpc.ReserveSkuStocksResponse, error)
+	releaseReservedSkuStocksFn    func(context.Context, *inventorypb.ReleaseReservedSkuStocksRequest) (*inventoryrpc.ReleaseReservedSkuStocksResponse, error)
+	confirmDeductReservedFn       func(context.Context, *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*inventoryrpc.ConfirmDeductReservedSkuStocksResponse, error)
 }
 
 func (s *stubInventoryClient) GetSkuStock(ctx context.Context, req *inventorypb.GetSkuStockRequest) (*inventoryrpc.GetSkuStockResponse, error) {
@@ -189,6 +192,27 @@ func (s *stubInventoryClient) AdjustStock(ctx context.Context, req *inventorypb.
 		return s.adjustStockFn(ctx, req)
 	}
 	return &inventoryrpc.AdjustStockResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubInventoryClient) ReserveSkuStocks(ctx context.Context, req *inventorypb.ReserveSkuStocksRequest) (*inventoryrpc.ReserveSkuStocksResponse, error) {
+	if s.reserveSkuStocksFn != nil {
+		return s.reserveSkuStocksFn(ctx, req)
+	}
+	return &inventoryrpc.ReserveSkuStocksResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubInventoryClient) ReleaseReservedSkuStocks(ctx context.Context, req *inventorypb.ReleaseReservedSkuStocksRequest) (*inventoryrpc.ReleaseReservedSkuStocksResponse, error) {
+	if s.releaseReservedSkuStocksFn != nil {
+		return s.releaseReservedSkuStocksFn(ctx, req)
+	}
+	return &inventoryrpc.ReleaseReservedSkuStocksResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+
+func (s *stubInventoryClient) ConfirmDeductReservedSkuStocks(ctx context.Context, req *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*inventoryrpc.ConfirmDeductReservedSkuStocksResponse, error) {
+	if s.confirmDeductReservedFn != nil {
+		return s.confirmDeductReservedFn(ctx, req)
+	}
+	return &inventoryrpc.ConfirmDeductReservedSkuStocksResponse{Code: common.CodeOK, Message: "成功"}, nil
 }
 
 func newCartTestServiceContext(t *testing.T, cartClient cartrpc.Client, productClient productrpc.Client, inventoryClient inventoryrpc.Client) *svc.ServiceContext {

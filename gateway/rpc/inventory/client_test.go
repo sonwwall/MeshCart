@@ -20,6 +20,9 @@ type stubKitexInventoryClient struct {
 	compensateInitSkuStocksSagaFn func(context.Context, *inventorypb.CompensateInitSkuStocksSagaRequest) (*inventorypb.CompensateInitSkuStocksSagaResponse, error)
 	freezeSkuStocksFn             func(context.Context, *inventorypb.FreezeSkuStocksRequest) (*inventorypb.FreezeSkuStocksResponse, error)
 	adjustStockFn                 func(context.Context, *inventorypb.AdjustStockRequest) (*inventorypb.AdjustStockResponse, error)
+	reserveSkuStocksFn            func(context.Context, *inventorypb.ReserveSkuStocksRequest) (*inventorypb.ReserveSkuStocksResponse, error)
+	releaseReservedFn             func(context.Context, *inventorypb.ReleaseReservedSkuStocksRequest) (*inventorypb.ReleaseReservedSkuStocksResponse, error)
+	confirmDeductFn               func(context.Context, *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*inventorypb.ConfirmDeductReservedSkuStocksResponse, error)
 }
 
 var _ inventoryservice.Client = (*stubKitexInventoryClient)(nil)
@@ -54,6 +57,27 @@ func (s *stubKitexInventoryClient) FreezeSkuStocks(ctx context.Context, request 
 
 func (s *stubKitexInventoryClient) AdjustStock(ctx context.Context, request *inventorypb.AdjustStockRequest, _ ...callopt.Option) (*inventorypb.AdjustStockResponse, error) {
 	return s.adjustStockFn(ctx, request)
+}
+
+func (s *stubKitexInventoryClient) ReserveSkuStocks(ctx context.Context, request *inventorypb.ReserveSkuStocksRequest, _ ...callopt.Option) (*inventorypb.ReserveSkuStocksResponse, error) {
+	if s.reserveSkuStocksFn != nil {
+		return s.reserveSkuStocksFn(ctx, request)
+	}
+	return &inventorypb.ReserveSkuStocksResponse{}, nil
+}
+
+func (s *stubKitexInventoryClient) ReleaseReservedSkuStocks(ctx context.Context, request *inventorypb.ReleaseReservedSkuStocksRequest, _ ...callopt.Option) (*inventorypb.ReleaseReservedSkuStocksResponse, error) {
+	if s.releaseReservedFn != nil {
+		return s.releaseReservedFn(ctx, request)
+	}
+	return &inventorypb.ReleaseReservedSkuStocksResponse{}, nil
+}
+
+func (s *stubKitexInventoryClient) ConfirmDeductReservedSkuStocks(ctx context.Context, request *inventorypb.ConfirmDeductReservedSkuStocksRequest, _ ...callopt.Option) (*inventorypb.ConfirmDeductReservedSkuStocksResponse, error) {
+	if s.confirmDeductFn != nil {
+		return s.confirmDeductFn(ctx, request)
+	}
+	return &inventorypb.ConfirmDeductReservedSkuStocksResponse{}, nil
 }
 
 func TestClient_InitSkuStocks_NilResponse(t *testing.T) {

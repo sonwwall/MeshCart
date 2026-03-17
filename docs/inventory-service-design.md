@@ -2,7 +2,7 @@
 
 ## 1. 目的
 
-本文档用于说明 `inventory-service` 当前已经完成的设计与实现基线，并整理库存域后续尚未完成的开发计划。
+本文档说明 `inventory-service` 当前已经落地的设计与实现基线，并整理后续仍值得继续推进的演进方向。
 
 本文档遵循 [service-development-spec.md](./service-development-spec.md) 中的通用服务规范，作为库存服务继续演进时的设计依据和实现参照。
 
@@ -13,161 +13,111 @@
 - [evolution-plan.md](./evolution-plan.md)
 - [product-service-design.md](./product-service-design.md)
 - [cart-service-design.md](./cart-service-design.md)
+- [distributed-transaction-design.md](./distributed-transaction-design.md)
 - [error-code.md](./error-code.md)
 
----
-
-## 第一部分：当前已完成的设计与实现
-
-## 3. 当前目标与边界
+## 3. 当前定位
 
 ### 3.1 当前目标
 
-`inventory-service` 当前阶段的目标是补齐“商品可售校验 -> 库存可售校验 -> 购物车加购”的最小库存闭环，让购物车加购在商品状态正确之外，还能完成库存是否足够的判断。
+`inventory-service` 当前目标是为 MeshCart 提供统一的库存域能力，覆盖以下三类场景：
+
+- 商品创建或更新后的库存初始化
+- 商品和购物车链路中的库存可售校验
+- 订单语义下的库存预占、释放、确认扣减
 
 ### 3.2 当前负责
 
 - 维护 SKU 维度库存主数据
-- 提供单个 SKU 库存查询能力
-- 提供批量 SKU 库存查询能力
-- 提供库存是否足够的只读校验能力
-- 提供商品创建后的库存初始化能力
+- 提供单个 SKU 和批量 SKU 的库存查询
+- 提供库存是否足够的只读校验
+- 提供商品创建后的库存初始化
+- 提供按业务单号的库存预占
+- 提供按业务单号的库存释放
+- 提供按业务单号的库存确认扣减
 - 提供后台库存调整能力
-- 提供后台库存查询 HTTP 接口
-- 为后续订单预占、扣减保留统一库存服务边界
 
 ### 3.3 当前不负责
 
+- 商品是否在线、SKU 是否 active
 - 多仓、多库位、仓间调拨
-- 库存流水明细
-- 正式库存预占与释放
-- 支付成功后的最终扣减
 - 采购入库、人工盘点、售后返库
-- Redis 热点库存扣减
 - 秒杀库存分桶
+- Redis 热点库存主扣减
+- 对外公网 HTTP 直出库存写接口
 
-## 4. 当前服务边界与协作关系
+## 4. 服务边界与协作
 
 ### 4.1 服务边界
 
 - `inventory-service`
-  - 负责库存主数据读能力
-  - 负责库存是否足够的判断
-  - 当前不做商品状态判断
-  - 当前不做订单状态驱动的库存变更
+  - 负责库存真相源
+  - 负责库存可售判断
+  - 负责库存预占、释放、确认扣减
 - `product-service`
-  - 负责商品是否在线
-  - 负责 SKU 是否 active
-  - 不负责库存数量
+  - 负责商品主数据
+  - 负责商品是否在线、SKU 是否 active
 - `cart-service`
   - 负责购物车项持久化
   - 不直接判断库存
 - `gateway`
-  - 负责在加购链路中编排商品校验与库存校验
-  - 负责统一鉴权、参数校验和错误映射
-
-### 4.2 多服务协作关系
-
-当前库存域和其他服务的协作关系如下：
-
-- `gateway`
-  - 对外承接 HTTP 请求
-  - 不保存商品主数据和库存主数据
-  - 负责把多个下游服务编排成一条完整业务链路
-- `product-service`
-  - 保存商品和 SKU 主数据
-  - 负责商品是否在线、SKU 是否 active
-  - 不负责库存数量
-- `inventory-service`
-  - 保存 SKU 对应库存数据
-  - 负责库存是否足够
-  - 不负责商品标题、价格、图片、上下架状态
-- `cart-service`
-  - 保存购物车项和商品快照
-  - 不负责判断商品是否可售，也不负责判断库存是否足够
+  - 负责对外 HTTP
+  - 负责编排商品校验和库存校验
 - `order-service`
-  - 当前阶段还未正式接入库存主链路
-  - 后续会成为库存预占、释放、扣减的核心调用方
+  - 当前还未正式接入
+  - 后续会成为库存预占、释放、确认扣减的主要调用方
 
-当前协作原则：
+### 4.2 协作原则
 
 - 商品域和库存域通过 `sku_id` 关联
-- 商品服务负责“能不能卖”
-- 库存服务负责“还有没有库存可卖”
-- 网关或后续订单服务负责把两类判断编排起来
+- `product-service` 负责“能不能卖”
+- `inventory-service` 负责“还有没有库存可卖”
+- `gateway` 或后续 `order-service` 负责把多服务能力编排成完整业务链路
 
-换句话说：
+## 5. 已实现业务链路
 
-- `product-service` 管商品主数据
-- `inventory-service` 管交易库存数据
-- 两者不是冲突关系，而是职责拆分关系
-
-### 4.3 当前核心链路
-
-#### 购物车加购前库存校验
+### 5.1 购物车加购前库存校验
 
 1. 客户端调用 `POST /api/v1/cart/items`
-2. `gateway` 从 JWT 解析当前用户身份
-3. `gateway` 调用 `product-service.GetProductDetail`
-4. 校验商品在线、目标 SKU 可售
-5. `gateway` 调用 `inventory-service.CheckSaleableStock`
-6. `inventory-service` 按 `sku_id` 查询库存记录
-7. 判断 `available_stock >= quantity`
-8. 校验通过后，`gateway` 调用 `cart-service.AddCartItem`
+2. `gateway` 调用 `product-service.GetProductDetail`
+3. 校验商品在线、目标 SKU 可售
+4. `gateway` 调用 `inventory-service.CheckSaleableStock`
+5. `inventory-service` 判断 `available_stock >= quantity`
+6. 校验通过后，`gateway` 调用 `cart-service.AddCartItem`
 
-#### 库存读取链路
+### 5.2 商品创建后的库存初始化
 
-1. 管理端或内部调用方发起库存查询
-2. `gateway` 调用 `inventory-service.GetSkuStock` 或 `BatchGetSkuStock`
-3. `inventory-service` 查询 `inventory_stocks`
-4. 返回库存快照
-
-#### 商品创建后的库存初始化
-
-1. 管理端调用创建商品接口，并在 SKU 中提交 `initial_stock`
+1. 管理端创建商品，请求中的 SKU 可带 `initial_stock`
 2. `gateway` 发起 `DTM workflow`
 3. `gateway` 调用 `product-service.CreateProductSaga`
-4. `product-service` 返回新建商品 ID 和 SKU ID
-5. `gateway` 调用 `inventory-service.InitSkuStocksSaga`
-6. `inventory-service` 写入每个 SKU 对应的库存记录
-7. 如果目标状态是 `online`，`gateway` 再调用商品最终上架
-8. 任一步失败时，由 `DTM` 驱动前序成功分支补偿
+4. 商品和 SKU 创建成功后，`gateway` 调用 `inventory-service.InitSkuStocksSaga`
+5. `inventory-service` 为每个新 `sku_id` 创建库存记录
+6. 如果目标状态是 `online`，`gateway` 最后调用商品上架
+7. 任一步失败时，由 `DTM` 驱动前序成功分支补偿
 
-#### 商品更新新增 SKU 后的库存初始化
+### 5.3 商品更新新增 SKU 后的库存初始化
 
-1. 管理端调用更新商品接口，并在新增 SKU 上可选提交 `initial_stock`
+1. 管理端更新商品并提交新增 SKU
 2. `gateway` 调用 `product-service.UpdateProduct`
-3. `product-service` 返回更新后的 SKU 列表
-4. `gateway` 识别本次新增的 SKU
-5. `gateway` 调用 `inventory-service.InitSkuStocks`
-6. `inventory-service` 为新增 SKU 写入库存记录
+3. `gateway` 识别本次新增的 SKU
+4. `gateway` 调用 `inventory-service.InitSkuStocks`
+5. `inventory-service` 为新增 SKU 写入库存记录
 
-### 4.4 当前调用方视角
+### 5.4 库存预占、释放、确认扣减
 
-从“谁会调用库存服务”这个问题看，当前和后续可分为两层：
+1. 上游业务方按 `biz_type + biz_id` 调用库存服务
+2. `inventory-service` 先查询 `inventory_reservations`
+3. 对同一 `biz_type + biz_id + sku_id` 做幂等和状态冲突判定
+4. 在本地事务中同时更新 `inventory_stocks`
+5. 同时写入或更新 `inventory_reservations`
 
-- 当前已接入调用方
-  - `gateway`
-    - 在购物车加购链路里调用 `CheckSaleableStock`
-    - 在商品创建链路里调用 `InitSkuStocksSaga`
-    - 在商品更新删除 SKU 链路里调用 `FreezeSkuStocks`
-    - 在后台库存管理链路里调用 `GetSkuStock`、`BatchGetSkuStock`、`AdjustStock`
-- 当前可直接接入但尚未开放 HTTP 的内部调用方
-  - 其他服务或后台逻辑
-    - 调用 `GetSkuStock`
-    - 调用 `BatchGetSkuStock`
-    - 调用 `InitSkuStocks`
-    - 调用 `FreezeSkuStocks`
-    - 调用 `AdjustStock`
-- 后续核心调用方
-  - `order-service`
-    - 预占库存
-    - 释放库存
-    - 扣减库存
+三类动作语义：
 
-因此，当前库存服务不是给商品服务“替代商品数据”的，而是给 `gateway` 和后续 `order-service` 提供库存侧能力。
+- 预占成功：`reserved_stock += quantity`，`available_stock -= quantity`
+- 释放成功：`reserved_stock -= quantity`，`available_stock += quantity`
+- 确认扣减成功：`total_stock -= quantity`，`reserved_stock -= quantity`
 
-## 5. 当前业务规则
+## 6. 业务规则
 
 - 一个 `sku_id` 对应一条库存记录
 - `total_stock`、`reserved_stock`、`available_stock` 均不能小于 `0`
@@ -179,54 +129,377 @@
 - `AdjustStock` 当前按“设置总库存”语义执行，不做增量加减
 - 库存记录不存在时，当前按不可售处理
 - 库存服务不负责判断商品是否在线，也不判断 SKU 是否 active
-- 商品创建时可以携带 `initial_stock`，但库存真实落库仍由库存服务负责
-- 商品更新新增 SKU 时，也会沿用同一套库存初始化规则
+- 同一 `biz_type + biz_id + sku_id` 只能有一条预占记录
+- 预占记录当前支持 `reserved / released / confirmed` 三种状态
+- `ReserveSkuStocks` 只做锁库存，不减少 `total_stock`
+- `ReleaseReservedSkuStocks` 只释放之前已锁住的库存
+- `ConfirmDeductReservedSkuStocks` 把已预占库存转成真实扣减
+- 未预占直接释放时会写入 `released` 标记，防止后续同一业务单再悬挂预占
 
-## 6. 数据模型设计
+## 7. 数据模型
 
-### 6.1 库表
+### 7.1 表结构
 
-- 数据库：`meshcart_inventory`
-- 表名：`inventory_stocks`
+数据库：`meshcart_inventory`
 
-### 6.2 表结构
-
-字段：
+主表：`inventory_stocks`
 
 - `id`
   - 库存记录主键 ID
 - `sku_id`
   - SKU ID
 - `total_stock`
-  - 总库存
+  - 当前账面总库存
 - `reserved_stock`
-  - 已预留给后续预占场景的库存
+  - 已经被业务单锁住、但还未真正卖出的库存
 - `available_stock`
-  - 当前可用库存
+  - 当前仍可继续售卖的库存
 - `status`
-  - 库存状态，当前用于表达该库存是否仍允许参与售卖，0为inactive，1为active
+  - 库存状态，`0` 表示冻结，`1` 表示可用
 - `version`
   - 乐观锁版本号预留字段
 - `created_at`
+  - 创建时间
 - `updated_at`
+  - 更新时间
 
-### 6.3 索引与约束
+预占记录表：`inventory_reservations`
+
+- `id`
+  - 预占记录主键 ID
+- `biz_type`
+  - 业务类型，例如 `order`
+- `biz_id`
+  - 业务单号，例如订单 ID
+- `sku_id`
+  - 本条记录关联的 SKU ID
+- `quantity`
+  - 本次预占对应数量
+- `status`
+  - 当前记录状态，支持 `reserved / released / confirmed`
+- `payload_snapshot`
+  - 请求快照，用于幂等排障和问题定位
+- `created_at`
+  - 创建时间
+- `updated_at`
+  - 更新时间
+
+### 7.2 索引与约束
+
+`inventory_stocks`
 
 - 主键：`id`
 - 唯一索引：`uk_sku_id (sku_id)`
 - 普通索引：`idx_updated_at (updated_at)`
 
-### 6.4 当前设计理由
+`inventory_reservations`
 
-- 当前只做 SKU 维度库存，先服务交易主链路
+- 主键：`id`
+- 唯一索引：`uk_inventory_reservation_biz_sku (biz_type, biz_id, sku_id)`
+- 普通索引：`idx_inventory_reservation_sku_id (sku_id)`
+
+### 7.3 设计理由
+
+- 先以 SKU 维度库存服务交易主链路
 - 使用 `sku_id` 唯一约束保证单 SKU 单库存记录
-- 预留 `reserved_stock` 和 `version`，避免后续做订单预占时大改表结构
-- `available_stock` 直接落库，简化第一阶段读取和校验逻辑
-- `status` 直接落库，便于把“商品 SKU 失效”同步收口为“库存冻结”
+- `available_stock` 直接落库，简化读取和校验逻辑
+- `reserved_stock` 和 `version` 支撑预占和并发更新
+- `inventory_reservations` 把预占幂等、防悬挂和状态流转收口在库存域内部
 
-## 7. 服务结构与治理接入
+### 7.4 字段关系说明
 
-### 7.1 当前目录结构
+当前库存表遵循以下关系：
+
+- `available_stock = total_stock - reserved_stock`
+
+三类写操作对应的字段变化如下：
+
+- 预占
+  - `reserved_stock += quantity`
+  - `available_stock -= quantity`
+  - `total_stock` 不变
+- 释放
+  - `reserved_stock -= quantity`
+  - `available_stock += quantity`
+  - `total_stock` 不变
+- 确认扣减
+  - `total_stock -= quantity`
+  - `reserved_stock -= quantity`
+  - `available_stock` 不变
+
+## 8. 已实现接口
+
+IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/inventory.thrift)。
+
+### 8.1 RPC 接口总览
+
+- `GetSkuStock`
+- `BatchGetSkuStock`
+- `CheckSaleableStock`
+- `InitSkuStocks`
+- `InitSkuStocksSaga`
+- `CompensateInitSkuStocksSaga`
+- `FreezeSkuStocks`
+- `AdjustStock`
+- `ReserveSkuStocks`
+- `ReleaseReservedSkuStocks`
+- `ConfirmDeductReservedSkuStocks`
+
+### 8.2 主要接口语义
+
+#### `GetSkuStock`
+
+- 作用：查询单个 SKU 当前库存快照
+- 请求字段：
+  - `sku_id`
+- 返回字段：
+  - `stock`
+  - `base.code`
+  - `base.message`
+
+#### `BatchGetSkuStock`
+
+- 作用：批量查询多个 SKU 当前库存快照
+- 请求字段：
+  - `sku_ids`
+- 返回字段：
+  - `stocks`
+  - `base.code`
+  - `base.message`
+
+#### `CheckSaleableStock`
+
+- 作用：判断指定 SKU 对指定数量是否可售
+- 请求字段：
+  - `sku_id`
+  - `quantity`
+- 返回字段：
+  - `saleable`
+  - `available_stock`
+  - `base.code`
+  - `base.message`
+
+#### `InitSkuStocks`
+
+- 作用：普通库存初始化
+- 请求字段：
+  - `stocks[].sku_id`
+  - `stocks[].total_stock`
+- 返回字段：
+  - `stocks`
+  - `base.code`
+  - `base.message`
+
+#### `InitSkuStocksSaga`
+
+- 作用：商品创建分布式事务中的库存初始化
+- 请求字段：
+  - `global_tx_id`
+  - `branch_id`
+  - `stocks[].sku_id`
+  - `stocks[].total_stock`
+- 返回字段：
+  - `stocks`
+  - `base.code`
+  - `base.message`
+
+#### `CompensateInitSkuStocksSaga`
+
+- 作用：回滚本次事务初始化的库存记录
+- 请求字段：
+  - `global_tx_id`
+  - `branch_id`
+  - `sku_ids`
+- 返回字段：
+  - `base.code`
+  - `base.message`
+
+#### `FreezeSkuStocks`
+
+- 作用：批量冻结已失效 SKU 对应库存记录
+- 请求字段：
+  - `sku_ids`
+  - `operator_id`
+  - `reason`
+- 返回字段：
+  - `stocks`
+  - `base.code`
+  - `base.message`
+
+#### `AdjustStock`
+
+- 作用：后台按“设置总库存”语义调整库存
+- 请求字段：
+  - `sku_id`
+  - `total_stock`
+  - `reason`
+- 返回字段：
+  - `stock`
+  - `base.code`
+  - `base.message`
+
+#### `ReserveSkuStocks`
+
+- 作用：按业务单号预占库存
+- 请求字段：
+  - `biz_type`
+  - `biz_id`
+  - `items[].sku_id`
+  - `items[].quantity`
+- 返回字段：
+  - `stocks`
+  - `base.code`
+  - `base.message`
+- 语义：
+  - 成功后：`reserved_stock += quantity`，`available_stock -= quantity`
+  - `total_stock` 不变
+  - 同一业务单重复请求按幂等成功处理
+
+#### `ReleaseReservedSkuStocks`
+
+- 作用：释放已预占库存
+- 请求字段：
+  - `biz_type`
+  - `biz_id`
+  - `items[].sku_id`
+  - `items[].quantity`
+- 返回字段：
+  - `stocks`
+  - `base.code`
+  - `base.message`
+- 语义：
+  - 成功后：`reserved_stock -= quantity`，`available_stock += quantity`
+  - 已释放重复调用按成功处理
+  - 未预占直接释放时写 `released` 标记
+
+#### `ConfirmDeductReservedSkuStocks`
+
+- 作用：把已预占库存转成真实扣减
+- 请求字段：
+  - `biz_type`
+  - `biz_id`
+  - `items[].sku_id`
+  - `items[].quantity`
+- 返回字段：
+  - `stocks`
+  - `base.code`
+  - `base.message`
+- 语义：
+  - 成功后：`total_stock -= quantity`，`reserved_stock -= quantity`
+  - `available_stock` 不变
+  - 没有预占记录时返回业务错误
+
+### 8.3 已实现 HTTP 接口
+
+当前对外开放的 HTTP 接口仍只有后台库存查询与调整能力，由 `gateway` 暴露：
+
+- `GET /api/v1/admin/inventory/skus/:sku_id`
+- `POST /api/v1/admin/inventory/skus/batch_get`
+- `PUT /api/v1/admin/inventory/skus/:sku_id/stock`
+
+库存预占、释放、确认扣减目前只提供 RPC，不提供对外 HTTP 接口。
+
+#### `GET /api/v1/admin/inventory/skus/:sku_id`
+
+- 作用：查询单个 SKU 库存
+- 权限：`admin` / `superadmin`
+- 路径参数：
+  - `sku_id`
+- 请求体：无
+- 成功返回字段：
+  - `code`
+  - `message`
+  - `data.sku_id`
+  - `data.total_stock`
+  - `data.reserved_stock`
+  - `data.available_stock`
+  - `data.saleable_stock`
+  - `data.status`
+- 说明：
+  - `admin` 只能查询自己创建商品对应的库存
+  - `superadmin` 可查询任意库存
+
+#### `POST /api/v1/admin/inventory/skus/batch_get`
+
+- 作用：批量查询多个 SKU 库存
+- 权限：`admin` / `superadmin`
+- 请求体字段：
+  - `sku_ids`
+- 成功返回字段：
+  - `code`
+  - `message`
+  - `data.items[].sku_id`
+  - `data.items[].total_stock`
+  - `data.items[].reserved_stock`
+  - `data.items[].available_stock`
+  - `data.items[].saleable_stock`
+  - `data.items[].status`
+- 说明：
+  - 当前会按请求中的 `sku_ids` 批量查询库存快照
+  - `admin` 仍受商品归属约束
+
+请求体示例：
+
+```json
+{
+  "sku_ids": [3001, 3002]
+}
+```
+
+#### `PUT /api/v1/admin/inventory/skus/:sku_id/stock`
+
+- 作用：后台按“设置总库存”语义调整库存
+- 权限：`admin` / `superadmin`
+- 路径参数：
+  - `sku_id`
+- 请求体字段：
+  - `total_stock`
+  - `reason`
+- 成功返回字段：
+  - `code`
+  - `message`
+  - `data.sku_id`
+  - `data.total_stock`
+  - `data.reserved_stock`
+  - `data.available_stock`
+  - `data.saleable_stock`
+  - `data.status`
+- 说明：
+  - 当前是“设置总库存”而不是“增量加减库存”
+  - 如果目标总库存小于当前 `reserved_stock`，会返回业务错误
+  - `admin` 只能调整自己创建商品对应的库存
+
+请求体示例：
+
+```json
+{
+  "total_stock": 80,
+  "reason": "manual correction"
+}
+```
+
+## 9. 授权与安全
+
+- 库存服务不直接暴露公网接口
+- 对外授权统一收口在 `gateway`
+- `inventory-service` 不直接执行 Casbin 判定
+- 当前后台库存查询与库存调整能力由 `gateway` 对管理员开放
+- `admin` 不能修改其他管理员创建商品对应的库存
+- `gateway` 会先通过商品服务查询 `sku_id` 对应商品归属，再决定是否放行库存读写
+
+## 10. 错误码
+
+- `2050001`：库存记录不存在
+- `2050002`：库存不足
+- `2050003`：库存记录已存在
+- `2050004`：库存数量不合法
+- `2050005`：库存已冻结
+- `2050006`：库存预占状态冲突
+- `2050007`：库存预占记录不存在
+
+## 11. 治理与运行基线
+
+### 11.1 目录结构
 
 ```text
 services/inventory-service/
@@ -249,9 +522,7 @@ services/inventory-service/
 └── script/
 ```
 
-### 7.2 当前治理接入
-
-`inventory-service` 当前已经接入：
+### 11.2 已接入治理能力
 
 - `/healthz`
 - `/readyz`
@@ -264,7 +535,7 @@ services/inventory-service/
 - OTel tracing
 - RPC metrics
 
-### 7.3 当前关键配置
+### 11.3 关键配置
 
 - `INVENTORY_RPC_SERVICE`
 - `INVENTORY_SERVICE_ADDR`
@@ -275,382 +546,21 @@ services/inventory-service/
 - `INVENTORY_SERVICE_DRAIN_TIMEOUT_MS`
 - `INVENTORY_SERVICE_SHUTDOWN_TIMEOUT_MS`
 
-## 8. 授权与安全设计
+## 12. 已实现清单
 
-### 8.1 当前授权原则
-
-- 库存服务当前不直接暴露公网接口
-- 对外授权统一收口在 `gateway`
-- `inventory-service` 不直接执行 Casbin 判定
-- 当前后台库存查询与库存调整能力由 `gateway` 对管理员开放
-
-### 8.2 当前角色语义
-
-- `guest`
-  - 不直接访问库存接口
-- `user`
-  - 不直接访问库存接口
-- `admin`
-  - 可访问自己创建商品对应的库存查询和库存调整接口
-- `superadmin`
-  - 可访问后台库存查询和库存调整接口
-
-补充约定：
-
-- `admin` 不能修改其他管理员创建商品对应的库存
-- `gateway` 会先通过商品服务查询 `sku_id` 对应商品归属，再决定是否放行库存读写
-
-## 9. 接口设计
-
-### 9.1 RPC 接口总览
-
-当前第一阶段已实现以下 RPC：
-
-- `GetSkuStock`
-- `BatchGetSkuStock`
-- `CheckSaleableStock`
-- `InitSkuStocks`
-- `InitSkuStocksSaga`
-- `CompensateInitSkuStocksSaga`
-- `FreezeSkuStocks`
-- `AdjustStock`
-
-IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/inventory.thrift)。
-
-### 9.2 数据结构
-
-#### `SkuStock`
-
-字段：
-
-- `sku_id`
-- `total_stock`
-- `reserved_stock`
-- `available_stock`
-- `saleable_stock`
-- `status`
-
-### 9.3 `GetSkuStock`
-
-- 作用：查询单个 SKU 当前库存
-- 请求字段：
-  - `sku_id`
-- 返回字段：
-  - `stock`
-  - `base.code`
-  - `base.message`
-
-成功返回示例：
-
-```json
-{
-  "stock": {
-    "sku_id": 3001,
-    "total_stock": 100,
-    "reserved_stock": 0,
-    "available_stock": 100,
-    "saleable_stock": 100,
-    "status": 1
-  },
-  "base": {
-    "code": 0,
-    "message": "成功"
-  }
-}
-```
-
-### 9.4 `BatchGetSkuStock`
-
-- 作用：批量查询多个 SKU 当前库存
-- 请求字段：
-  - `sku_ids`
-- 返回字段：
-  - `stocks`
-  - `base.code`
-  - `base.message`
-
-成功返回示例：
-
-```json
-{
-  "stocks": [
-    {
-      "sku_id": 3001,
-      "total_stock": 100,
-      "reserved_stock": 0,
-      "available_stock": 100,
-      "saleable_stock": 100,
-      "status": 1
-    }
-  ],
-  "base": {
-    "code": 0,
-    "message": "成功"
-  }
-}
-```
-
-### 9.5 `CheckSaleableStock`
-
-- 作用：判断指定 SKU 对指定数量是否可售
-- 请求字段：
-  - `sku_id`
-  - `quantity`
-- 返回字段：
-  - `saleable`
-  - `available_stock`
-  - `base.code`
-  - `base.message`
-
-成功返回示例：
-
-```json
-{
-  "saleable": true,
-  "available_stock": 100,
-  "base": {
-    "code": 0,
-    "message": "成功"
-  }
-}
-```
-
-库存不足返回示例：
-
-```json
-{
-  "saleable": false,
-  "available_stock": 1,
-  "base": {
-    "code": 2050002,
-    "message": "库存不足"
-  }
-}
-```
-
-库存冻结返回示例：
-
-```json
-{
-  "saleable": false,
-  "available_stock": 8,
-  "base": {
-    "code": 2050005,
-    "message": "库存已冻结"
-  }
-}
-```
-
-### 9.6 `InitSkuStocks`
-
-- 作用：在商品创建完成后初始化 SKU 库存
-- 请求字段：
-  - `stocks[].sku_id`
-  - `stocks[].total_stock`
-- 返回字段：
-  - `stocks`
-  - `base.code`
-  - `base.message`
-
-成功返回示例：
-
-```json
-{
-  "stocks": [
-    {
-      "sku_id": 3001,
-      "total_stock": 100,
-      "reserved_stock": 0,
-      "available_stock": 100,
-      "saleable_stock": 100,
-      "status": 1
-    }
-  ],
-  "base": {
-    "code": 0,
-    "message": "成功"
-  }
-}
-```
-
-### 9.6.1 `InitSkuStocksSaga`
-
-- 作用：在商品创建分布式事务中初始化 SKU 库存
-- 请求字段：
-  - `global_tx_id`
-  - `branch_id`
-  - `stocks[].sku_id`
-  - `stocks[].total_stock`
-- 返回字段：
-  - `stocks`
-  - `base.code`
-  - `base.message`
-
-补充说明：
-
-- `InitSkuStocksSaga` 和普通 `InitSkuStocks` 的差异在于会记录事务分支日志
-- 该接口用于 `DTM workflow` 编排，不建议在普通单步初始化链路里直接替代所有库存写入
-
-### 9.6.2 `CompensateInitSkuStocksSaga`
-
-- 作用：回滚本次事务初始化的库存记录
-- 请求字段：
-  - `global_tx_id`
-  - `branch_id`
-  - `sku_ids`
-- 返回字段：
-  - `base.code`
-  - `base.message`
-
-语义约束：
-
-- 已补偿过则直接成功
-- 正向分支不存在时按空补偿处理
-- 只允许删除当前事务初始化的库存记录
-
-### 9.7 `FreezeSkuStocks`
-
-- 作用：批量冻结已失效 SKU 对应的库存记录
-- 请求字段：
-  - `sku_ids`
-  - `operator_id`
-  - `reason`
-- 返回字段：
-  - `stocks`
-  - `base.code`
-  - `base.message`
-
-成功返回示例：
-
-```json
-{
-  "stocks": [
-    {
-      "sku_id": 3002,
-      "total_stock": 8,
-      "reserved_stock": 0,
-      "available_stock": 8,
-      "saleable_stock": 8,
-      "status": 0
-    }
-  ],
-  "base": {
-    "code": 0,
-    "message": "成功"
-  }
-}
-```
-
-说明：
-
-- 当前接口按 `sku_id` 批量冻结库存记录
-- 对已是 `frozen` 的库存重复调用，按成功处理
-- 当前主要由 `gateway` 在商品更新删除 SKU 后调用
-
-### 9.8 `AdjustStock`
-
-- 作用：后台按“设置总库存”语义调整库存
-- 请求字段：
-  - `sku_id`
-  - `total_stock`
-  - `reason`
-- 返回字段：
-  - `stock`
-  - `base.code`
-  - `base.message`
-
-成功返回示例：
-
-```json
-{
-  "stock": {
-    "sku_id": 3001,
-    "total_stock": 80,
-    "reserved_stock": 0,
-    "available_stock": 80,
-    "saleable_stock": 80
-  },
-  "base": {
-    "code": 0,
-    "message": "成功"
-  }
-}
-```
-
-### 9.8 当前 HTTP 接口状态
-
-当前第二阶段已开放后台库存查询与调整 HTTP 接口：
-
-- `GET /api/v1/admin/inventory/skus/:sku_id`
-- `POST /api/v1/admin/inventory/skus/batch_get`
-- `PUT /api/v1/admin/inventory/skus/:sku_id/stock`
-
-这些接口统一由 `gateway` 对外暴露，并在网关层完成鉴权和错误映射。
-
-#### `GET /api/v1/admin/inventory/skus/:sku_id`
-
-- 作用：查询单个 SKU 库存
-- 权限：`admin` / `superadmin`
-
-#### `POST /api/v1/admin/inventory/skus/batch_get`
-
-- 作用：批量查询库存
-- 权限：`admin` / `superadmin`
-
-请求体示例：
-
-```json
-{
-  "sku_ids": [3001, 3002]
-}
-```
-
-#### `PUT /api/v1/admin/inventory/skus/:sku_id/stock`
-
-- 作用：后台调整库存
-- 权限：`admin` / `superadmin`
-
-请求体示例：
-
-```json
-{
-  "total_stock": 80,
-  "reason": "manual correction"
-}
-```
-
-## 10. 错误码
-
-当前第一阶段已实现：
-
-- `2050001`
-  - 库存记录不存在
-- `2050002`
-  - 库存不足
-- `2050003`
-  - 库存记录已存在
-- `2050004`
-  - 库存数量不合法
-
-## 11. 当前已完成实现清单
-
-当前已经完成：
-
-- `idl/inventory.thrift` 定义
-- `kitex_gen/meshcart/inventory` 生成
+- `idl/inventory.thrift` 定义与生成代码
 - `inventory-service` 启动入口、bootstrap、配置、migration
 - 库存表 `inventory_stocks`
-- repository 层查询能力
-- service 层库存查询与可售校验能力
-- service 层库存初始化与后台调整能力
-- RPC handler 层
-- gateway 侧 inventory rpc client
+- 预占记录表 `inventory_reservations`
+- 库存查询、可售校验、初始化、冻结、调整能力
+- 库存预占、释放、确认扣减能力
+- 商品创建链路的库存初始化 Saga
+- `gateway` 侧 inventory RPC client
 - `gateway` 购物车加购前库存校验接入
+- `gateway` 购物车更新数量前库存校验接入
 - `gateway` 后台库存 HTTP 查询与调整入口
-- 商品创建后库存初始化编排
-- 最小单测
 
-## 12. 当前测试情况
+## 13. 测试情况
 
 当前已补测试：
 
@@ -659,271 +569,63 @@ IDL 定义见 [idl/inventory.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/
 - inventory gateway logic 单测
 - product create logic 单测
 - gateway cart add logic 单测
+- gateway cart update logic 单测
 
-当前已通过的针对性测试命令：
+已通过的针对性测试命令：
 
 ```bash
 go test ./services/inventory-service/... ./gateway/internal/logic/inventory ./gateway/internal/logic/product ./gateway/internal/logic/cart ./gateway/rpc/inventory
 ```
 
----
+## 14. 后续演进
 
-## 第二部分：未完成事项与后续开发计划
-
-## 13. 当前未完成事项
-
-当前仍未完成：
+### 14.1 仍未完成事项
 
 - 真实环境 migration 联调验证
 - `gateway + product-service + inventory-service + cart-service` 验收链路
-- 订单预占、释放、扣减
-- 库存流水、审计、幂等
+- `order-service` 正式接入库存主链路
+- 更细粒度库存流水与审计
 - 多仓与热点库存治理
 
-## 14. 后续设计方案
-
-### 14.1 第二阶段目标
-
-第三阶段建议开始补“可接订单、可追踪、可恢复”的能力，不要直接跳到复杂库存系统。
-
-建议目标：
-
-- 明确订单预占接口设计
-- 补库存流水或预占记录模型设计
-- 补订单与库存的失败补偿口径
-
-### 14.2 建议新增接口
-
-下一阶段优先建议新增：
-
-- `ReserveStock`
-  - 供订单服务预占库存
-- `ReleaseReservedStock`
-  - 供订单取消或超时释放库存
-- `DeductStock`
-  - 供支付成功后做最终扣减
-
-### 14.3 已落地的商品创建库存初始化方案
-
-当前已经支持“商品创建时一并提交初始库存”，并且没有把库存主数据落在 `product-service`。
-
-当前实现如下：
-
-1. 管理端创建商品时，请求中的每个 SKU 可带 `initial_stock`
-2. `gateway` 通过 `DTM workflow` 发起全局事务
-3. `gateway` 先调用 `product-service.CreateProductSaga`
-4. 商品和 SKU 创建成功后，`gateway` 拿到新生成的 `sku_id`
-5. `gateway` 调用 `inventory-service.InitSkuStocksSaga`
-6. `inventory-service` 为每个 `sku_id` 创建对应库存记录
-7. 如果目标状态是 `online`，`gateway` 最后再调用商品最终上架
-8. 任一步失败时，由 `DTM` 驱动前序成功分支补偿
-
-补充约定：
-
-- 即使请求中没有传 `initial_stock`，也会为该 SKU 创建库存记录
-- 未传时默认按 `0` 初始化
-- 因此当前设计保证“商品侧有 SKU，就应有对应库存记录”
-- 商品创建时的 `sku_code` 现在只是可选业务编码，不参与库存初始化映射
-- `gateway` 按创建返回的 `sku_id` 顺序调用 `InitSkuStocksSaga`，库存域只依赖 `sku_id`
-
-这个设计的核心原则是：
-
-- 商品创建请求可以携带初始库存
-- 但库存真实落库仍归 `inventory-service`
-- `product-service` 不持有库存主数据
-
-不建议的设计：
-
-- 在 `product-service` 表里直接增加库存字段
-- 让 `product-service` 直接写库存表
-- 把商品创建和库存写入强行耦合成一个服务内职责
-
-原因：
-
-- `product-service` 负责商品主数据
-- `inventory-service` 负责库存主数据
-- 后续预占、释放、扣减都应围绕库存服务扩展
-- 如果商品服务直接承接库存写，后面库存域会再次拆分，成本更高
-
-### 14.4 已落地的商品与库存初始化协作方式
+### 14.2 订单服务接入建议
 
 推荐链路：
 
-1. 后台请求到达 `gateway`
-2. `gateway` 校验商品参数和 `initial_stock`
-3. `gateway` 创建 `gid` 并发起 `DTM workflow`
-4. `gateway` 调用 `product-service.CreateProductSaga`
-5. `product-service` 返回商品 ID 和 SKU ID
-6. `gateway` 调用 `inventory-service.InitSkuStocksSaga`
-7. `inventory-service` 写入 `inventory_stocks`
-8. 如果目标状态是 `online`，`gateway` 最后调用商品上架
-9. 所有分支都成功后，再返回创建成功
-
-### 14.5 已落地的初始化库存失败处理
-
-当前阶段已经接入分布式事务，而不是简单补偿。
-
-当前实现：
-
-- 商品创建成功但库存初始化失败时，接口整体返回失败
-- `DTM` 会触发商品补偿删除，不再保留“接口失败但商品已创建”的脏数据
-- 如果商品目标状态是 `online`，商品会先以 `offline` 创建，库存成功后再上架
-- 如果库存初始化分支根本没有成功，回滚阶段会跳过库存补偿，继续执行商品补偿
-
-当前已做：
-
-- `DTM workflow`
-- 商品侧 Saga 正向和补偿
-- 库存侧 Saga 正向和补偿
-- 商品侧与库存侧事务分支日志
-
-当前仍未做：
-
-- Kafka 事件广播
-- Outbox
-- 复杂补偿任务系统
-
-### 14.6 已落地的库存侧事务设计
-
-当前库存侧新增事务分支日志表：
-
-- `inventory_tx_branches`
-
-主要动作：
-
-- `init_sku_stocks_saga`
-- `compensate_init_sku_stocks_saga`
-
-库存侧 Saga 行为：
-
-1. `InitSkuStocksSaga` 先检查补偿分支是否已执行，防悬挂
-2. 再检查正向分支是否已成功，支持幂等
-3. 创建库存记录并写入正向分支日志
-4. `CompensateInitSkuStocksSaga` 删除本次事务初始化的库存记录
-5. 写入补偿分支日志
-
-排障经验：
-
-- 库存服务不可达时，不能盲目执行库存补偿
-- 否则库存补偿自己会先失败，并阻断商品补偿
-- 所以编排层必须只对“真正成功过的库存分支”执行回滚
-
-### 14.7 建议新增模型
-
-后续建议至少补其中一种：
-
-- `inventory_reservations`
-  - 记录订单维度预占
-- `inventory_flow_logs`
-  - 记录库存变更流水
-
-建议字段方向：
-
-- `reservation_id` / `flow_id`
-- `sku_id`
-- `biz_order_id`
-- `quantity`
-- `action`
-- `status`
-- `operator`
-- `trace_id`
-- `created_at`
-- `updated_at`
-
-### 14.8 已落地的后台库存写能力
-
-在订单链路正式接入前，当前已经先开放两类：
-
-- 初始化库存
-  - 用于商品创建成功后的首次数量写入
-- 调整库存
-  - 用于后台人工修正库存
-
-当前仍不建议先开放：
-
-- 任意业务侧直接加减库存
-- 多来源并发修改库存且没有流水记录
-
-### 14.9 下一阶段订单协作设计
-
-后续推荐链路：
-
 1. `order-service` 创建订单草稿
-2. `order-service` 调用 `inventory-service.ReserveStock`
-3. 支付成功后调用 `DeductStock`
-4. 支付失败、取消订单或超时关闭时调用 `ReleaseReservedStock`
+2. 调用 `inventory-service.ReserveSkuStocks`
+3. 支付成功后调用 `ConfirmDeductReservedSkuStocks`
+4. 支付失败、取消订单或超时关闭时调用 `ReleaseReservedSkuStocks`
 
-### 14.10 已落地的商品删除与库存记录处理方案
+### 14.3 高并发演进设计
 
-当前实现：
+当前实现默认以 MySQL 为库存真相源，适合普通商城主链路和后台管理场景。
 
-- 默认不物理删除库存记录
-- 商品删除或 SKU 删除时，优先做“商品 SKU 失效 + 库存冻结”，不做硬删除
-- `inventory_stocks` 已增加 `status` 字段，当前状态语义为：
-  - `1=active`
-  - `0=frozen`
-- `gateway` 在商品更新成功后，会对本次被删除的 SKU 调用 `FreezeSkuStocks`
-- `CheckSaleableStock` 当前除判断数量外，也会校验库存状态必须为 `active`
-- 后台库存查询接口当前会返回库存状态，便于运营判断某个 SKU 是否已冻结
+当后续出现热点 SKU、秒杀、大促或多实例网关下的高并发抢购时，建议按以下顺序演进：
 
-原因：
+1. 继续保留 `inventory-service` 和 MySQL 作为最终账本
+2. 在入口前增加 Redis 热点库存令牌或可售额度缓存
+3. 请求先在 Redis 做原子扣减，快速拦截明显超卖请求
+4. 成功后投递 MQ，异步驱动库存服务执行正式预占
+5. 消费端仍调用库存域正式能力，而不是绕过 `inventory-service` 直接写库
+6. Redis、MQ 只承担削峰和前置拦截，不替代库存服务的业务真相源
 
-- 库存记录属于交易域数据，不只是展示数据
-- 后续订单、支付、售后、审计、对账都可能依赖库存侧历史记录
-- 如果商品侧直接物理删除而库存侧也跟着物理删除，后续排障和审计会失去依据
+职责拆分建议：
 
-推荐方案：
+- Redis
+  - 热点库存缓存
+  - 原子预减
+  - 请求削峰入口
+- MQ
+  - 平滑瞬时洪峰
+  - 异步串行化热点业务
+- MySQL / `inventory-service`
+  - 最终库存账本
+  - 幂等与状态机
+  - 释放与确认扣减
 
-1. 商品或 SKU 被删除时，商品侧保留 SKU 记录，并优先置为不可售或失效
-2. 库存侧保留库存记录
-3. 库存侧通过 `status` 字段表达是否仍允许售卖
-4. 当商品或 SKU 失效时，由编排层把库存状态同步为 `frozen`
-5. `CheckSaleableStock` 结合数量和库存状态一起判断是否可售
+约束原则：
 
-严格条件下可允许物理删除：
-
-- 没有购物车引用
-- 没有订单引用
-- 没有支付记录
-- 没有库存流水或预占记录
-
-只有满足这些前置条件时，才考虑：
-
-- 商品侧删除 SKU
-- 库存侧删除对应库存记录
-
-当前阶段结论：
-
-- 商品删除或 SKU 删除后，不应默认联动物理删除库存记录
-- 当前已落地的方案就是“商品 SKU 失效 + 库存冻结”，而不是“数据硬删”
-
-### 14.11 当前不建议过早做的事情
-
-当前不建议直接推进：
-
-- Redis 分布式热点扣减
-- 多仓库存路由
-- 秒杀专用库存模型
-- 复杂补偿任务系统
-
-这些能力应等订单链路和基础库存状态机稳定后再进入。
-
-## 15. 之后的开发计划
-
-建议按以下顺序继续推进：
-
-1. 跑通真实数据库和 migration
-2. 完成库存服务本地启动与联调
-3. 设计并实现订单预占模型与接口
-4. 设计释放库存和最终扣减接口
-5. 补库存流水和幂等设计
-6. 最后再评估热点库存和多仓
-
-## 16. 当前结论
-
-- `inventory-service` 第一阶段和第二阶段已经完成
-- 当前最核心的已落地能力包括：
-  - 购物车加购前库存可售校验
-  - 商品创建后的库存初始化
-  - 后台库存查询与库存调整
-- 下一阶段重点应进入订单预占、释放、扣减和库存流水设计
+- 不能让 Redis 成为唯一库存事实来源
+- 不能只做 Redis 扣减而没有 MySQL 账本落地
+- 不能跳过 `inventory_reservations` 直接做异步总库存修改
+- 高并发方案必须继续保证预占、释放、确认扣减的状态语义不变
