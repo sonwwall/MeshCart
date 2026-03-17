@@ -12,6 +12,7 @@ import (
 	orderpb "meshcart/kitex_gen/meshcart/order"
 	productpb "meshcart/kitex_gen/meshcart/product"
 	"meshcart/services/order-service/biz/errno"
+	"meshcart/services/order-service/biz/repository"
 	dalmodel "meshcart/services/order-service/dal/model"
 
 	"go.uber.org/zap"
@@ -23,6 +24,10 @@ const (
 
 	orderReserveBizType = "order"
 	defaultCloseLimit   = 100
+	actionStatusPending = "pending"
+	actionTypeCreate    = "create"
+	actionTypeCancel    = "cancel"
+	actionTypePay       = "pay_confirm"
 )
 
 type validatedOrderItem struct {
@@ -157,6 +162,80 @@ func buildReleaseItems(order *dalmodel.Order) []*inventory.StockReservationItem 
 		items = append(items, &inventory.StockReservationItem{SkuId: skuID, Quantity: quantity})
 	}
 	return items
+}
+
+func (s *OrderService) findActionRecord(ctx context.Context, actionType, actionKey string) (*dalmodel.OrderActionRecord, *common.BizError) {
+	record, err := s.repo.GetActionRecord(ctx, actionType, actionKey)
+	if err == nil {
+		return record, nil
+	}
+	if err == repository.ErrActionRecordNotFound {
+		return nil, nil
+	}
+	logx.L(ctx).Error("get order action record failed", zap.Error(err), zap.String("action_type", actionType), zap.String("action_key", actionKey))
+	return nil, common.ErrInternalError
+}
+
+func (s *OrderService) createPendingActionRecord(ctx context.Context, actionType, actionKey string, orderID, userID int64) (*dalmodel.OrderActionRecord, *common.BizError) {
+	if strings.TrimSpace(actionKey) == "" {
+		return nil, nil
+	}
+
+	record := &dalmodel.OrderActionRecord{
+		ID:         s.node.Generate().Int64(),
+		ActionType: actionType,
+		ActionKey:  actionKey,
+		OrderID:    orderID,
+		UserID:     userID,
+		Status:     actionStatusPending,
+	}
+	if err := s.repo.CreateActionRecord(ctx, record); err != nil {
+		if err == repository.ErrActionRecordExists {
+			existing, lookupErr := s.findActionRecord(ctx, actionType, actionKey)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+			if existing != nil {
+				return existing, nil
+			}
+		}
+		logx.L(ctx).Error("create order action record failed", zap.Error(err), zap.String("action_type", actionType), zap.String("action_key", actionKey))
+		return nil, common.ErrInternalError
+	}
+	return record, nil
+}
+
+func (s *OrderService) markActionSucceeded(ctx context.Context, actionType, actionKey string, orderID int64) {
+	if strings.TrimSpace(actionKey) == "" {
+		return
+	}
+	if err := s.repo.MarkActionRecordSucceeded(ctx, actionType, actionKey, orderID); err != nil {
+		logx.L(ctx).Error("mark order action succeeded failed", zap.Error(err), zap.String("action_type", actionType), zap.String("action_key", actionKey), zap.Int64("order_id", orderID))
+	}
+}
+
+func (s *OrderService) markActionFailed(ctx context.Context, actionType, actionKey string, bizErr *common.BizError) {
+	if strings.TrimSpace(actionKey) == "" {
+		return
+	}
+	message := ""
+	if bizErr != nil {
+		message = bizErr.Msg
+	}
+	if err := s.repo.MarkActionRecordFailed(ctx, actionType, actionKey, message); err != nil {
+		logx.L(ctx).Error("mark order action failed failed", zap.Error(err), zap.String("action_type", actionType), zap.String("action_key", actionKey))
+	}
+}
+
+func (s *OrderService) loadOrderByActionRecord(ctx context.Context, record *dalmodel.OrderActionRecord) (*orderpb.Order, *common.BizError) {
+	if record == nil || record.OrderID <= 0 {
+		return nil, errno.ErrOrderIdempotencyBusy
+	}
+	order, err := s.repo.GetByID(ctx, record.OrderID)
+	if err != nil {
+		return nil, mapRepositoryError(err)
+	}
+	return toRPCOrder(order), nil
 }
 
 func mapProductRPCError(code int32) *common.BizError {

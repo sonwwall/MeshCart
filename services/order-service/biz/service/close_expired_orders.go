@@ -7,6 +7,7 @@ import (
 	logx "meshcart/app/log"
 	"meshcart/kitex_gen/meshcart/inventory"
 	orderpb "meshcart/kitex_gen/meshcart/order"
+	"meshcart/services/order-service/biz/repository"
 
 	"go.uber.org/zap"
 )
@@ -41,7 +42,14 @@ func (s *OrderService) CloseExpiredOrders(ctx context.Context, req *orderpb.Clos
 			continue
 		}
 
-		if _, updateErr := s.repo.UpdateStatus(ctx, order.OrderID, []int32{OrderStatusPending, OrderStatusReserved}, OrderStatusClosed, "order_expired"); updateErr != nil {
+		if _, updateErr := s.repo.TransitionStatus(ctx, repository.OrderTransition{
+			OrderID:      order.OrderID,
+			FromStatuses: []int32{OrderStatusPending, OrderStatusReserved},
+			ToStatus:     OrderStatusClosed,
+			CancelReason: "order_expired",
+			ActionType:   "close_expired",
+			Reason:       "order_expired",
+		}); updateErr != nil {
 			logx.L(ctx).Warn("close expired order update status failed", zap.Error(updateErr), zap.Int64("order_id", order.OrderID))
 			continue
 		}

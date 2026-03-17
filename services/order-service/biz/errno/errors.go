@@ -10,6 +10,8 @@ const (
 	CodeOrderInsufficientStock  int32 = 2040005
 	CodeOrderStateConflict      int32 = 2040006
 	CodeOrderPaidImmutable      int32 = 2040007
+	CodeOrderPaymentConflict    int32 = 2040008
+	CodeOrderIdempotencyBusy    int32 = 2040009
 )
 
 var (
@@ -20,4 +22,6 @@ var (
 	ErrOrderInsufficientStock  = common.NewBizError(CodeOrderInsufficientStock, "库存不足")
 	ErrOrderStateConflict      = common.NewBizError(CodeOrderStateConflict, "订单状态不允许当前操作")
 	ErrOrderPaidImmutable      = common.NewBizError(CodeOrderPaidImmutable, "已支付订单不可取消")
+	ErrOrderPaymentConflict    = common.NewBizError(CodeOrderPaymentConflict, "订单支付信息冲突")
+	ErrOrderIdempotencyBusy    = common.NewBizError(CodeOrderIdempotencyBusy, "请求正在处理中，请稍后重试")
 )

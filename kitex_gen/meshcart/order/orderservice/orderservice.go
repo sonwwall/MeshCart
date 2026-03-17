@@ -27,6 +27,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"confirmOrderPaid": kitex.NewMethodInfo(
+		confirmOrderPaidHandler,
+		newOrderServiceConfirmOrderPaidArgs,
+		newOrderServiceConfirmOrderPaidResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"getOrder": kitex.NewMethodInfo(
 		getOrderHandler,
 		newOrderServiceGetOrderArgs,
@@ -150,6 +157,24 @@ func newOrderServiceCancelOrderResult() interface{} {
 	return order.NewOrderServiceCancelOrderResult()
 }
 
+func confirmOrderPaidHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*order.OrderServiceConfirmOrderPaidArgs)
+	realResult := result.(*order.OrderServiceConfirmOrderPaidResult)
+	success, err := handler.(order.OrderService).ConfirmOrderPaid(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newOrderServiceConfirmOrderPaidArgs() interface{} {
+	return order.NewOrderServiceConfirmOrderPaidArgs()
+}
+
+func newOrderServiceConfirmOrderPaidResult() interface{} {
+	return order.NewOrderServiceConfirmOrderPaidResult()
+}
+
 func getOrderHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*order.OrderServiceGetOrderArgs)
 	realResult := result.(*order.OrderServiceGetOrderResult)
@@ -229,6 +254,16 @@ func (p *kClient) CancelOrder(ctx context.Context, request *order.CancelOrderReq
 	_args.Request = request
 	var _result order.OrderServiceCancelOrderResult
 	if err = p.c.Call(ctx, "cancelOrder", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ConfirmOrderPaid(ctx context.Context, request *order.ConfirmOrderPaidRequest) (r *order.ConfirmOrderPaidResponse, err error) {
+	var _args order.OrderServiceConfirmOrderPaidArgs
+	_args.Request = request
+	var _result order.OrderServiceConfirmOrderPaidResult
+	if err = p.c.Call(ctx, "confirmOrderPaid", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

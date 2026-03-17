@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	dalmodel "meshcart/services/order-service/dal/model"
@@ -11,9 +12,11 @@ import (
 )
 
 var (
-	ErrOrderNotFound      = errors.New("order not found")
-	ErrInvalidOrder       = errors.New("invalid order")
-	ErrOrderStateConflict = errors.New("order state conflict")
+	ErrOrderNotFound        = errors.New("order not found")
+	ErrInvalidOrder         = errors.New("invalid order")
+	ErrOrderStateConflict   = errors.New("order state conflict")
+	ErrActionRecordNotFound = errors.New("order action record not found")
+	ErrActionRecordExists   = errors.New("order action record exists")
 )
 
 type OrderRepository interface {
@@ -23,6 +26,23 @@ type OrderRepository interface {
 	ListByUserID(ctx context.Context, userID int64, offset, limit int) ([]*dalmodel.Order, int64, error)
 	UpdateStatus(ctx context.Context, orderID int64, fromStatuses []int32, toStatus int32, cancelReason string) (*dalmodel.Order, error)
 	ListExpiredOrders(ctx context.Context, now time.Time, limit int) ([]*dalmodel.Order, error)
+	TransitionStatus(ctx context.Context, transition OrderTransition) (*dalmodel.Order, error)
+	GetActionRecord(ctx context.Context, actionType, actionKey string) (*dalmodel.OrderActionRecord, error)
+	CreateActionRecord(ctx context.Context, record *dalmodel.OrderActionRecord) error
+	MarkActionRecordSucceeded(ctx context.Context, actionType, actionKey string, orderID int64) error
+	MarkActionRecordFailed(ctx context.Context, actionType, actionKey, errorMessage string) error
+}
+
+type OrderTransition struct {
+	OrderID      int64
+	FromStatuses []int32
+	ToStatus     int32
+	CancelReason string
+	PaymentID    string
+	PaidAt       *time.Time
+	ActionType   string
+	Reason       string
+	ExternalRef  string
 }
 
 type MySQLOrderRepository struct {
@@ -54,7 +74,14 @@ func (r *MySQLOrderRepository) CreateWithItems(ctx context.Context, order *dalmo
 				return err
 			}
 		}
-		return nil
+		return tx.Create(&dalmodel.OrderStatusLog{
+			ID:         order.OrderID,
+			OrderID:    order.OrderID,
+			FromStatus: 0,
+			ToStatus:   order.Status,
+			ActionType: "create",
+			Reason:     "order_created",
+		}).Error
 	})
 	if err != nil {
 		return nil, err
@@ -123,27 +150,58 @@ func (r *MySQLOrderRepository) ListByUserID(ctx context.Context, userID int64, o
 }
 
 func (r *MySQLOrderRepository) UpdateStatus(ctx context.Context, orderID int64, fromStatuses []int32, toStatus int32, cancelReason string) (*dalmodel.Order, error) {
+	return r.TransitionStatus(ctx, OrderTransition{
+		OrderID:      orderID,
+		FromStatuses: fromStatuses,
+		ToStatus:     toStatus,
+		CancelReason: cancelReason,
+	})
+}
+
+func (r *MySQLOrderRepository) TransitionStatus(ctx context.Context, transition OrderTransition) (*dalmodel.Order, error) {
 	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
 	defer cancel()
 
-	if orderID <= 0 || len(fromStatuses) == 0 {
+	if transition.OrderID <= 0 || len(transition.FromStatuses) == 0 {
 		return nil, ErrInvalidOrder
 	}
 
-	result := r.db.WithContext(ctx).
-		Model(&dalmodel.Order{}).
-		Where("order_id = ? AND status IN ?", orderID, fromStatuses).
-		Updates(map[string]any{
-			"status":        toStatus,
-			"cancel_reason": cancelReason,
-		})
-	if result.Error != nil {
-		return nil, result.Error
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var order dalmodel.Order
+		if err := tx.Where("order_id = ? AND status IN ?", transition.OrderID, transition.FromStatuses).Take(&order).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrOrderStateConflict
+			}
+			return err
+		}
+
+		updates := map[string]any{
+			"status":        transition.ToStatus,
+			"cancel_reason": transition.CancelReason,
+		}
+		if transition.PaymentID != "" {
+			updates["payment_id"] = transition.PaymentID
+		}
+		if transition.PaidAt != nil {
+			updates["paid_at"] = transition.PaidAt
+		}
+		if err := tx.Model(&dalmodel.Order{}).Where("order_id = ?", transition.OrderID).Updates(updates).Error; err != nil {
+			return err
+		}
+		return tx.Create(&dalmodel.OrderStatusLog{
+			ID:          time.Now().UnixNano(),
+			OrderID:     transition.OrderID,
+			FromStatus:  order.Status,
+			ToStatus:    transition.ToStatus,
+			ActionType:  transition.ActionType,
+			Reason:      transition.Reason,
+			ExternalRef: transition.ExternalRef,
+		}).Error
+	})
+	if err != nil {
+		return nil, err
 	}
-	if result.RowsAffected == 0 {
-		return nil, ErrOrderStateConflict
-	}
-	return r.GetByID(ctx, orderID)
+	return r.GetByID(ctx, transition.OrderID)
 }
 
 func (r *MySQLOrderRepository) ListExpiredOrders(ctx context.Context, now time.Time, limit int) ([]*dalmodel.Order, error) {
@@ -164,6 +222,90 @@ func (r *MySQLOrderRepository) ListExpiredOrders(ctx context.Context, now time.T
 		return nil, err
 	}
 	return orders, nil
+}
+
+func (r *MySQLOrderRepository) GetActionRecord(ctx context.Context, actionType, actionKey string) (*dalmodel.OrderActionRecord, error) {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	var record dalmodel.OrderActionRecord
+	if err := r.db.WithContext(ctx).Where("action_type = ? AND action_key = ?", actionType, actionKey).Take(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrActionRecordNotFound
+		}
+		return nil, err
+	}
+	return &record, nil
+}
+
+func (r *MySQLOrderRepository) CreateActionRecord(ctx context.Context, record *dalmodel.OrderActionRecord) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	if record == nil || record.ID <= 0 || strings.TrimSpace(record.ActionType) == "" || strings.TrimSpace(record.ActionKey) == "" {
+		return ErrInvalidOrder
+	}
+	if err := r.db.WithContext(ctx).Create(record).Error; err != nil {
+		if isUniqueConstraintError(err) {
+			return ErrActionRecordExists
+		}
+		return err
+	}
+	return nil
+}
+
+func (r *MySQLOrderRepository) MarkActionRecordSucceeded(ctx context.Context, actionType, actionKey string, orderID int64) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	result := r.db.WithContext(ctx).Model(&dalmodel.OrderActionRecord{}).
+		Where("action_type = ? AND action_key = ?", actionType, actionKey).
+		Updates(map[string]any{
+			"status":        "succeeded",
+			"order_id":      orderID,
+			"error_message": "",
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrActionRecordNotFound
+	}
+	return nil
+}
+
+func (r *MySQLOrderRepository) MarkActionRecordFailed(ctx context.Context, actionType, actionKey, errorMessage string) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	result := r.db.WithContext(ctx).Model(&dalmodel.OrderActionRecord{}).
+		Where("action_type = ? AND action_key = ?", actionType, actionKey).
+		Updates(map[string]any{
+			"status":        "failed",
+			"error_message": truncateString(errorMessage, 255),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrActionRecordNotFound
+	}
+	return nil
+}
+
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "Duplicate entry") || strings.Contains(msg, "UNIQUE constraint failed")
+}
+
+func truncateString(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max]
 }
 
 func withQueryTimeout(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

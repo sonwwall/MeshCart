@@ -521,6 +521,87 @@
 - 支付成功后订单和库存状态一致
 - 重复回调不会重复确认扣减
 
+当前实现设计：
+
+- 新增 RPC 接口
+  - `ConfirmOrderPaid`
+    - 作为当前阶段的内部支付确认入口
+    - 当前不要求先落完整 `payment-service`
+    - 先由内部回调方或后续支付服务调用
+  - 协议定义在：
+    - `idl/order.thrift`
+- 订单模型补充
+  - `orders` 表新增：
+    - `payment_id`
+    - `paid_at`
+  - 对应 migration：
+    - `services/order-service/migrations/000004_add_order_payment_fields.up.sql`
+  - 作用：
+    - 持久化外部支付流水号
+    - 记录订单正式成交时间
+- 支付确认链路
+  - 当前 `ConfirmOrderPaid` 的执行顺序是：
+    1. 读取订单
+    2. 校验订单状态
+    3. 调 `inventory-service.ConfirmDeductReservedSkuStocks`
+    4. 把订单状态从 `reserved` 推进到 `paid`
+    5. 写入 `payment_id`、`paid_at`
+  - 库存确认扣减仍复用订单创建时的库存业务键：
+    - `biz_type = order`
+    - `biz_id = order_id`
+- 状态约束
+  - 当前允许：
+    - `reserved -> paid`
+  - 当前拒绝：
+    - `closed -> paid`
+    - `cancelled -> paid`
+    - 非 `reserved` 状态的直接支付确认
+  - 如果订单已经是 `paid`：
+    - 且 `payment_id` 与本次请求一致，则按幂等成功返回
+    - 且 `payment_id` 不一致，则判定为支付信息冲突
+- 一致性口径
+  - 阶段五的目标不是先做支付域，而是先把订单和库存的“成交收口”打通
+  - 当前采用：
+    - 先确认库存扣减
+    - 再推进订单状态
+  - 这样做的含义是：
+    - 只有库存真正从“预占”转成“已扣减”后，订单才会进入 `paid`
+    - 订单侧不会出现“订单已支付，但库存仍停留在预占”的正常成功返回
+- 幂等口径
+  - 当前支付确认天然用 `payment_id` 作为幂等键
+  - 如果请求显式传 `request_id`，则优先用 `request_id`
+  - 也就是说：
+    - 同一个支付流水重复通知，不会重复确认扣减
+    - 重复回调会直接返回当前已支付订单
+- 代码落点
+  - service：
+    - `services/order-service/biz/service/confirm_order_paid.go`
+  - handler：
+    - `services/order-service/rpc/handler/confirm_order_paid.go`
+  - repository：
+    - `services/order-service/biz/repository/repository.go`
+  - model：
+    - `services/order-service/dal/model/model.go`
+
+本阶段设计取舍：
+
+- 先提供订单域内部支付确认 RPC，不在阶段五直接引入 `payment-service`
+- 先把 `payment_id` 作为外部支付幂等键，不引入更复杂的支付流水表
+- 当前只允许 `reserved -> paid`，不尝试兼容未预占库存的草稿单直接支付
+
+当前阶段五交付边界：
+
+- 已完成：
+  - `ConfirmOrderPaid` RPC
+  - 库存确认扣减
+  - 订单状态推进到 `paid`
+  - `payment_id / paid_at` 持久化
+  - 重复支付通知幂等返回
+- 暂未完成：
+  - 独立支付流水表
+  - 支付回调签名验签
+  - 与未来 `payment-service` 的正式联动契约
+
 ### 阶段六：订单域事务、幂等与排障能力
 
 目标：
@@ -549,6 +630,105 @@
 - 订单链路具备回归测试
 - 关键异常有排障入口
 - 重复请求不会制造脏数据
+
+当前实现设计：
+
+- 幂等记录表
+  - 新增：
+    - `order_action_records`
+  - 对应 migration：
+    - `services/order-service/migrations/000005_create_order_action_records.up.sql`
+  - 表的核心字段：
+    - `action_type`
+    - `action_key`
+    - `order_id`
+    - `user_id`
+    - `status`
+    - `error_message`
+  - 约束：
+    - `action_type + action_key` 唯一
+- 状态流转日志表
+  - 新增：
+    - `order_status_logs`
+  - 对应 migration：
+    - `services/order-service/migrations/000006_create_order_status_logs.up.sql`
+  - 记录字段包括：
+    - `order_id`
+    - `from_status`
+    - `to_status`
+    - `action_type`
+    - `reason`
+    - `external_ref`
+- 当前幂等覆盖范围
+  - 下单：
+    - `CreateOrderRequest.request_id`
+    - 若同一个 `request_id` 已成功，会直接返回已创建订单
+  - 取消：
+    - `CancelOrderRequest.request_id`
+    - 若同一个 `request_id` 已成功，会直接返回最终订单状态
+  - 支付确认：
+    - 默认使用 `payment_id`
+    - 如果显式传 `request_id`，则优先使用 `request_id`
+- 动作状态
+  - `order_action_records.status` 当前约定：
+    - `pending`
+    - `succeeded`
+    - `failed`
+  - 同一个幂等键如果仍处于 `pending`，服务会返回“请求正在处理中，请稍后重试”
+- 状态日志写入策略
+  - 创建订单时：
+    - 在 `CreateWithItems` 的本地事务里写入初始状态日志
+  - 取消 / 超时关闭 / 支付确认时：
+    - 在订单状态迁移事务里同时写入状态日志
+  - 这样至少能保证：
+    - 订单状态变化和日志落库在同一个本地事务里
+- repository 设计补充
+  - `TransitionStatus`
+    - 统一处理状态条件更新
+    - 支持同时落 `order_status_logs`
+  - `GetActionRecord / CreateActionRecord / MarkActionRecordSucceeded / MarkActionRecordFailed`
+    - 用于动作级幂等控制
+- 当前排障入口
+  - `order_action_records`
+    - 用于查看某个幂等键是否已执行、是否失败、失败文案是什么
+  - `order_status_logs`
+    - 用于还原订单经历过哪些状态变更
+  - 结合 `orders.payment_id`、`orders.cancel_reason`
+    - 已能满足当前阶段的基础回溯
+- 测试补充
+  - repository 层已覆盖：
+    - 状态迁移并写日志
+    - 动作记录创建与成功回写
+  - service 层已覆盖：
+    - 下单成功
+    - 库存不足
+    - 下单失败后释放库存
+    - 取消订单
+    - 关闭过期订单
+    - 支付确认成功
+    - 支付确认幂等
+    - 支付流水冲突
+
+本阶段设计取舍：
+
+- 先用数据库表做动作幂等，不引入 Redis 分布式锁
+- 先把状态日志压在订单域本库内，不引入单独审计服务
+- 当前对 `failed` 动作记录不做自动恢复，只作为排障入口和幂等保护
+- 当前没有做完整事务恢复任务，优先保证可观察、可重试、可回查
+
+当前阶段六交付边界：
+
+- 已完成：
+  - 下单请求幂等
+  - 取消请求幂等
+  - 支付确认幂等
+  - 动作记录表
+  - 状态流转日志表
+  - repository / service 测试补齐
+- 暂未完成：
+  - 自动重试或补偿任务
+  - 失败动作重放控制台
+  - 更完整的事务恢复扫描器
 
 ### 阶段七：网关接入与用户侧订单接口
 

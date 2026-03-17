@@ -165,6 +165,8 @@ type Order struct {
 	ExpireAt     int64        `thrift:"expire_at,6" frugal:"6,default,i64" json:"expire_at"`
 	Items        []*OrderItem `thrift:"items,7" frugal:"7,default,list<OrderItem>" json:"items"`
 	CancelReason string       `thrift:"cancel_reason,8" frugal:"8,default,string" json:"cancel_reason"`
+	PaymentId    string       `thrift:"payment_id,9" frugal:"9,default,string" json:"payment_id"`
+	PaidAt       int64        `thrift:"paid_at,10" frugal:"10,default,i64" json:"paid_at"`
 }
 
 func NewOrder() *Order {
@@ -205,6 +207,14 @@ func (p *Order) GetItems() (v []*OrderItem) {
 func (p *Order) GetCancelReason() (v string) {
 	return p.CancelReason
 }
+
+func (p *Order) GetPaymentId() (v string) {
+	return p.PaymentId
+}
+
+func (p *Order) GetPaidAt() (v int64) {
+	return p.PaidAt
+}
 func (p *Order) SetOrderId(val int64) {
 	p.OrderId = val
 }
@@ -229,6 +239,12 @@ func (p *Order) SetItems(val []*OrderItem) {
 func (p *Order) SetCancelReason(val string) {
 	p.CancelReason = val
 }
+func (p *Order) SetPaymentId(val string) {
+	p.PaymentId = val
+}
+func (p *Order) SetPaidAt(val int64) {
+	p.PaidAt = val
+}
 
 func (p *Order) String() string {
 	if p == nil {
@@ -238,19 +254,22 @@ func (p *Order) String() string {
 }
 
 var fieldIDToName_Order = map[int16]string{
-	1: "order_id",
-	2: "user_id",
-	3: "status",
-	4: "total_amount",
-	5: "pay_amount",
-	6: "expire_at",
-	7: "items",
-	8: "cancel_reason",
+	1:  "order_id",
+	2:  "user_id",
+	3:  "status",
+	4:  "total_amount",
+	5:  "pay_amount",
+	6:  "expire_at",
+	7:  "items",
+	8:  "cancel_reason",
+	9:  "payment_id",
+	10: "paid_at",
 }
 
 type CreateOrderRequest struct {
-	UserId int64             `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
-	Items  []*OrderItemInput `thrift:"items,2" frugal:"2,default,list<OrderItemInput>" json:"items"`
+	UserId    int64             `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
+	Items     []*OrderItemInput `thrift:"items,2" frugal:"2,default,list<OrderItemInput>" json:"items"`
+	RequestId *string           `thrift:"request_id,3,optional" frugal:"3,optional,string" json:"request_id,omitempty"`
 }
 
 func NewCreateOrderRequest() *CreateOrderRequest {
@@ -267,11 +286,27 @@ func (p *CreateOrderRequest) GetUserId() (v int64) {
 func (p *CreateOrderRequest) GetItems() (v []*OrderItemInput) {
 	return p.Items
 }
+
+var CreateOrderRequest_RequestId_DEFAULT string
+
+func (p *CreateOrderRequest) GetRequestId() (v string) {
+	if !p.IsSetRequestId() {
+		return CreateOrderRequest_RequestId_DEFAULT
+	}
+	return *p.RequestId
+}
 func (p *CreateOrderRequest) SetUserId(val int64) {
 	p.UserId = val
 }
 func (p *CreateOrderRequest) SetItems(val []*OrderItemInput) {
 	p.Items = val
+}
+func (p *CreateOrderRequest) SetRequestId(val *string) {
+	p.RequestId = val
+}
+
+func (p *CreateOrderRequest) IsSetRequestId() bool {
+	return p.RequestId != nil
 }
 
 func (p *CreateOrderRequest) String() string {
@@ -284,6 +319,7 @@ func (p *CreateOrderRequest) String() string {
 var fieldIDToName_CreateOrderRequest = map[int16]string{
 	1: "user_id",
 	2: "items",
+	3: "request_id",
 }
 
 type CreateOrderResponse struct {
@@ -346,6 +382,7 @@ type CancelOrderRequest struct {
 	UserId       int64   `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
 	OrderId      int64   `thrift:"order_id,2" frugal:"2,default,i64" json:"order_id"`
 	CancelReason *string `thrift:"cancel_reason,3,optional" frugal:"3,optional,string" json:"cancel_reason,omitempty"`
+	RequestId    *string `thrift:"request_id,4,optional" frugal:"4,optional,string" json:"request_id,omitempty"`
 }
 
 func NewCancelOrderRequest() *CancelOrderRequest {
@@ -371,6 +408,15 @@ func (p *CancelOrderRequest) GetCancelReason() (v string) {
 	}
 	return *p.CancelReason
 }
+
+var CancelOrderRequest_RequestId_DEFAULT string
+
+func (p *CancelOrderRequest) GetRequestId() (v string) {
+	if !p.IsSetRequestId() {
+		return CancelOrderRequest_RequestId_DEFAULT
+	}
+	return *p.RequestId
+}
 func (p *CancelOrderRequest) SetUserId(val int64) {
 	p.UserId = val
 }
@@ -380,9 +426,16 @@ func (p *CancelOrderRequest) SetOrderId(val int64) {
 func (p *CancelOrderRequest) SetCancelReason(val *string) {
 	p.CancelReason = val
 }
+func (p *CancelOrderRequest) SetRequestId(val *string) {
+	p.RequestId = val
+}
 
 func (p *CancelOrderRequest) IsSetCancelReason() bool {
 	return p.CancelReason != nil
+}
+
+func (p *CancelOrderRequest) IsSetRequestId() bool {
+	return p.RequestId != nil
 }
 
 func (p *CancelOrderRequest) String() string {
@@ -396,6 +449,7 @@ var fieldIDToName_CancelOrderRequest = map[int16]string{
 	1: "user_id",
 	2: "order_id",
 	3: "cancel_reason",
+	4: "request_id",
 }
 
 type CancelOrderResponse struct {
@@ -450,6 +504,118 @@ func (p *CancelOrderResponse) String() string {
 }
 
 var fieldIDToName_CancelOrderResponse = map[int16]string{
+	1:   "order",
+	255: "base",
+}
+
+type ConfirmOrderPaidRequest struct {
+	OrderId   int64   `thrift:"order_id,1" frugal:"1,default,i64" json:"order_id"`
+	PaymentId string  `thrift:"payment_id,2" frugal:"2,default,string" json:"payment_id"`
+	RequestId *string `thrift:"request_id,3,optional" frugal:"3,optional,string" json:"request_id,omitempty"`
+}
+
+func NewConfirmOrderPaidRequest() *ConfirmOrderPaidRequest {
+	return &ConfirmOrderPaidRequest{}
+}
+
+func (p *ConfirmOrderPaidRequest) InitDefault() {
+}
+
+func (p *ConfirmOrderPaidRequest) GetOrderId() (v int64) {
+	return p.OrderId
+}
+
+func (p *ConfirmOrderPaidRequest) GetPaymentId() (v string) {
+	return p.PaymentId
+}
+
+var ConfirmOrderPaidRequest_RequestId_DEFAULT string
+
+func (p *ConfirmOrderPaidRequest) GetRequestId() (v string) {
+	if !p.IsSetRequestId() {
+		return ConfirmOrderPaidRequest_RequestId_DEFAULT
+	}
+	return *p.RequestId
+}
+func (p *ConfirmOrderPaidRequest) SetOrderId(val int64) {
+	p.OrderId = val
+}
+func (p *ConfirmOrderPaidRequest) SetPaymentId(val string) {
+	p.PaymentId = val
+}
+func (p *ConfirmOrderPaidRequest) SetRequestId(val *string) {
+	p.RequestId = val
+}
+
+func (p *ConfirmOrderPaidRequest) IsSetRequestId() bool {
+	return p.RequestId != nil
+}
+
+func (p *ConfirmOrderPaidRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConfirmOrderPaidRequest(%+v)", *p)
+}
+
+var fieldIDToName_ConfirmOrderPaidRequest = map[int16]string{
+	1: "order_id",
+	2: "payment_id",
+	3: "request_id",
+}
+
+type ConfirmOrderPaidResponse struct {
+	Order *Order             `thrift:"order,1" frugal:"1,default,Order" json:"order"`
+	Base  *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+}
+
+func NewConfirmOrderPaidResponse() *ConfirmOrderPaidResponse {
+	return &ConfirmOrderPaidResponse{}
+}
+
+func (p *ConfirmOrderPaidResponse) InitDefault() {
+}
+
+var ConfirmOrderPaidResponse_Order_DEFAULT *Order
+
+func (p *ConfirmOrderPaidResponse) GetOrder() (v *Order) {
+	if !p.IsSetOrder() {
+		return ConfirmOrderPaidResponse_Order_DEFAULT
+	}
+	return p.Order
+}
+
+var ConfirmOrderPaidResponse_Base_DEFAULT *base.BaseResponse
+
+func (p *ConfirmOrderPaidResponse) GetBase() (v *base.BaseResponse) {
+	if !p.IsSetBase() {
+		return ConfirmOrderPaidResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+func (p *ConfirmOrderPaidResponse) SetOrder(val *Order) {
+	p.Order = val
+}
+func (p *ConfirmOrderPaidResponse) SetBase(val *base.BaseResponse) {
+	p.Base = val
+}
+
+func (p *ConfirmOrderPaidResponse) IsSetOrder() bool {
+	return p.Order != nil
+}
+
+func (p *ConfirmOrderPaidResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *ConfirmOrderPaidResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConfirmOrderPaidResponse(%+v)", *p)
+}
+
+var fieldIDToName_ConfirmOrderPaidResponse = map[int16]string{
 	1:   "order",
 	255: "base",
 }
@@ -750,6 +916,8 @@ type OrderService interface {
 
 	CancelOrder(ctx context.Context, request *CancelOrderRequest) (r *CancelOrderResponse, err error)
 
+	ConfirmOrderPaid(ctx context.Context, request *ConfirmOrderPaidRequest) (r *ConfirmOrderPaidResponse, err error)
+
 	GetOrder(ctx context.Context, request *GetOrderRequest) (r *GetOrderResponse, err error)
 
 	ListOrders(ctx context.Context, request *ListOrdersRequest) (r *ListOrdersResponse, err error)
@@ -906,6 +1074,82 @@ func (p *OrderServiceCancelOrderResult) String() string {
 }
 
 var fieldIDToName_OrderServiceCancelOrderResult = map[int16]string{
+	0: "success",
+}
+
+type OrderServiceConfirmOrderPaidArgs struct {
+	Request *ConfirmOrderPaidRequest `thrift:"request,1" frugal:"1,default,ConfirmOrderPaidRequest" json:"request"`
+}
+
+func NewOrderServiceConfirmOrderPaidArgs() *OrderServiceConfirmOrderPaidArgs {
+	return &OrderServiceConfirmOrderPaidArgs{}
+}
+
+func (p *OrderServiceConfirmOrderPaidArgs) InitDefault() {
+}
+
+var OrderServiceConfirmOrderPaidArgs_Request_DEFAULT *ConfirmOrderPaidRequest
+
+func (p *OrderServiceConfirmOrderPaidArgs) GetRequest() (v *ConfirmOrderPaidRequest) {
+	if !p.IsSetRequest() {
+		return OrderServiceConfirmOrderPaidArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *OrderServiceConfirmOrderPaidArgs) SetRequest(val *ConfirmOrderPaidRequest) {
+	p.Request = val
+}
+
+func (p *OrderServiceConfirmOrderPaidArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *OrderServiceConfirmOrderPaidArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("OrderServiceConfirmOrderPaidArgs(%+v)", *p)
+}
+
+var fieldIDToName_OrderServiceConfirmOrderPaidArgs = map[int16]string{
+	1: "request",
+}
+
+type OrderServiceConfirmOrderPaidResult struct {
+	Success *ConfirmOrderPaidResponse `thrift:"success,0,optional" frugal:"0,optional,ConfirmOrderPaidResponse" json:"success,omitempty"`
+}
+
+func NewOrderServiceConfirmOrderPaidResult() *OrderServiceConfirmOrderPaidResult {
+	return &OrderServiceConfirmOrderPaidResult{}
+}
+
+func (p *OrderServiceConfirmOrderPaidResult) InitDefault() {
+}
+
+var OrderServiceConfirmOrderPaidResult_Success_DEFAULT *ConfirmOrderPaidResponse
+
+func (p *OrderServiceConfirmOrderPaidResult) GetSuccess() (v *ConfirmOrderPaidResponse) {
+	if !p.IsSetSuccess() {
+		return OrderServiceConfirmOrderPaidResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *OrderServiceConfirmOrderPaidResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ConfirmOrderPaidResponse)
+}
+
+func (p *OrderServiceConfirmOrderPaidResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *OrderServiceConfirmOrderPaidResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("OrderServiceConfirmOrderPaidResult(%+v)", *p)
+}
+
+var fieldIDToName_OrderServiceConfirmOrderPaidResult = map[int16]string{
 	0: "success",
 }
 

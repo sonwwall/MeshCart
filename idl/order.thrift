@@ -29,11 +29,14 @@ struct Order {
     6: i64 expire_at
     7: list<OrderItem> items
     8: string cancel_reason
+    9: string payment_id
+    10: i64 paid_at
 }
 
 struct CreateOrderRequest {
     1: i64 user_id
     2: list<OrderItemInput> items
+    3: optional string request_id
 }
 
 struct CreateOrderResponse {
@@ -45,9 +48,21 @@ struct CancelOrderRequest {
     1: i64 user_id
     2: i64 order_id
     3: optional string cancel_reason
+    4: optional string request_id
 }
 
 struct CancelOrderResponse {
+    1: Order order
+    255: base.BaseResponse base
+}
+
+struct ConfirmOrderPaidRequest {
+    1: i64 order_id
+    2: string payment_id
+    3: optional string request_id
+}
+
+struct ConfirmOrderPaidResponse {
     1: Order order
     255: base.BaseResponse base
 }
@@ -87,6 +102,7 @@ struct CloseExpiredOrdersResponse {
 service OrderService {
     CreateOrderResponse createOrder(1: CreateOrderRequest request)
     CancelOrderResponse cancelOrder(1: CancelOrderRequest request)
+    ConfirmOrderPaidResponse confirmOrderPaid(1: ConfirmOrderPaidRequest request)
     GetOrderResponse getOrder(1: GetOrderRequest request)
     ListOrdersResponse listOrders(1: ListOrdersRequest request)
     CloseExpiredOrdersResponse closeExpiredOrders(1: CloseExpiredOrdersRequest request)

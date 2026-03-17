@@ -47,6 +47,10 @@ func toRPCOrder(order *dalmodel.Order) *orderpb.Order {
 	if !order.ExpireAt.IsZero() {
 		expireAt = order.ExpireAt.Unix()
 	}
+	paidAt := int64(0)
+	if order.PaidAt != nil && !order.PaidAt.IsZero() {
+		paidAt = order.PaidAt.Unix()
+	}
 	return &orderpb.Order{
 		OrderId:      order.OrderID,
 		UserId:       order.UserID,
@@ -56,6 +60,8 @@ func toRPCOrder(order *dalmodel.Order) *orderpb.Order {
 		ExpireAt:     expireAt,
 		Items:        items,
 		CancelReason: order.CancelReason,
+		PaymentId:    order.PaymentID,
+		PaidAt:       paidAt,
 	}
 }
 

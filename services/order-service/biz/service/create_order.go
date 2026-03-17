@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
 
 	"meshcart/app/common"
 	logx "meshcart/app/log"
 	"meshcart/kitex_gen/meshcart/inventory"
 	orderpb "meshcart/kitex_gen/meshcart/order"
+	"meshcart/services/order-service/biz/errno"
 	dalmodel "meshcart/services/order-service/dal/model"
 
 	"go.uber.org/zap"
@@ -19,9 +21,38 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 		return nil, common.ErrInvalidParam
 	}
 
+	requestID := strings.TrimSpace(req.GetRequestId())
+	if requestID != "" {
+		existing, bizErr := s.findActionRecord(ctx, actionTypeCreate, requestID)
+		if bizErr != nil {
+			return nil, bizErr
+		}
+		if existing != nil {
+			switch existing.Status {
+			case "succeeded":
+				return s.loadOrderByActionRecord(ctx, existing)
+			case actionStatusPending:
+				return nil, errno.ErrOrderIdempotencyBusy
+			default:
+				return nil, errno.ErrOrderStateConflict
+			}
+		}
+		record, bizErr := s.createPendingActionRecord(ctx, actionTypeCreate, requestID, 0, req.GetUserId())
+		if bizErr != nil {
+			return nil, bizErr
+		}
+		if record != nil && record.Status != actionStatusPending {
+			if record.Status == "succeeded" {
+				return s.loadOrderByActionRecord(ctx, record)
+			}
+			return nil, errno.ErrOrderIdempotencyBusy
+		}
+	}
+
 	orderID := s.node.Generate().Int64()
 	validatedItems, reserveItems, totalAmount, bizErr := s.validateAndBuildSnapshots(ctx, req.GetItems())
 	if bizErr != nil {
+		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
 	}
 	sort.SliceStable(reserveItems, func(i, j int) bool { return reserveItems[i].GetSkuId() < reserveItems[j].GetSkuId() })
@@ -34,10 +65,13 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 	})
 	if err != nil {
 		logx.L(ctx).Error("reserve inventory failed", zap.Error(err), zap.Int64("order_id", orderID), zap.Int64("user_id", req.GetUserId()))
+		s.markActionFailed(ctx, actionTypeCreate, requestID, common.ErrServiceUnavailable)
 		return nil, common.ErrServiceUnavailable
 	}
 	if reserveResp.Code != 0 {
-		return nil, mapInventoryRPCError(reserveResp.Code)
+		bizErr = mapInventoryRPCError(reserveResp.Code)
+		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
+		return nil, bizErr
 	}
 
 	items := make([]*dalmodel.OrderItem, 0, len(validatedItems))
@@ -77,7 +111,10 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 		} else if releaseResp.Code != 0 {
 			logx.L(ctx).Error("release inventory after create order failure returned biz error", zap.Int32("code", releaseResp.Code), zap.String("message", releaseResp.Message), zap.Int64("order_id", orderID))
 		}
-		return nil, mapRepositoryError(err)
+		bizErr = mapRepositoryError(err)
+		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
+		return nil, bizErr
 	}
+	s.markActionSucceeded(ctx, actionTypeCreate, requestID, order.OrderID)
 	return toRPCOrder(order), nil
 }

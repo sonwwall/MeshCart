@@ -20,12 +20,17 @@ import (
 )
 
 type stubOrderRepository struct {
-	createWithItemsFn func(context.Context, *dalmodel.Order, []*dalmodel.OrderItem) (*dalmodel.Order, error)
-	getByOrderIDFn    func(context.Context, int64, int64) (*dalmodel.Order, error)
-	getByIDFn         func(context.Context, int64) (*dalmodel.Order, error)
-	listByUserIDFn    func(context.Context, int64, int, int) ([]*dalmodel.Order, int64, error)
-	updateStatusFn    func(context.Context, int64, []int32, int32, string) (*dalmodel.Order, error)
-	listExpiredFn     func(context.Context, time.Time, int) ([]*dalmodel.Order, error)
+	createWithItemsFn     func(context.Context, *dalmodel.Order, []*dalmodel.OrderItem) (*dalmodel.Order, error)
+	getByOrderIDFn        func(context.Context, int64, int64) (*dalmodel.Order, error)
+	getByIDFn             func(context.Context, int64) (*dalmodel.Order, error)
+	listByUserIDFn        func(context.Context, int64, int, int) ([]*dalmodel.Order, int64, error)
+	updateStatusFn        func(context.Context, int64, []int32, int32, string) (*dalmodel.Order, error)
+	listExpiredFn         func(context.Context, time.Time, int) ([]*dalmodel.Order, error)
+	transitionStatusFn    func(context.Context, repository.OrderTransition) (*dalmodel.Order, error)
+	getActionRecordFn     func(context.Context, string, string) (*dalmodel.OrderActionRecord, error)
+	createActionRecordFn  func(context.Context, *dalmodel.OrderActionRecord) error
+	markActionSucceededFn func(context.Context, string, string, int64) error
+	markActionFailedFn    func(context.Context, string, string, string) error
 }
 
 func (s *stubOrderRepository) CreateWithItems(ctx context.Context, order *dalmodel.Order, items []*dalmodel.OrderItem) (*dalmodel.Order, error) {
@@ -70,6 +75,44 @@ func (s *stubOrderRepository) ListExpiredOrders(ctx context.Context, now time.Ti
 	return []*dalmodel.Order{}, nil
 }
 
+func (s *stubOrderRepository) TransitionStatus(ctx context.Context, transition repository.OrderTransition) (*dalmodel.Order, error) {
+	if s.transitionStatusFn != nil {
+		return s.transitionStatusFn(ctx, transition)
+	}
+	if s.updateStatusFn != nil {
+		return s.updateStatusFn(ctx, transition.OrderID, transition.FromStatuses, transition.ToStatus, transition.CancelReason)
+	}
+	return nil, repository.ErrOrderStateConflict
+}
+
+func (s *stubOrderRepository) GetActionRecord(ctx context.Context, actionType, actionKey string) (*dalmodel.OrderActionRecord, error) {
+	if s.getActionRecordFn != nil {
+		return s.getActionRecordFn(ctx, actionType, actionKey)
+	}
+	return nil, repository.ErrActionRecordNotFound
+}
+
+func (s *stubOrderRepository) CreateActionRecord(ctx context.Context, record *dalmodel.OrderActionRecord) error {
+	if s.createActionRecordFn != nil {
+		return s.createActionRecordFn(ctx, record)
+	}
+	return nil
+}
+
+func (s *stubOrderRepository) MarkActionRecordSucceeded(ctx context.Context, actionType, actionKey string, orderID int64) error {
+	if s.markActionSucceededFn != nil {
+		return s.markActionSucceededFn(ctx, actionType, actionKey, orderID)
+	}
+	return nil
+}
+
+func (s *stubOrderRepository) MarkActionRecordFailed(ctx context.Context, actionType, actionKey, errorMessage string) error {
+	if s.markActionFailedFn != nil {
+		return s.markActionFailedFn(ctx, actionType, actionKey, errorMessage)
+	}
+	return nil
+}
+
 type stubProductClient struct {
 	batchGetSKUFn      func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error)
 	getProductDetailFn func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error)
@@ -92,6 +135,7 @@ func (s *stubProductClient) GetProductDetail(ctx context.Context, req *productpb
 type stubInventoryClient struct {
 	reserveFn func(context.Context, *inventorypb.ReserveSkuStocksRequest) (*inventoryrpc.ReserveSkuStocksResponse, error)
 	releaseFn func(context.Context, *inventorypb.ReleaseReservedSkuStocksRequest) (*inventoryrpc.ReleaseReservedSkuStocksResponse, error)
+	confirmFn func(context.Context, *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*inventoryrpc.ConfirmDeductReservedSkuStocksResponse, error)
 }
 
 func (s *stubInventoryClient) ReserveSkuStocks(ctx context.Context, req *inventorypb.ReserveSkuStocksRequest) (*inventoryrpc.ReserveSkuStocksResponse, error) {
@@ -106,6 +150,13 @@ func (s *stubInventoryClient) ReleaseReservedSkuStocks(ctx context.Context, req 
 		return s.releaseFn(ctx, req)
 	}
 	return &inventoryrpc.ReleaseReservedSkuStocksResponse{}, nil
+}
+
+func (s *stubInventoryClient) ConfirmDeductReservedSkuStocks(ctx context.Context, req *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*inventoryrpc.ConfirmDeductReservedSkuStocksResponse, error) {
+	if s.confirmFn != nil {
+		return s.confirmFn(ctx, req)
+	}
+	return &inventoryrpc.ConfirmDeductReservedSkuStocksResponse{}, nil
 }
 
 func newOrderService(t *testing.T, repo repository.OrderRepository, productClient productrpc.Client, inventoryClient inventoryrpc.Client) *OrderService {
@@ -357,4 +408,103 @@ func TestOrderService_CloseExpiredOrders_Success(t *testing.T) {
 	if len(orderIDs) != 1 || orderIDs[0] != 1 {
 		t.Fatalf("unexpected closed orders: %+v", orderIDs)
 	}
+}
+
+func TestOrderService_CreateOrder_IdempotentByRequestID(t *testing.T) {
+	svc := newOrderService(t, &stubOrderRepository{
+		getActionRecordFn: func(_ context.Context, actionType, actionKey string) (*dalmodel.OrderActionRecord, error) {
+			if actionType != "create" || actionKey != "req-create-1" {
+				t.Fatalf("unexpected action lookup: %s %s", actionType, actionKey)
+			}
+			return &dalmodel.OrderActionRecord{ActionType: actionType, ActionKey: actionKey, OrderID: 10101, Status: "succeeded"}, nil
+		},
+		getByIDFn: func(_ context.Context, orderID int64) (*dalmodel.Order, error) {
+			return &dalmodel.Order{OrderID: orderID, UserID: 101, Status: OrderStatusReserved}, nil
+		},
+	}, &stubProductClient{}, &stubInventoryClient{})
+
+	order, bizErr := svc.CreateOrder(context.Background(), &orderpb.CreateOrderRequest{
+		UserId:    101,
+		RequestId: ptrString("req-create-1"),
+		Items:     []*orderpb.OrderItemInput{{ProductId: 2001, SkuId: 3001, Quantity: 1}},
+	})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if order.GetOrderId() != 10101 {
+		t.Fatalf("unexpected idempotent order: %+v", order)
+	}
+}
+
+func TestOrderService_ConfirmOrderPaid_Success(t *testing.T) {
+	svc := newOrderService(t, &stubOrderRepository{
+		getByIDFn: func(_ context.Context, orderID int64) (*dalmodel.Order, error) {
+			return &dalmodel.Order{
+				OrderID: orderID,
+				UserID:  101,
+				Status:  OrderStatusReserved,
+				Items:   []dalmodel.OrderItem{{SKUID: 3001, Quantity: 2}},
+			}, nil
+		},
+		transitionStatusFn: func(_ context.Context, transition repository.OrderTransition) (*dalmodel.Order, error) {
+			if transition.OrderID != 1 || transition.ToStatus != OrderStatusPaid || transition.PaymentID != "pay-1" || transition.ActionType != "pay_confirm" {
+				t.Fatalf("unexpected transition: %+v", transition)
+			}
+			return &dalmodel.Order{OrderID: 1, UserID: 101, Status: OrderStatusPaid, PaymentID: transition.PaymentID, PaidAt: transition.PaidAt}, nil
+		},
+	}, &stubProductClient{}, &stubInventoryClient{
+		confirmFn: func(_ context.Context, req *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*inventoryrpc.ConfirmDeductReservedSkuStocksResponse, error) {
+			if req.GetBizType() != "order" || req.GetBizId() != "1" || len(req.GetItems()) != 1 || req.GetItems()[0].GetQuantity() != 2 {
+				t.Fatalf("unexpected confirm req: %+v", req)
+			}
+			return &inventoryrpc.ConfirmDeductReservedSkuStocksResponse{Code: 0}, nil
+		},
+	})
+
+	order, bizErr := svc.ConfirmOrderPaid(context.Background(), &orderpb.ConfirmOrderPaidRequest{OrderId: 1, PaymentId: "pay-1"})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if order == nil || order.GetStatus() != OrderStatusPaid || order.GetPaymentId() != "pay-1" {
+		t.Fatalf("unexpected paid order: %+v", order)
+	}
+}
+
+func TestOrderService_ConfirmOrderPaid_IdempotentByPaymentID(t *testing.T) {
+	svc := newOrderService(t, &stubOrderRepository{
+		getActionRecordFn: func(_ context.Context, actionType, actionKey string) (*dalmodel.OrderActionRecord, error) {
+			return &dalmodel.OrderActionRecord{ActionType: actionType, ActionKey: actionKey, OrderID: 1, Status: "succeeded"}, nil
+		},
+		getByIDFn: func(_ context.Context, orderID int64) (*dalmodel.Order, error) {
+			return &dalmodel.Order{OrderID: orderID, UserID: 101, Status: OrderStatusPaid, PaymentID: "pay-1"}, nil
+		},
+	}, &stubProductClient{}, &stubInventoryClient{})
+
+	order, bizErr := svc.ConfirmOrderPaid(context.Background(), &orderpb.ConfirmOrderPaidRequest{OrderId: 1, PaymentId: "pay-1"})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if order.GetOrderId() != 1 || order.GetStatus() != OrderStatusPaid {
+		t.Fatalf("unexpected idempotent paid order: %+v", order)
+	}
+}
+
+func TestOrderService_ConfirmOrderPaid_ConflictOnDifferentPaymentID(t *testing.T) {
+	svc := newOrderService(t, &stubOrderRepository{
+		getByIDFn: func(_ context.Context, orderID int64) (*dalmodel.Order, error) {
+			return &dalmodel.Order{OrderID: orderID, Status: OrderStatusPaid, PaymentID: "pay-old"}, nil
+		},
+	}, &stubProductClient{}, &stubInventoryClient{})
+
+	order, bizErr := svc.ConfirmOrderPaid(context.Background(), &orderpb.ConfirmOrderPaidRequest{OrderId: 1, PaymentId: "pay-new"})
+	if order != nil {
+		t.Fatalf("expected nil order, got %+v", order)
+	}
+	if bizErr != errno.ErrOrderPaymentConflict {
+		t.Fatalf("expected ErrOrderPaymentConflict, got %+v", bizErr)
+	}
+}
+
+func ptrString(v string) *string {
+	return &v
 }

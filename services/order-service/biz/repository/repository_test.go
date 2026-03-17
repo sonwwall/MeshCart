@@ -110,6 +110,45 @@ func TestRepository_UpdateStatus(t *testing.T) {
 	}
 }
 
+func TestRepository_TransitionStatus_WithPaymentAndLog(t *testing.T) {
+	db := newOrderSQLiteDB(t)
+	repo := NewMySQLOrderRepository(db, time.Second)
+	seedOrder(t, db, &dalmodel.Order{
+		OrderID:     1,
+		UserID:      101,
+		Status:      2,
+		TotalAmount: 100,
+		PayAmount:   100,
+		ExpireAt:    time.Now().Add(30 * time.Minute),
+	})
+	paidAt := time.Now()
+
+	order, err := repo.TransitionStatus(context.Background(), OrderTransition{
+		OrderID:      1,
+		FromStatuses: []int32{2},
+		ToStatus:     3,
+		PaymentID:    "pay-1",
+		PaidAt:       &paidAt,
+		ActionType:   "pay_confirm",
+		Reason:       "payment_confirmed",
+		ExternalRef:  "pay-1",
+	})
+	if err != nil {
+		t.Fatalf("transition status: %v", err)
+	}
+	if order.Status != 3 || order.PaymentID != "pay-1" || order.PaidAt == nil {
+		t.Fatalf("unexpected transitioned order: %+v", order)
+	}
+
+	var count int64
+	if err := db.Model(&dalmodel.OrderStatusLog{}).Where("order_id = ? AND action_type = ?", 1, "pay_confirm").Count(&count).Error; err != nil {
+		t.Fatalf("count status logs: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 pay_confirm log, got %d", count)
+	}
+}
+
 func TestRepository_ListExpiredOrders(t *testing.T) {
 	db := newOrderSQLiteDB(t)
 	repo := NewMySQLOrderRepository(db, time.Second)
@@ -127,6 +166,33 @@ func TestRepository_ListExpiredOrders(t *testing.T) {
 	}
 }
 
+func TestRepository_ActionRecordLifecycle(t *testing.T) {
+	db := newOrderSQLiteDB(t)
+	repo := NewMySQLOrderRepository(db, time.Second)
+	record := &dalmodel.OrderActionRecord{
+		ID:         1,
+		ActionType: "create",
+		ActionKey:  "req-1",
+		OrderID:    0,
+		UserID:     101,
+		Status:     "pending",
+	}
+
+	if err := repo.CreateActionRecord(context.Background(), record); err != nil {
+		t.Fatalf("create action record: %v", err)
+	}
+	if err := repo.MarkActionRecordSucceeded(context.Background(), "create", "req-1", 1001); err != nil {
+		t.Fatalf("mark action succeeded: %v", err)
+	}
+	got, err := repo.GetActionRecord(context.Background(), "create", "req-1")
+	if err != nil {
+		t.Fatalf("get action record: %v", err)
+	}
+	if got.OrderID != 1001 || got.Status != "succeeded" {
+		t.Fatalf("unexpected action record: %+v", got)
+	}
+}
+
 func newOrderSQLiteDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
@@ -134,7 +200,7 @@ func newOrderSQLiteDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open sqlite db: %v", err)
 	}
-	if err := db.AutoMigrate(&dalmodel.Order{}, &dalmodel.OrderItem{}); err != nil {
+	if err := db.AutoMigrate(&dalmodel.Order{}, &dalmodel.OrderItem{}, &dalmodel.OrderActionRecord{}, &dalmodel.OrderStatusLog{}); err != nil {
 		t.Fatalf("migrate sqlite schema: %v", err)
 	}
 	return db

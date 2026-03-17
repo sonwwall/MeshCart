@@ -20,6 +20,7 @@ import (
 var (
 	errNilReserveResponse = errors.New("inventory rpc returned nil reserve response")
 	errNilReleaseResponse = errors.New("inventory rpc returned nil release response")
+	errNilConfirmResponse = errors.New("inventory rpc returned nil confirm deduct response")
 )
 
 type ReserveSkuStocksResponse struct {
@@ -34,9 +35,16 @@ type ReleaseReservedSkuStocksResponse struct {
 	Stocks  []*inventorypb.SkuStock
 }
 
+type ConfirmDeductReservedSkuStocksResponse struct {
+	Code    int32
+	Message string
+	Stocks  []*inventorypb.SkuStock
+}
+
 type Client interface {
 	ReserveSkuStocks(ctx context.Context, req *inventorypb.ReserveSkuStocksRequest) (*ReserveSkuStocksResponse, error)
 	ReleaseReservedSkuStocks(ctx context.Context, req *inventorypb.ReleaseReservedSkuStocksRequest) (*ReleaseReservedSkuStocksResponse, error)
+	ConfirmDeductReservedSkuStocks(ctx context.Context, req *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*ConfirmDeductReservedSkuStocksResponse, error)
 }
 
 type kitexClient struct {
@@ -97,6 +105,18 @@ func (c *kitexClient) ReleaseReservedSkuStocks(ctx context.Context, req *invento
 	}
 	code, message := baseCodeMessage(resp.Base)
 	return &ReleaseReservedSkuStocksResponse{Code: code, Message: message, Stocks: resp.Stocks}, nil
+}
+
+func (c *kitexClient) ConfirmDeductReservedSkuStocks(ctx context.Context, req *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*ConfirmDeductReservedSkuStocksResponse, error) {
+	resp, err := c.cli.ConfirmDeductReservedSkuStocks(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilConfirmResponse
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &ConfirmDeductReservedSkuStocksResponse{Code: code, Message: message, Stocks: resp.Stocks}, nil
 }
 
 func baseCodeMessage(base *basepb.BaseResponse) (int32, string) {
