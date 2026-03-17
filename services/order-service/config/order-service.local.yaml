@@ -1,0 +1,18 @@
+mysql:
+  address: 127.0.0.1:3306
+  username: root
+  password: root
+  database: meshcart_order
+  charset: utf8mb4
+  parse_time: true
+  loc: Local
+
+migration:
+  enabled: true
+  source: file://services/order-service/migrations
+
+snowflake:
+  node: 5
+
+timeout:
+  db_query_ms: 1500
