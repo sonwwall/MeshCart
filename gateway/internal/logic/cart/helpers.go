@@ -41,3 +41,12 @@ func findSKU(product *productpb.Product, skuID int64) *productpb.ProductSku {
 	}
 	return nil
 }
+
+func findCartItem(items []*cartpb.CartItem, itemID int64) *cartpb.CartItem {
+	for _, item := range items {
+		if item != nil && item.GetId() == itemID {
+			return item
+		}
+	}
+	return nil
+}
