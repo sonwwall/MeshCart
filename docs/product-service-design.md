@@ -788,13 +788,19 @@ gateway/
 当前落点：
 
 - `gateway` 调 `product-service` 的 Kitex Client 已显式设置 connect timeout 和 rpc timeout
+- `gateway` 调 `product-service` 的读接口已启用一次有限重试：
+  - `GetProductDetail`
+  - `ListProducts`
+  - `BatchGetSKU`
+- `CreateProduct`、`CreateProductSaga`、`UpdateProduct`、`ChangeProductStatus` 等写接口不自动重试
 - `product-service` repository 在商品查询、列表、状态变更和事务写入时，会统一套上 DB query timeout
 
 这样做的目的：
 
 - 避免商品查询和写入链路无限等待
 - 让 `gateway -> rpc -> db` 这条调用链开始具备基础超时预算
-- 为后续限流、重试和熔断提供更稳定的前提
+- 在不重放商品写操作的前提下，提高商品读链路对瞬时 transport error 的容忍度
+- 为后续限流和熔断提供更稳定的前提
 
 ## 16. 错误码设计
 

@@ -12,6 +12,7 @@ import (
 	kitextrace "github.com/kitex-contrib/obs-opentelemetry/tracing"
 	consul "github.com/kitex-contrib/registry-consul"
 
+	commonx "meshcart/app/common"
 	basepb "meshcart/kitex_gen/meshcart/base"
 	cartpb "meshcart/kitex_gen/meshcart/cart"
 	cartservice "meshcart/kitex_gen/meshcart/cart/cartservice"
@@ -62,14 +63,31 @@ type Client interface {
 }
 
 type kitexClient struct {
-	cli cartservice.Client
+	readCli  cartservice.Client
+	writeCli cartservice.Client
 }
 
 func NewClient(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration) (Client, error) {
-	return newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout)
+	readCli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout, client.WithFailureRetry(commonx.NewReadFailureRetryPolicy(rpcTimeout)))
+	if err != nil {
+		return nil, err
+	}
+	writeCli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout)
+	if err != nil {
+		return nil, err
+	}
+	return &kitexClient{readCli: readCli, writeCli: writeCli}, nil
 }
 
 func newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (Client, error) {
+	cli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout, extraOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return &kitexClient{readCli: cli, writeCli: cli}, nil
+}
+
+func newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (cartservice.Client, error) {
 	opts := []client.Option{
 		client.WithSuite(kitextrace.NewClientSuite()),
 		client.WithClientBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "gateway"}),
@@ -99,11 +117,11 @@ func newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress st
 	if err != nil {
 		return nil, err
 	}
-	return &kitexClient{cli: cli}, nil
+	return cli, nil
 }
 
 func (c *kitexClient) GetCart(ctx context.Context, req *cartpb.GetCartRequest) (*GetCartResponse, error) {
-	resp, err := c.cli.GetCart(ctx, req)
+	resp, err := c.readCli.GetCart(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +133,7 @@ func (c *kitexClient) GetCart(ctx context.Context, req *cartpb.GetCartRequest) (
 }
 
 func (c *kitexClient) AddCartItem(ctx context.Context, req *cartpb.AddCartItemRequest) (*AddCartItemResponse, error) {
-	resp, err := c.cli.AddCartItem(ctx, req)
+	resp, err := c.writeCli.AddCartItem(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +145,7 @@ func (c *kitexClient) AddCartItem(ctx context.Context, req *cartpb.AddCartItemRe
 }
 
 func (c *kitexClient) UpdateCartItem(ctx context.Context, req *cartpb.UpdateCartItemRequest) (*UpdateCartItemResponse, error) {
-	resp, err := c.cli.UpdateCartItem(ctx, req)
+	resp, err := c.writeCli.UpdateCartItem(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +157,7 @@ func (c *kitexClient) UpdateCartItem(ctx context.Context, req *cartpb.UpdateCart
 }
 
 func (c *kitexClient) RemoveCartItem(ctx context.Context, req *cartpb.RemoveCartItemRequest) (*RemoveCartItemResponse, error) {
-	resp, err := c.cli.RemoveCartItem(ctx, req)
+	resp, err := c.writeCli.RemoveCartItem(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +169,7 @@ func (c *kitexClient) RemoveCartItem(ctx context.Context, req *cartpb.RemoveCart
 }
 
 func (c *kitexClient) ClearCart(ctx context.Context, req *cartpb.ClearCartRequest) (*ClearCartResponse, error) {
-	resp, err := c.cli.ClearCart(ctx, req)
+	resp, err := c.writeCli.ClearCart(ctx, req)
 	if err != nil {
 		return nil, err
 	}

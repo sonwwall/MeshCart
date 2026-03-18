@@ -81,11 +81,12 @@ func (s *stubKitexInventoryClient) ConfirmDeductReservedSkuStocks(ctx context.Co
 }
 
 func TestClient_InitSkuStocks_NilResponse(t *testing.T) {
-	c := &kitexClient{cli: &stubKitexInventoryClient{
+	stub := &stubKitexInventoryClient{
 		initSkuStocksFn: func(context.Context, *inventorypb.InitSkuStocksRequest) (*inventorypb.InitSkuStocksResponse, error) {
 			return nil, nil
 		},
-	}}
+	}
+	c := &kitexClient{readCli: stub, writeCli: stub}
 
 	resp, err := c.InitSkuStocks(context.Background(), &inventorypb.InitSkuStocksRequest{})
 	if resp != nil {
@@ -97,11 +98,12 @@ func TestClient_InitSkuStocks_NilResponse(t *testing.T) {
 }
 
 func TestClient_AdjustStock_NilResponse(t *testing.T) {
-	c := &kitexClient{cli: &stubKitexInventoryClient{
+	stub := &stubKitexInventoryClient{
 		adjustStockFn: func(context.Context, *inventorypb.AdjustStockRequest) (*inventorypb.AdjustStockResponse, error) {
 			return nil, nil
 		},
-	}}
+	}
+	c := &kitexClient{readCli: stub, writeCli: stub}
 
 	resp, err := c.AdjustStock(context.Background(), &inventorypb.AdjustStockRequest{})
 	if resp != nil {
@@ -113,11 +115,12 @@ func TestClient_AdjustStock_NilResponse(t *testing.T) {
 }
 
 func TestClient_FreezeSkuStocks_NilResponse(t *testing.T) {
-	c := &kitexClient{cli: &stubKitexInventoryClient{
+	stub := &stubKitexInventoryClient{
 		freezeSkuStocksFn: func(context.Context, *inventorypb.FreezeSkuStocksRequest) (*inventorypb.FreezeSkuStocksResponse, error) {
 			return nil, nil
 		},
-	}}
+	}
+	c := &kitexClient{readCli: stub, writeCli: stub}
 
 	resp, err := c.FreezeSkuStocks(context.Background(), &inventorypb.FreezeSkuStocksRequest{})
 	if resp != nil {
@@ -129,7 +132,7 @@ func TestClient_FreezeSkuStocks_NilResponse(t *testing.T) {
 }
 
 func TestClient_CheckSaleableStock_MapsBaseResponse(t *testing.T) {
-	c := &kitexClient{cli: &stubKitexInventoryClient{
+	stub := &stubKitexInventoryClient{
 		checkSaleableFn: func(context.Context, *inventorypb.CheckSaleableStockRequest) (*inventorypb.CheckSaleableStockResponse, error) {
 			return &inventorypb.CheckSaleableStockResponse{
 				Base:           &basepb.BaseResponse{Code: 123, Message: "库存不足"},
@@ -137,7 +140,8 @@ func TestClient_CheckSaleableStock_MapsBaseResponse(t *testing.T) {
 				AvailableStock: 1,
 			}, nil
 		},
-	}}
+	}
+	c := &kitexClient{readCli: stub, writeCli: stub}
 
 	resp, err := c.CheckSaleableStock(context.Background(), &inventorypb.CheckSaleableStockRequest{})
 	if err != nil {

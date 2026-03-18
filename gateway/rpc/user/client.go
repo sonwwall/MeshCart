@@ -12,6 +12,7 @@ import (
 	kitextrace "github.com/kitex-contrib/obs-opentelemetry/tracing"
 	consul "github.com/kitex-contrib/registry-consul"
 
+	commonx "meshcart/app/common"
 	user "meshcart/kitex_gen/meshcart/user"
 	userservice "meshcart/kitex_gen/meshcart/user/userservice"
 )
@@ -76,14 +77,31 @@ type Client interface {
 }
 
 type kitexClient struct {
-	cli userservice.Client
+	readCli  userservice.Client
+	writeCli userservice.Client
 }
 
 func NewClient(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration) (Client, error) {
-	return newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout)
+	readCli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout, client.WithFailureRetry(commonx.NewReadFailureRetryPolicy(rpcTimeout)))
+	if err != nil {
+		return nil, err
+	}
+	writeCli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout)
+	if err != nil {
+		return nil, err
+	}
+	return &kitexClient{readCli: readCli, writeCli: writeCli}, nil
 }
 
 func newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (Client, error) {
+	cli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout, extraOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return &kitexClient{readCli: cli, writeCli: cli}, nil
+}
+
+func newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (userservice.Client, error) {
 	opts := []client.Option{
 		client.WithSuite(kitextrace.NewClientSuite()),
 		client.WithClientBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "gateway"}),
@@ -113,11 +131,11 @@ func newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress st
 	if err != nil {
 		return nil, err
 	}
-	return &kitexClient{cli: cli}, nil
+	return cli, nil
 }
 
 func (c *kitexClient) Login(ctx context.Context, req *LoginRequest) (*LoginResponse, error) {
-	resp, err := c.cli.Login(ctx, &user.UserLoginRequest{
+	resp, err := c.writeCli.Login(ctx, &user.UserLoginRequest{
 		Username: req.Username,
 		Password: req.Password,
 	})
@@ -145,7 +163,7 @@ func (c *kitexClient) Login(ctx context.Context, req *LoginRequest) (*LoginRespo
 }
 
 func (c *kitexClient) Register(ctx context.Context, req *RegisterRequest) (*RegisterResponse, error) {
-	resp, err := c.cli.Register(ctx, &user.UserRegisterRequest{
+	resp, err := c.writeCli.Register(ctx, &user.UserRegisterRequest{
 		Username: req.Username,
 		Password: req.Password,
 	})
@@ -169,7 +187,7 @@ func (c *kitexClient) Register(ctx context.Context, req *RegisterRequest) (*Regi
 }
 
 func (c *kitexClient) GetUser(ctx context.Context, req *GetUserRequest) (*GetUserResponse, error) {
-	resp, err := c.cli.GetUser(ctx, &user.UserGetRequest{UserId: req.UserID})
+	resp, err := c.readCli.GetUser(ctx, &user.UserGetRequest{UserId: req.UserID})
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +212,7 @@ func (c *kitexClient) GetUser(ctx context.Context, req *GetUserRequest) (*GetUse
 }
 
 func (c *kitexClient) UpdateUserRole(ctx context.Context, req *UpdateUserRoleRequest) (*UpdateUserRoleResponse, error) {
-	resp, err := c.cli.UpdateUserRole(ctx, &user.UserUpdateRoleRequest{
+	resp, err := c.writeCli.UpdateUserRole(ctx, &user.UserUpdateRoleRequest{
 		UserId: req.UserID,
 		Role:   req.Role,
 	})

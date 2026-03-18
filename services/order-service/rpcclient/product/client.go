@@ -12,6 +12,7 @@ import (
 	kitextrace "github.com/kitex-contrib/obs-opentelemetry/tracing"
 	consul "github.com/kitex-contrib/registry-consul"
 
+	commonx "meshcart/app/common"
 	basepb "meshcart/kitex_gen/meshcart/base"
 	productpb "meshcart/kitex_gen/meshcart/product"
 	productservice "meshcart/kitex_gen/meshcart/product/productservice"
@@ -40,10 +41,18 @@ type Client interface {
 }
 
 type kitexClient struct {
-	cli productservice.Client
+	readCli productservice.Client
 }
 
 func NewClient(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration) (Client, error) {
+	cli, err := newRawClient(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout, client.WithFailureRetry(commonx.NewReadFailureRetryPolicy(rpcTimeout)))
+	if err != nil {
+		return nil, err
+	}
+	return &kitexClient{readCli: cli}, nil
+}
+
+func newRawClient(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (productservice.Client, error) {
 	opts := []client.Option{
 		client.WithSuite(kitextrace.NewClientSuite()),
 		client.WithClientBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "order-service"}),
@@ -67,16 +76,17 @@ func NewClient(serviceName, hostPort, discoveryType, consulAddress string, conne
 	default:
 		return nil, fmt.Errorf("unsupported product rpc discovery type: %s", discoveryType)
 	}
+	opts = append(opts, extraOpts...)
 
 	cli, err := productservice.NewClient(serviceName, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return &kitexClient{cli: cli}, nil
+	return cli, nil
 }
 
 func (c *kitexClient) GetProductDetail(ctx context.Context, req *productpb.GetProductDetailRequest) (*GetProductDetailResponse, error) {
-	resp, err := c.cli.GetProductDetail(ctx, req)
+	resp, err := c.readCli.GetProductDetail(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +98,7 @@ func (c *kitexClient) GetProductDetail(ctx context.Context, req *productpb.GetPr
 }
 
 func (c *kitexClient) BatchGetSKU(ctx context.Context, req *productpb.BatchGetSkuRequest) (*BatchGetSKUResponse, error) {
-	resp, err := c.cli.BatchGetSku(ctx, req)
+	resp, err := c.readCli.BatchGetSku(ctx, req)
 	if err != nil {
 		return nil, err
 	}

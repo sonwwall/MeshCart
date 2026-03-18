@@ -45,11 +45,12 @@ func (s *stubKitexOrderClient) CloseExpiredOrders(context.Context, *orderpb.Clos
 }
 
 func TestClient_CreateOrder_NilResponse(t *testing.T) {
-	c := &kitexClient{cli: &stubKitexOrderClient{
+	stub := &stubKitexOrderClient{
 		createOrderFn: func(context.Context, *orderpb.CreateOrderRequest) (*orderpb.CreateOrderResponse, error) {
 			return nil, nil
 		},
-	}}
+	}
+	c := &kitexClient{readCli: stub, writeCli: stub}
 
 	resp, err := c.CreateOrder(context.Background(), &orderpb.CreateOrderRequest{})
 	if resp != nil {
@@ -61,14 +62,15 @@ func TestClient_CreateOrder_NilResponse(t *testing.T) {
 }
 
 func TestClient_GetOrder_MapsBaseResponse(t *testing.T) {
-	c := &kitexClient{cli: &stubKitexOrderClient{
+	stub := &stubKitexOrderClient{
 		getOrderFn: func(context.Context, *orderpb.GetOrderRequest) (*orderpb.GetOrderResponse, error) {
 			return &orderpb.GetOrderResponse{
 				Base:  &basepb.BaseResponse{Code: 0, Message: "成功"},
 				Order: &orderpb.Order{OrderId: 1, UserId: 101, Status: 2},
 			}, nil
 		},
-	}}
+	}
+	c := &kitexClient{readCli: stub, writeCli: stub}
 
 	resp, err := c.GetOrder(context.Background(), &orderpb.GetOrderRequest{UserId: 101, OrderId: 1})
 	if err != nil {
@@ -80,11 +82,12 @@ func TestClient_GetOrder_MapsBaseResponse(t *testing.T) {
 }
 
 func TestClient_ListOrders_NilResponse(t *testing.T) {
-	c := &kitexClient{cli: &stubKitexOrderClient{
+	stub := &stubKitexOrderClient{
 		listOrdersFn: func(context.Context, *orderpb.ListOrdersRequest) (*orderpb.ListOrdersResponse, error) {
 			return nil, nil
 		},
-	}}
+	}
+	c := &kitexClient{readCli: stub, writeCli: stub}
 
 	resp, err := c.ListOrders(context.Background(), &orderpb.ListOrdersRequest{})
 	if resp != nil {
@@ -96,14 +99,15 @@ func TestClient_ListOrders_NilResponse(t *testing.T) {
 }
 
 func TestClient_CancelOrder_MapsBaseResponse(t *testing.T) {
-	c := &kitexClient{cli: &stubKitexOrderClient{
+	stub := &stubKitexOrderClient{
 		cancelOrderFn: func(context.Context, *orderpb.CancelOrderRequest) (*orderpb.CancelOrderResponse, error) {
 			return &orderpb.CancelOrderResponse{
 				Base:  &basepb.BaseResponse{Code: 0, Message: "成功"},
 				Order: &orderpb.Order{OrderId: 1, UserId: 101, Status: 4, CancelReason: "changed_mind"},
 			}, nil
 		},
-	}}
+	}
+	c := &kitexClient{readCli: stub, writeCli: stub}
 
 	resp, err := c.CancelOrder(context.Background(), &orderpb.CancelOrderRequest{UserId: 101, OrderId: 1})
 	if err != nil {

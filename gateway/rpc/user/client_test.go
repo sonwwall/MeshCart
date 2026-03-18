@@ -184,7 +184,7 @@ func isTimeoutError(err error) bool {
 		return true
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded")
+	return strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded") || strings.Contains(msg, "exceed max duration")
 }
 
 func noRetryPolicy() *retry.FailurePolicy {

@@ -556,6 +556,8 @@ services/inventory-service/
 - 库存预占、释放、确认扣减能力
 - 商品创建链路的库存初始化 Saga
 - `gateway` 侧 inventory RPC client
+  - 查询类接口 `GetSkuStock`、`BatchGetSkuStock`、`CheckSaleableStock` 已启用一次有限重试
+  - 写接口 `Init/Freeze/Adjust/Reserve/Release/ConfirmDeduct` 不自动重试
 - `gateway` 购物车加购前库存校验接入
 - `gateway` 购物车更新数量前库存校验接入
 - `gateway` 后台库存 HTTP 查询与调整入口

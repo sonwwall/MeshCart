@@ -539,6 +539,70 @@ MeshCart 目前已经具备以下基础：
 - 保留真实 Consul 闭环验证能力
 - 避免把所有开发机都变成“必须先起完整环境才能测试”
 
+### 3.5 读链路重试治理
+
+读链路有限重试已经完成当前阶段落地，当前采用“只给幂等读接口加一次有限重试，写接口保持不自动重放”的策略。
+
+治理目标：
+
+- 吸收瞬时网络抖动和短暂连接异常
+- 降低读请求因为单次 transport error 直接失败的概率
+- 不让写链路因为透明重放而放大状态一致性风险
+
+当前已完成：
+
+- 新增共享读 RPC 重试策略构造：
+  - `app/common/rpc_retry.go`
+- `gateway` 下游读接口已启用一次有限重试：
+  - `gateway/rpc/user/client.go`
+    - `GetUser`
+  - `gateway/rpc/product/client.go`
+    - `GetProductDetail`
+    - `ListProducts`
+    - `BatchGetSKU`
+  - `gateway/rpc/inventory/client.go`
+    - `GetSkuStock`
+    - `BatchGetSkuStock`
+    - `CheckSaleableStock`
+  - `gateway/rpc/cart/client.go`
+    - `GetCart`
+  - `gateway/rpc/order/client.go`
+    - `GetOrder`
+    - `ListOrders`
+- `order-service` 下游商品读接口已启用一次有限重试：
+  - `services/order-service/rpcclient/product/client.go`
+    - `GetProductDetail`
+    - `BatchGetSKU`
+- 混合读写的 RPC wrapper 已拆成 `readCli/writeCli` 双 client，避免把写接口一起带上重试
+
+当前策略：
+
+- 最大重试次数：`1`
+- 固定退避：`30ms`
+- 仅对技术错误重试：transport error、连接失败、临时网络错误
+- 不对业务错误码重试
+- 写接口仍然依赖业务幂等和显式补偿，不走 client 透明重放
+
+设计落点：
+
+- `app/common/rpc_retry.go`
+- `gateway/rpc/user/client.go`
+- `gateway/rpc/product/client.go`
+- `gateway/rpc/inventory/client.go`
+- `gateway/rpc/cart/client.go`
+- `gateway/rpc/order/client.go`
+- `services/order-service/rpcclient/product/client.go`
+
+测试覆盖：
+
+- `app/common/rpc_retry_test.go`
+  - 覆盖策略参数
+- `gateway/rpc/product/client_test.go`
+  - 覆盖读接口在临时 transport error 下的自动重试成功
+- `gateway/rpc/order/client_test.go`
+- `gateway/rpc/inventory/client_test.go`
+  - 覆盖读写分离后的 wrapper 映射行为仍然正确
+
 ## 4. 已完成的服务生命周期治理
 
 ### 4.1 服务生命周期治理
@@ -606,7 +670,6 @@ MeshCart 目前已经具备以下基础：
 
 - 业务服务 Compose 化
 - MySQL / Redis 本地容器化
-- 全链路默认重试
 - 熔断
 - 复杂降级编排
 - 隔离舱壁
@@ -635,25 +698,7 @@ MeshCart 目前已经具备以下基础：
 - 更复杂的摘流与发布编排
 - 新服务自动化脚手架
 
-### 6.1 重试策略
-
-后续可以建设，但要有边界。
-
-建议原则：
-
-- 只对幂等读请求开放重试
-- 只对明确的技术错误做有限次重试
-- 重试必须和 timeout 一起设计
-
-当前不建议对以下操作默认重试：
-
-- 登录
-- 创建商品
-- 更新商品
-- 修改商品状态
-- 后续订单创建、支付等写操作
-
-### 6.2 熔断与快速失败
+### 6.1 熔断与快速失败
 
 当下游持续超时或错误率升高时，再补这项能力更合适。
 
@@ -668,7 +713,7 @@ MeshCart 目前已经具备以下基础：
 - 已经有较稳定的 timeout 和指标口径
 - 已经知道哪些接口属于关键路径
 
-### 6.3 服务隔离
+### 6.2 服务隔离
 
 后续如果引入订单、库存、支付等服务，隔离的重要性会明显上升。
 
@@ -679,7 +724,7 @@ MeshCart 目前已经具备以下基础：
 - 后台任务与在线流量隔离
 - 核心链路与非核心链路隔离
 
-### 6.4 更细粒度的限流
+### 6.3 更细粒度的限流
 
 当前先做网关入口限流即可，后续再考虑：
 
@@ -688,7 +733,7 @@ MeshCart 目前已经具备以下基础：
 - 下游服务自保护限流
 - 按租户、角色、业务动作维度限流
 
-### 6.5 路由与发布治理
+### 6.4 路由与发布治理
 
 当服务实例数增多、版本并存需求出现时，再推进：
 

@@ -12,6 +12,7 @@ import (
 	kitextrace "github.com/kitex-contrib/obs-opentelemetry/tracing"
 	consul "github.com/kitex-contrib/registry-consul"
 
+	commonx "meshcart/app/common"
 	basepb "meshcart/kitex_gen/meshcart/base"
 	inventorypb "meshcart/kitex_gen/meshcart/inventory"
 	inventoryservice "meshcart/kitex_gen/meshcart/inventory/inventoryservice"
@@ -104,14 +105,31 @@ type Client interface {
 }
 
 type kitexClient struct {
-	cli inventoryservice.Client
+	readCli  inventoryservice.Client
+	writeCli inventoryservice.Client
 }
 
 func NewClient(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration) (Client, error) {
-	return newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout)
+	readCli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout, client.WithFailureRetry(commonx.NewReadFailureRetryPolicy(rpcTimeout)))
+	if err != nil {
+		return nil, err
+	}
+	writeCli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout)
+	if err != nil {
+		return nil, err
+	}
+	return &kitexClient{readCli: readCli, writeCli: writeCli}, nil
 }
 
 func newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (Client, error) {
+	cli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout, extraOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return &kitexClient{readCli: cli, writeCli: cli}, nil
+}
+
+func newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (inventoryservice.Client, error) {
 	opts := []client.Option{
 		client.WithSuite(kitextrace.NewClientSuite()),
 		client.WithClientBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "gateway"}),
@@ -141,11 +159,11 @@ func newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress st
 	if err != nil {
 		return nil, err
 	}
-	return &kitexClient{cli: cli}, nil
+	return cli, nil
 }
 
 func (c *kitexClient) GetSkuStock(ctx context.Context, req *inventorypb.GetSkuStockRequest) (*GetSkuStockResponse, error) {
-	resp, err := c.cli.GetSkuStock(ctx, req)
+	resp, err := c.readCli.GetSkuStock(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +175,7 @@ func (c *kitexClient) GetSkuStock(ctx context.Context, req *inventorypb.GetSkuSt
 }
 
 func (c *kitexClient) BatchGetSkuStock(ctx context.Context, req *inventorypb.BatchGetSkuStockRequest) (*BatchGetSkuStockResponse, error) {
-	resp, err := c.cli.BatchGetSkuStock(ctx, req)
+	resp, err := c.readCli.BatchGetSkuStock(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +187,7 @@ func (c *kitexClient) BatchGetSkuStock(ctx context.Context, req *inventorypb.Bat
 }
 
 func (c *kitexClient) CheckSaleableStock(ctx context.Context, req *inventorypb.CheckSaleableStockRequest) (*CheckSaleableStockResponse, error) {
-	resp, err := c.cli.CheckSaleableStock(ctx, req)
+	resp, err := c.readCli.CheckSaleableStock(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +204,7 @@ func (c *kitexClient) CheckSaleableStock(ctx context.Context, req *inventorypb.C
 }
 
 func (c *kitexClient) InitSkuStocks(ctx context.Context, req *inventorypb.InitSkuStocksRequest) (*InitSkuStocksResponse, error) {
-	resp, err := c.cli.InitSkuStocks(ctx, req)
+	resp, err := c.writeCli.InitSkuStocks(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +216,7 @@ func (c *kitexClient) InitSkuStocks(ctx context.Context, req *inventorypb.InitSk
 }
 
 func (c *kitexClient) InitSkuStocksSaga(ctx context.Context, req *inventorypb.InitSkuStocksSagaRequest) (*InitSkuStocksResponse, error) {
-	resp, err := c.cli.InitSkuStocksSaga(ctx, req)
+	resp, err := c.writeCli.InitSkuStocksSaga(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +228,7 @@ func (c *kitexClient) InitSkuStocksSaga(ctx context.Context, req *inventorypb.In
 }
 
 func (c *kitexClient) CompensateInitSkuStocksSaga(ctx context.Context, req *inventorypb.CompensateInitSkuStocksSagaRequest) (*CompensateInitSkuStocksResponse, error) {
-	resp, err := c.cli.CompensateInitSkuStocksSaga(ctx, req)
+	resp, err := c.writeCli.CompensateInitSkuStocksSaga(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +240,7 @@ func (c *kitexClient) CompensateInitSkuStocksSaga(ctx context.Context, req *inve
 }
 
 func (c *kitexClient) FreezeSkuStocks(ctx context.Context, req *inventorypb.FreezeSkuStocksRequest) (*FreezeSkuStocksResponse, error) {
-	resp, err := c.cli.FreezeSkuStocks(ctx, req)
+	resp, err := c.writeCli.FreezeSkuStocks(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +252,7 @@ func (c *kitexClient) FreezeSkuStocks(ctx context.Context, req *inventorypb.Free
 }
 
 func (c *kitexClient) AdjustStock(ctx context.Context, req *inventorypb.AdjustStockRequest) (*AdjustStockResponse, error) {
-	resp, err := c.cli.AdjustStock(ctx, req)
+	resp, err := c.writeCli.AdjustStock(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +264,7 @@ func (c *kitexClient) AdjustStock(ctx context.Context, req *inventorypb.AdjustSt
 }
 
 func (c *kitexClient) ReserveSkuStocks(ctx context.Context, req *inventorypb.ReserveSkuStocksRequest) (*ReserveSkuStocksResponse, error) {
-	resp, err := c.cli.ReserveSkuStocks(ctx, req)
+	resp, err := c.writeCli.ReserveSkuStocks(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +276,7 @@ func (c *kitexClient) ReserveSkuStocks(ctx context.Context, req *inventorypb.Res
 }
 
 func (c *kitexClient) ReleaseReservedSkuStocks(ctx context.Context, req *inventorypb.ReleaseReservedSkuStocksRequest) (*ReleaseReservedSkuStocksResponse, error) {
-	resp, err := c.cli.ReleaseReservedSkuStocks(ctx, req)
+	resp, err := c.writeCli.ReleaseReservedSkuStocks(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +288,7 @@ func (c *kitexClient) ReleaseReservedSkuStocks(ctx context.Context, req *invento
 }
 
 func (c *kitexClient) ConfirmDeductReservedSkuStocks(ctx context.Context, req *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*ConfirmDeductReservedSkuStocksResponse, error) {
-	resp, err := c.cli.ConfirmDeductReservedSkuStocks(ctx, req)
+	resp, err := c.writeCli.ConfirmDeductReservedSkuStocks(ctx, req)
 	if err != nil {
 		return nil, err
 	}

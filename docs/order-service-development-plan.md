@@ -285,6 +285,10 @@
   - client 封装放在：
     - `services/order-service/rpcclient/product`
     - `services/order-service/rpcclient/inventory`
+  - 当前重试策略：
+    - `product-service` 的读接口 `GetProductDetail`、`BatchGetSKU` 已启用一次有限重试
+    - `inventory-service` 的 `ReserveSkuStocks`、`ReleaseReservedSkuStocks`、`ConfirmDeductReservedSkuStocks` 不自动重试
+    - 这样可以提升商品读取校验链路对瞬时网络错误的容忍度，同时避免库存写动作被 transport 层透明重放
 - 订单入参调整
   - `CreateOrderRequest.items` 现在只要求：
     - `product_id`
@@ -757,6 +761,8 @@
 - gateway 接入
   - 已新增 `gateway -> order-service` 的 RPC client：
     - `gateway/rpc/order/client.go`
+  - 其中读接口 `GetOrder`、`ListOrders` 已启用一次有限重试
+  - 写接口 `CreateOrder`、`CancelOrder` 不自动重试
   - 已在网关配置与依赖容器中完成装配：
     - `gateway/config/config.go`
     - `gateway/internal/svc/service_context.go`

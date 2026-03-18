@@ -240,11 +240,37 @@ gateway/
 补充说明：
 
 - 当前网关已经把下游 RPC connect timeout 与 rpc timeout 收口到 `config.Config`
+- 当前网关已经对幂等读 RPC client 启用一次有限重试，写 RPC 不自动重试
 - 当前网关已经把 HTTP 入口 read/write/idle timeout 收口到 `config.Config`
 - 当前网关已经增加 request timeout middleware，把整体请求预算下发到 `handler -> logic -> rpc` 链路
 - HTTP read/write timeout 主要作用于 Hertz 的连接与 I/O 层，不完全等于整个 handler 执行超时
 - 当前已验证的 HTTP 请求读取超时场景，会由 Hertz 直接返回框架级 `400 Bad Request`，而不是走业务统一 JSON 响应
 - request timeout middleware 是协作式超时控制：下游逻辑若尊重 `ctx.Done()`，超时后会统一返回“服务繁忙，请稍后重试”；若代码完全不理会 `ctx`，则不会被强制打断
+
+当前读 RPC 重试范围：
+
+- `rpc/user/client.go`
+  - `GetUser`
+- `rpc/product/client.go`
+  - `GetProductDetail`
+  - `ListProducts`
+  - `BatchGetSKU`
+- `rpc/inventory/client.go`
+  - `GetSkuStock`
+  - `BatchGetSkuStock`
+  - `CheckSaleableStock`
+- `rpc/cart/client.go`
+  - `GetCart`
+- `rpc/order/client.go`
+  - `GetOrder`
+  - `ListOrders`
+
+当前策略：
+
+- 最大重试次数：`1`
+- 固定退避：`30ms`
+- 只对 transport error 重试
+- 读写混合 client 通过 `readCli/writeCli` 分离，避免把写接口一起带上重试
 
 启动关系：
 

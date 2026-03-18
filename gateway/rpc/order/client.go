@@ -12,6 +12,7 @@ import (
 	kitextrace "github.com/kitex-contrib/obs-opentelemetry/tracing"
 	consul "github.com/kitex-contrib/registry-consul"
 
+	commonx "meshcart/app/common"
 	basepb "meshcart/kitex_gen/meshcart/base"
 	orderpb "meshcart/kitex_gen/meshcart/order"
 	orderservice "meshcart/kitex_gen/meshcart/order/orderservice"
@@ -57,10 +58,31 @@ type Client interface {
 }
 
 type kitexClient struct {
-	cli orderservice.Client
+	readCli  orderservice.Client
+	writeCli orderservice.Client
 }
 
 func NewClient(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration) (Client, error) {
+	readCli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout, client.WithFailureRetry(commonx.NewReadFailureRetryPolicy(rpcTimeout)))
+	if err != nil {
+		return nil, err
+	}
+	writeCli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout)
+	if err != nil {
+		return nil, err
+	}
+	return &kitexClient{readCli: readCli, writeCli: writeCli}, nil
+}
+
+func newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (Client, error) {
+	cli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout, extraOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return &kitexClient{readCli: cli, writeCli: cli}, nil
+}
+
+func newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (orderservice.Client, error) {
 	opts := []client.Option{
 		client.WithSuite(kitextrace.NewClientSuite()),
 		client.WithClientBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "gateway"}),
@@ -84,16 +106,17 @@ func NewClient(serviceName, hostPort, discoveryType, consulAddress string, conne
 	default:
 		return nil, fmt.Errorf("unsupported order rpc discovery type: %s", discoveryType)
 	}
+	opts = append(opts, extraOpts...)
 
 	cli, err := orderservice.NewClient(serviceName, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return &kitexClient{cli: cli}, nil
+	return cli, nil
 }
 
 func (c *kitexClient) CreateOrder(ctx context.Context, req *orderpb.CreateOrderRequest) (*CreateOrderResponse, error) {
-	resp, err := c.cli.CreateOrder(ctx, req)
+	resp, err := c.writeCli.CreateOrder(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +128,7 @@ func (c *kitexClient) CreateOrder(ctx context.Context, req *orderpb.CreateOrderR
 }
 
 func (c *kitexClient) GetOrder(ctx context.Context, req *orderpb.GetOrderRequest) (*GetOrderResponse, error) {
-	resp, err := c.cli.GetOrder(ctx, req)
+	resp, err := c.readCli.GetOrder(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +140,7 @@ func (c *kitexClient) GetOrder(ctx context.Context, req *orderpb.GetOrderRequest
 }
 
 func (c *kitexClient) ListOrders(ctx context.Context, req *orderpb.ListOrdersRequest) (*ListOrdersResponse, error) {
-	resp, err := c.cli.ListOrders(ctx, req)
+	resp, err := c.readCli.ListOrders(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +152,7 @@ func (c *kitexClient) ListOrders(ctx context.Context, req *orderpb.ListOrdersReq
 }
 
 func (c *kitexClient) CancelOrder(ctx context.Context, req *orderpb.CancelOrderRequest) (*CancelOrderResponse, error) {
-	resp, err := c.cli.CancelOrder(ctx, req)
+	resp, err := c.writeCli.CancelOrder(ctx, req)
 	if err != nil {
 		return nil, err
 	}

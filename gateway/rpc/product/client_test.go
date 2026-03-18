@@ -21,6 +21,7 @@ import (
 type slowProductService struct {
 	sleep   time.Duration
 	started chan struct{}
+	failFor int
 }
 
 func (s *slowProductService) CreateProduct(ctx context.Context, request *productpb.CreateProductRequest) (*productpb.CreateProductResponse, error) {
@@ -48,6 +49,10 @@ func (s *slowProductService) GetProductDetail(ctx context.Context, request *prod
 	case s.started <- struct{}{}:
 	default:
 	}
+	if s.failFor > 0 {
+		s.failFor--
+		return nil, errors.New("temporary transport failure")
+	}
 	time.Sleep(s.sleep)
 	return &productpb.GetProductDetailResponse{
 		Product: &productpb.Product{
@@ -58,6 +63,51 @@ func (s *slowProductService) GetProductDetail(ctx context.Context, request *prod
 		},
 		Base: &basepb.BaseResponse{Code: 0, Message: "成功"},
 	}, nil
+}
+
+func TestClient_GetProductDetailRetriesOnTransportError(t *testing.T) {
+	addr := acquireFreeAddr(t)
+	svc := &slowProductService{
+		started: make(chan struct{}, 2),
+		failFor: 1,
+	}
+	svr := productservice.NewServer(svc, server.WithServiceAddr(addr))
+
+	serverErrCh := make(chan error, 1)
+	go func() {
+		serverErrCh <- svr.Run()
+	}()
+
+	waitForServer(t, addr.String())
+	t.Cleanup(func() {
+		if err := svr.Stop(); err != nil {
+			t.Fatalf("stop test server: %v", err)
+		}
+		select {
+		case err := <-serverErrCh:
+			if err != nil {
+				t.Fatalf("server exited with error: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for test server shutdown")
+		}
+	})
+
+	client, err := NewClient("ProductService", addr.String(), "direct", "", 100*time.Millisecond, 200*time.Millisecond)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	resp, err := client.GetProductDetail(context.Background(), &productpb.GetProductDetailRequest{ProductId: 1002})
+	if err != nil {
+		t.Fatalf("expected retry success, got %v", err)
+	}
+	if resp == nil || resp.Product == nil || resp.Product.GetId() != 1002 {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if len(svc.started) < 2 {
+		t.Fatalf("expected retry to invoke server twice, got %d", len(svc.started))
+	}
 }
 
 func (s *slowProductService) ListProducts(ctx context.Context, request *productpb.ListProductsRequest) (*productpb.ListProductsResponse, error) {
@@ -197,7 +247,7 @@ func isTimeoutError(err error) bool {
 		return true
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded")
+	return strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded") || strings.Contains(msg, "exceed max duration")
 }
 
 func noRetryPolicy() *retry.FailurePolicy {

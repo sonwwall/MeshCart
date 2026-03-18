@@ -12,6 +12,7 @@ import (
 	kitextrace "github.com/kitex-contrib/obs-opentelemetry/tracing"
 	consul "github.com/kitex-contrib/registry-consul"
 
+	commonx "meshcart/app/common"
 	basepb "meshcart/kitex_gen/meshcart/base"
 	productpb "meshcart/kitex_gen/meshcart/product"
 	productservice "meshcart/kitex_gen/meshcart/product/productservice"
@@ -75,14 +76,31 @@ type Client interface {
 }
 
 type kitexClient struct {
-	cli productservice.Client
+	readCli  productservice.Client
+	writeCli productservice.Client
 }
 
 func NewClient(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration) (Client, error) {
-	return newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout)
+	readCli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout, client.WithFailureRetry(commonx.NewReadFailureRetryPolicy(rpcTimeout)))
+	if err != nil {
+		return nil, err
+	}
+	writeCli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout)
+	if err != nil {
+		return nil, err
+	}
+	return &kitexClient{readCli: readCli, writeCli: writeCli}, nil
 }
 
 func newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (Client, error) {
+	cli, err := newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress, connectTimeout, rpcTimeout, extraOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return &kitexClient{readCli: cli, writeCli: cli}, nil
+}
+
+func newRawClientWithOptions(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (productservice.Client, error) {
 	opts := []client.Option{
 		client.WithSuite(kitextrace.NewClientSuite()),
 		client.WithClientBasicInfo(&rpcinfo.EndpointBasicInfo{ServiceName: "gateway"}),
@@ -112,11 +130,11 @@ func newClientWithOptions(serviceName, hostPort, discoveryType, consulAddress st
 	if err != nil {
 		return nil, err
 	}
-	return &kitexClient{cli: cli}, nil
+	return cli, nil
 }
 
 func (c *kitexClient) CreateProduct(ctx context.Context, req *productpb.CreateProductRequest) (*CreateProductResponse, error) {
-	resp, err := c.cli.CreateProduct(ctx, req)
+	resp, err := c.writeCli.CreateProduct(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +146,7 @@ func (c *kitexClient) CreateProduct(ctx context.Context, req *productpb.CreatePr
 }
 
 func (c *kitexClient) CreateProductSaga(ctx context.Context, req *productpb.CreateProductSagaRequest) (*CreateProductResponse, error) {
-	resp, err := c.cli.CreateProductSaga(ctx, req)
+	resp, err := c.writeCli.CreateProductSaga(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +158,7 @@ func (c *kitexClient) CreateProductSaga(ctx context.Context, req *productpb.Crea
 }
 
 func (c *kitexClient) CompensateCreateProductSaga(ctx context.Context, req *productpb.CompensateCreateProductSagaRequest) (*ChangeProductStatusResponse, error) {
-	resp, err := c.cli.CompensateCreateProductSaga(ctx, req)
+	resp, err := c.writeCli.CompensateCreateProductSaga(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +170,7 @@ func (c *kitexClient) CompensateCreateProductSaga(ctx context.Context, req *prod
 }
 
 func (c *kitexClient) UpdateProduct(ctx context.Context, req *productpb.UpdateProductRequest) (*UpdateProductResponse, error) {
-	resp, err := c.cli.UpdateProduct(ctx, req)
+	resp, err := c.writeCli.UpdateProduct(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +182,7 @@ func (c *kitexClient) UpdateProduct(ctx context.Context, req *productpb.UpdatePr
 }
 
 func (c *kitexClient) ChangeProductStatus(ctx context.Context, req *productpb.ChangeProductStatusRequest) (*ChangeProductStatusResponse, error) {
-	resp, err := c.cli.ChangeProductStatus(ctx, req)
+	resp, err := c.writeCli.ChangeProductStatus(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +194,7 @@ func (c *kitexClient) ChangeProductStatus(ctx context.Context, req *productpb.Ch
 }
 
 func (c *kitexClient) GetProductDetail(ctx context.Context, req *productpb.GetProductDetailRequest) (*GetProductDetailResponse, error) {
-	resp, err := c.cli.GetProductDetail(ctx, req)
+	resp, err := c.readCli.GetProductDetail(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +206,7 @@ func (c *kitexClient) GetProductDetail(ctx context.Context, req *productpb.GetPr
 }
 
 func (c *kitexClient) ListProducts(ctx context.Context, req *productpb.ListProductsRequest) (*ListProductsResponse, error) {
-	resp, err := c.cli.ListProducts(ctx, req)
+	resp, err := c.readCli.ListProducts(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +223,7 @@ func (c *kitexClient) ListProducts(ctx context.Context, req *productpb.ListProdu
 }
 
 func (c *kitexClient) BatchGetSKU(ctx context.Context, req *productpb.BatchGetSkuRequest) (*BatchGetSKUResponse, error) {
-	resp, err := c.cli.BatchGetSku(ctx, req)
+	resp, err := c.readCli.BatchGetSku(ctx, req)
 	if err != nil {
 		return nil, err
 	}

@@ -141,13 +141,15 @@
 当前落点：
 
 - `gateway` 调 `user-service` 的 Kitex Client 已显式设置 connect timeout 和 rpc timeout
+- `gateway` 调 `user-service` 的 `GetUser` 已启用一次有限重试；`Login`、`Register`、`UpdateUserRole` 不自动重试
 - `user-service` repository 在执行 GORM 查询和更新时，会基于传入 `ctx` 统一套上 DB query timeout
 
 这样做的目的：
 
 - 避免下游数据库操作无限等待
 - 让 RPC 超时预算和服务内查询超时预算可同时收口到配置层
-- 为后续熔断、重试、排障提供稳定前提
+- 在不放大写链路重复执行风险的前提下，提高用户读接口对瞬时网络抖动的容忍度
+- 为后续熔断、排障提供稳定前提
 
 ## 9. 数据迁移说明
 
