@@ -65,3 +65,19 @@ scrape_configs:
           source: file
           service: inventory-service
           __path__: /workspace/logs/inventory-service.log
+      - targets:
+          - localhost
+        labels:
+          job: meshcart-local-files
+          project: meshcart
+          source: file
+          service: order-service
+          __path__: /workspace/logs/order-service.log
+      - targets:
+          - localhost
+        labels:
+          job: meshcart-local-files
+          project: meshcart
+          source: file
+          service: payment-service
+          __path__: /workspace/logs/payment-service.log

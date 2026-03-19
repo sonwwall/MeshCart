@@ -230,6 +230,8 @@ inventory-service：
 - Product-service metrics：`9093/metrics`
 - Cart-service metrics：`9094/metrics`
 - Inventory-service metrics：`9095/metrics`
+- Order-service metrics：`9096/metrics`
+- Payment-service metrics：`9097/metrics`
 
 ## 5.3 访问入口总表
 
@@ -243,6 +245,8 @@ inventory-service：
 - Product-service 指标端点：`http://localhost:9093/metrics`
 - Cart-service 指标端点：`http://localhost:9094/metrics`
 - Inventory-service 指标端点：`http://localhost:9095/metrics`
+- Order-service 指标端点：`http://localhost:9096/metrics`
+- Payment-service 指标端点：`http://localhost:9097/metrics`
 
 说明：
 
@@ -276,7 +280,7 @@ docker compose restart grafana
 
 - 业务日志同时输出到控制台和 `logs/` 目录
 - 本地日志文件由 `lumberjack` 做滚动切分
-- `promtail` 采集 `logs/gateway.log`、`logs/user-service.log`、`logs/product-service.log`、`logs/cart-service.log`、`logs/inventory-service.log`
+- `promtail` 采集 `logs/gateway.log`、`logs/user-service.log`、`logs/product-service.log`、`logs/cart-service.log`、`logs/inventory-service.log`、`logs/order-service.log`、`logs/payment-service.log`
 - `promtail` 的读取位点文件使用宿主机持久化，避免重启后反复从头扫描旧日志
 
 ### 6.3 启动业务服务

@@ -383,6 +383,12 @@ curl http://127.0.0.1:9093/readyz
 - Inventory-service health：`http://127.0.0.1:9095/healthz`
 - Inventory-service ready：`http://127.0.0.1:9095/readyz`
 - Inventory-service：`http://127.0.0.1:9095/metrics`
+- Order-service health：`http://127.0.0.1:9096/healthz`
+- Order-service ready：`http://127.0.0.1:9096/readyz`
+- Order-service：`http://127.0.0.1:9096/metrics`
+- Payment-service health：`http://127.0.0.1:9097/healthz`
+- Payment-service ready：`http://127.0.0.1:9097/readyz`
+- Payment-service：`http://127.0.0.1:9097/metrics`
 
 再打开：
 
@@ -414,6 +420,8 @@ curl http://127.0.0.1:9093/readyz
 - `logs/product-service.log`
 - `logs/cart-service.log`
 - `logs/inventory-service.log`
+- `logs/order-service.log`
+- `logs/payment-service.log`
 
 如果 Promtail 正常工作，也可以通过 Grafana Explore 查询 Loki 日志。
 
