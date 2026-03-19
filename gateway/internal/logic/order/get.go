@@ -42,9 +42,19 @@ func (l *GetLogic) Get(userID, orderID int64) (*types.OrderData, *common.BizErro
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("order rpc get returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int64("order_id", orderID),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
 	if resp.Order == nil {
+		logx.L(ctx).Error("order rpc get returned nil order",
+			zap.Int64("user_id", userID),
+			zap.Int64("order_id", orderID),
+		)
 		return nil, common.ErrInternalError
 	}
 

@@ -63,9 +63,20 @@ func (l *CreateLogic) Create(userID int64, req *types.CreateOrderRequest) (*type
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("order rpc create returned business error",
+			zap.Int64("user_id", userID),
+			zap.String("request_id", rpcReq.GetRequestId()),
+			zap.Int("item_count", len(rpcReq.GetItems())),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
 	if resp.Order == nil {
+		logx.L(ctx).Error("order rpc create returned nil order",
+			zap.Int64("user_id", userID),
+			zap.String("request_id", rpcReq.GetRequestId()),
+		)
 		return nil, common.ErrInternalError
 	}
 

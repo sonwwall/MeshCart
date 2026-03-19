@@ -17,10 +17,18 @@ func (s *OrderService) CloseExpiredOrders(ctx context.Context, req *orderpb.Clos
 	if req != nil && req.GetLimit() > 0 {
 		limit = int(req.GetLimit())
 	}
+	logx.L(ctx).Info("close expired orders start", zap.Int("limit", limit))
 
 	orders, err := s.repo.ListExpiredOrders(ctx, s.now(), limit)
 	if err != nil {
-		return nil, mapRepositoryError(err)
+		bizErr := mapRepositoryError(err)
+		logx.L(ctx).Error("close expired orders list failed",
+			zap.Error(err),
+			zap.Int("limit", limit),
+			zap.Int32("mapped_code", bizErr.Code),
+			zap.String("mapped_message", bizErr.Msg),
+		)
+		return nil, bizErr
 	}
 
 	closedOrderIDs := make([]int64, 0, len(orders))
@@ -34,11 +42,19 @@ func (s *OrderService) CloseExpiredOrders(ctx context.Context, req *orderpb.Clos
 			Items:   buildReleaseItems(order),
 		})
 		if releaseErr != nil {
-			logx.L(ctx).Warn("release inventory for expired order failed", zap.Error(releaseErr), zap.Int64("order_id", order.OrderID))
+			logx.L(ctx).Warn("release inventory for expired order failed",
+				zap.Error(releaseErr),
+				zap.Int64("order_id", order.OrderID),
+				zap.String("biz_id", s.reserveBizID(order.OrderID)),
+			)
 			continue
 		}
 		if releaseResp.Code != 0 {
-			logx.L(ctx).Warn("release inventory for expired order returned biz error", zap.Int32("code", releaseResp.Code), zap.String("message", releaseResp.Message), zap.Int64("order_id", order.OrderID))
+			logx.L(ctx).Warn("release inventory for expired order returned biz error",
+				zap.Int32("code", releaseResp.Code),
+				zap.String("message", releaseResp.Message),
+				zap.Int64("order_id", order.OrderID),
+			)
 			continue
 		}
 
@@ -50,10 +66,22 @@ func (s *OrderService) CloseExpiredOrders(ctx context.Context, req *orderpb.Clos
 			ActionType:   "close_expired",
 			Reason:       "order_expired",
 		}); updateErr != nil {
-			logx.L(ctx).Warn("close expired order update status failed", zap.Error(updateErr), zap.Int64("order_id", order.OrderID))
+			logx.L(ctx).Warn("close expired order update status failed",
+				zap.Error(updateErr),
+				zap.Int64("order_id", order.OrderID),
+			)
 			continue
 		}
+		logx.L(ctx).Info("close expired order completed",
+			zap.Int64("order_id", order.OrderID),
+			zap.Int64("user_id", order.UserID),
+		)
 		closedOrderIDs = append(closedOrderIDs, order.OrderID)
 	}
+	logx.L(ctx).Info("close expired orders completed",
+		zap.Int("limit", limit),
+		zap.Int("closed_count", len(closedOrderIDs)),
+		zap.Int64s("closed_order_ids", closedOrderIDs),
+	)
 	return closedOrderIDs, nil
 }

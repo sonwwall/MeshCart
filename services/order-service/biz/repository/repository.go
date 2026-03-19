@@ -6,8 +6,10 @@ import (
 	"strings"
 	"time"
 
+	logx "meshcart/app/log"
 	dalmodel "meshcart/services/order-service/dal/model"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -66,6 +68,12 @@ func (r *MySQLOrderRepository) CreateWithItems(ctx context.Context, order *dalmo
 
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(order).Error; err != nil {
+			logx.L(ctx).Error("create order insert failed",
+				zap.Error(err),
+				zap.Int64("order_id", order.OrderID),
+				zap.Int64("user_id", order.UserID),
+				zap.Int32("status", order.Status),
+			)
 			return err
 		}
 		for _, item := range items {
@@ -73,17 +81,32 @@ func (r *MySQLOrderRepository) CreateWithItems(ctx context.Context, order *dalmo
 				return ErrInvalidOrder
 			}
 			if err := tx.Create(item).Error; err != nil {
+				logx.L(ctx).Error("create order item failed",
+					zap.Error(err),
+					zap.Int64("order_id", item.OrderID),
+					zap.Int64("item_id", item.ID),
+					zap.Int64("sku_id", item.SKUID),
+					zap.Int32("quantity", item.Quantity),
+				)
 				return err
 			}
 		}
-		return tx.Create(&dalmodel.OrderStatusLog{
+		if err := tx.Create(&dalmodel.OrderStatusLog{
 			ID:         order.OrderID,
 			OrderID:    order.OrderID,
 			FromStatus: 0,
 			ToStatus:   order.Status,
 			ActionType: "create",
 			Reason:     "order_created",
-		}).Error
+		}).Error; err != nil {
+			logx.L(ctx).Error("create order status log failed",
+				zap.Error(err),
+				zap.Int64("order_id", order.OrderID),
+				zap.Int32("to_status", order.Status),
+			)
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -103,6 +126,11 @@ func (r *MySQLOrderRepository) GetByOrderID(ctx context.Context, userID, orderID
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrOrderNotFound
 		}
+		logx.L(ctx).Error("get order by order_id and user_id failed",
+			zap.Error(err),
+			zap.Int64("order_id", orderID),
+			zap.Int64("user_id", userID),
+		)
 		return nil, err
 	}
 	return &order, nil
@@ -120,6 +148,10 @@ func (r *MySQLOrderRepository) GetByID(ctx context.Context, orderID int64) (*dal
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrOrderNotFound
 		}
+		logx.L(ctx).Error("get order by order_id failed",
+			zap.Error(err),
+			zap.Int64("order_id", orderID),
+		)
 		return nil, err
 	}
 	return &order, nil
@@ -135,6 +167,10 @@ func (r *MySQLOrderRepository) ListByUserID(ctx context.Context, userID int64, o
 
 	var total int64
 	if err := r.db.WithContext(ctx).Model(&dalmodel.Order{}).Where("user_id = ?", userID).Count(&total).Error; err != nil {
+		logx.L(ctx).Error("count orders by user_id failed",
+			zap.Error(err),
+			zap.Int64("user_id", userID),
+		)
 		return nil, 0, err
 	}
 
@@ -146,6 +182,12 @@ func (r *MySQLOrderRepository) ListByUserID(ctx context.Context, userID int64, o
 		Offset(offset).
 		Limit(limit).
 		Find(&orders).Error; err != nil {
+		logx.L(ctx).Error("list orders by user_id failed",
+			zap.Error(err),
+			zap.Int64("user_id", userID),
+			zap.Int("offset", offset),
+			zap.Int("limit", limit),
+		)
 		return nil, 0, err
 	}
 	return orders, total, nil
@@ -172,8 +214,21 @@ func (r *MySQLOrderRepository) TransitionStatus(ctx context.Context, transition 
 		var order dalmodel.Order
 		if err := tx.Where("order_id = ? AND status IN ?", transition.OrderID, transition.FromStatuses).Take(&order).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				logx.L(ctx).Warn("order transition rejected by current status",
+					zap.Int64("order_id", transition.OrderID),
+					zap.Any("from_statuses", transition.FromStatuses),
+					zap.Int32("to_status", transition.ToStatus),
+					zap.String("action_type", transition.ActionType),
+				)
 				return ErrOrderStateConflict
 			}
+			logx.L(ctx).Error("load order for transition failed",
+				zap.Error(err),
+				zap.Int64("order_id", transition.OrderID),
+				zap.Any("from_statuses", transition.FromStatuses),
+				zap.Int32("to_status", transition.ToStatus),
+				zap.String("action_type", transition.ActionType),
+			)
 			return err
 		}
 
@@ -194,9 +249,16 @@ func (r *MySQLOrderRepository) TransitionStatus(ctx context.Context, transition 
 			updates["paid_at"] = transition.PaidAt
 		}
 		if err := tx.Model(&dalmodel.Order{}).Where("order_id = ?", transition.OrderID).Updates(updates).Error; err != nil {
+			logx.L(ctx).Error("update order status failed",
+				zap.Error(err),
+				zap.Int64("order_id", transition.OrderID),
+				zap.Int32("from_status", order.Status),
+				zap.Int32("to_status", transition.ToStatus),
+				zap.String("action_type", transition.ActionType),
+			)
 			return err
 		}
-		return tx.Create(&dalmodel.OrderStatusLog{
+		if err := tx.Create(&dalmodel.OrderStatusLog{
 			ID:          time.Now().UnixNano(),
 			OrderID:     transition.OrderID,
 			FromStatus:  order.Status,
@@ -204,7 +266,17 @@ func (r *MySQLOrderRepository) TransitionStatus(ctx context.Context, transition 
 			ActionType:  transition.ActionType,
 			Reason:      transition.Reason,
 			ExternalRef: transition.ExternalRef,
-		}).Error
+		}).Error; err != nil {
+			logx.L(ctx).Error("create order status log failed",
+				zap.Error(err),
+				zap.Int64("order_id", transition.OrderID),
+				zap.Int32("from_status", order.Status),
+				zap.Int32("to_status", transition.ToStatus),
+				zap.String("action_type", transition.ActionType),
+			)
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -227,6 +299,11 @@ func (r *MySQLOrderRepository) ListExpiredOrders(ctx context.Context, now time.T
 		Order("expire_at ASC, order_id ASC").
 		Limit(limit).
 		Find(&orders).Error; err != nil {
+		logx.L(ctx).Error("list expired orders failed",
+			zap.Error(err),
+			zap.Time("now", now),
+			zap.Int("limit", limit),
+		)
 		return nil, err
 	}
 	return orders, nil
@@ -241,6 +318,11 @@ func (r *MySQLOrderRepository) GetActionRecord(ctx context.Context, actionType, 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrActionRecordNotFound
 		}
+		logx.L(ctx).Error("get order action record failed",
+			zap.Error(err),
+			zap.String("action_type", actionType),
+			zap.String("action_key", actionKey),
+		)
 		return nil, err
 	}
 	return &record, nil
@@ -255,8 +337,22 @@ func (r *MySQLOrderRepository) CreateActionRecord(ctx context.Context, record *d
 	}
 	if err := r.db.WithContext(ctx).Create(record).Error; err != nil {
 		if isUniqueConstraintError(err) {
+			logx.L(ctx).Warn("create order action record duplicate key",
+				zap.Error(err),
+				zap.String("action_type", record.ActionType),
+				zap.String("action_key", record.ActionKey),
+				zap.Int64("order_id", record.OrderID),
+				zap.Int64("user_id", record.UserID),
+			)
 			return ErrActionRecordExists
 		}
+		logx.L(ctx).Error("create order action record failed",
+			zap.Error(err),
+			zap.String("action_type", record.ActionType),
+			zap.String("action_key", record.ActionKey),
+			zap.Int64("order_id", record.OrderID),
+			zap.Int64("user_id", record.UserID),
+		)
 		return err
 	}
 	return nil
@@ -274,9 +370,20 @@ func (r *MySQLOrderRepository) MarkActionRecordSucceeded(ctx context.Context, ac
 			"error_message": "",
 		})
 	if result.Error != nil {
+		logx.L(ctx).Error("mark order action record succeeded failed",
+			zap.Error(result.Error),
+			zap.String("action_type", actionType),
+			zap.String("action_key", actionKey),
+			zap.Int64("order_id", orderID),
+		)
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
+		logx.L(ctx).Warn("mark order action record succeeded missed record",
+			zap.String("action_type", actionType),
+			zap.String("action_key", actionKey),
+			zap.Int64("order_id", orderID),
+		)
 		return ErrActionRecordNotFound
 	}
 	return nil
@@ -293,9 +400,19 @@ func (r *MySQLOrderRepository) MarkActionRecordFailed(ctx context.Context, actio
 			"error_message": truncateString(errorMessage, 255),
 		})
 	if result.Error != nil {
+		logx.L(ctx).Error("mark order action record failed state failed",
+			zap.Error(result.Error),
+			zap.String("action_type", actionType),
+			zap.String("action_key", actionKey),
+			zap.String("error_message", truncateString(errorMessage, 255)),
+		)
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
+		logx.L(ctx).Warn("mark order action record failed missed record",
+			zap.String("action_type", actionType),
+			zap.String("action_key", actionKey),
+		)
 		return ErrActionRecordNotFound
 	}
 	return nil

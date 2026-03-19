@@ -58,6 +58,13 @@ func (l *ListLogic) List(userID int64, req *types.ListOrdersRequest) (*types.Ord
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("order rpc list returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int32("page", page),
+			zap.Int32("page_size", pageSize),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
 

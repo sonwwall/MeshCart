@@ -18,10 +18,25 @@ import (
 
 func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrderRequest) (*orderpb.Order, *common.BizError) {
 	if req == nil || req.GetUserId() <= 0 || len(req.GetItems()) == 0 {
+		userID := int64(0)
+		itemCount := 0
+		if req != nil {
+			userID = req.GetUserId()
+			itemCount = len(req.GetItems())
+		}
+		logx.L(ctx).Warn("create order rejected by invalid request",
+			zap.Int64("user_id", userID),
+			zap.Int("item_count", itemCount),
+		)
 		return nil, common.ErrInvalidParam
 	}
 
 	requestID := strings.TrimSpace(req.GetRequestId())
+	logx.L(ctx).Info("create order start",
+		zap.Int64("user_id", req.GetUserId()),
+		zap.Int("item_count", len(req.GetItems())),
+		zap.String("request_id", requestID),
+	)
 	if requestID != "" {
 		existing, bizErr := s.findActionRecord(ctx, actionTypeCreate, requestID)
 		if bizErr != nil {
@@ -30,10 +45,24 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 		if existing != nil {
 			switch existing.Status {
 			case "succeeded":
+				logx.L(ctx).Info("create order hit succeeded action record",
+					zap.String("request_id", requestID),
+					zap.Int64("order_id", existing.OrderID),
+					zap.Int64("user_id", req.GetUserId()),
+				)
 				return s.loadOrderByActionRecord(ctx, existing)
 			case actionStatusPending:
+				logx.L(ctx).Warn("create order blocked by pending action record",
+					zap.String("request_id", requestID),
+					zap.Int64("user_id", req.GetUserId()),
+				)
 				return nil, errno.ErrOrderIdempotencyBusy
 			default:
+				logx.L(ctx).Warn("create order rejected by failed action record",
+					zap.String("request_id", requestID),
+					zap.Int64("user_id", req.GetUserId()),
+					zap.String("status", existing.Status),
+				)
 				return nil, errno.ErrOrderStateConflict
 			}
 		}
@@ -43,8 +72,18 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 		}
 		if record != nil && record.Status != actionStatusPending {
 			if record.Status == "succeeded" {
+				logx.L(ctx).Info("create order reused succeeded action record after create attempt",
+					zap.String("request_id", requestID),
+					zap.Int64("order_id", record.OrderID),
+					zap.Int64("user_id", req.GetUserId()),
+				)
 				return s.loadOrderByActionRecord(ctx, record)
 			}
+			logx.L(ctx).Warn("create order blocked by non-pending action record after create attempt",
+				zap.String("request_id", requestID),
+				zap.Int64("user_id", req.GetUserId()),
+				zap.String("status", record.Status),
+			)
 			return nil, errno.ErrOrderIdempotencyBusy
 		}
 	}
@@ -52,6 +91,12 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 	orderID := s.node.Generate().Int64()
 	validatedItems, reserveItems, totalAmount, bizErr := s.validateAndBuildSnapshots(ctx, req.GetItems())
 	if bizErr != nil {
+		logx.L(ctx).Warn("create order validation failed",
+			zap.Int64("order_id", orderID),
+			zap.Int64("user_id", req.GetUserId()),
+			zap.Int32("code", bizErr.Code),
+			zap.String("message", bizErr.Msg),
+		)
 		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
 	}
@@ -64,12 +109,26 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 		Items:   reserveItems,
 	})
 	if err != nil {
-		logx.L(ctx).Error("reserve inventory failed", zap.Error(err), zap.Int64("order_id", orderID), zap.Int64("user_id", req.GetUserId()))
+		logx.L(ctx).Error("reserve inventory failed",
+			zap.Error(err),
+			zap.Int64("order_id", orderID),
+			zap.Int64("user_id", req.GetUserId()),
+			zap.String("biz_id", bizID),
+		)
 		s.markActionFailed(ctx, actionTypeCreate, requestID, common.ErrServiceUnavailable)
 		return nil, common.ErrServiceUnavailable
 	}
 	if reserveResp.Code != 0 {
 		bizErr = mapInventoryRPCError(reserveResp.Code)
+		logx.L(ctx).Warn("reserve inventory returned business error",
+			zap.Int64("order_id", orderID),
+			zap.Int64("user_id", req.GetUserId()),
+			zap.String("biz_id", bizID),
+			zap.Int32("inventory_rpc_code", reserveResp.Code),
+			zap.String("inventory_rpc_message", reserveResp.Message),
+			zap.Int32("mapped_code", bizErr.Code),
+			zap.String("mapped_message", bizErr.Msg),
+		)
 		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
 	}
@@ -112,9 +171,23 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 			logx.L(ctx).Error("release inventory after create order failure returned biz error", zap.Int32("code", releaseResp.Code), zap.String("message", releaseResp.Message), zap.Int64("order_id", orderID))
 		}
 		bizErr = mapRepositoryError(err)
+		logx.L(ctx).Error("create order persist failed",
+			zap.Error(err),
+			zap.Int64("order_id", orderID),
+			zap.Int64("user_id", req.GetUserId()),
+			zap.Int32("mapped_code", bizErr.Code),
+			zap.String("mapped_message", bizErr.Msg),
+		)
 		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
 	}
+	logx.L(ctx).Info("create order completed",
+		zap.Int64("order_id", order.OrderID),
+		zap.Int64("user_id", order.UserID),
+		zap.Int32("status", order.Status),
+		zap.Int64("pay_amount", order.PayAmount),
+		zap.Time("expire_at", order.ExpireAt),
+	)
 	s.markActionSucceeded(ctx, actionTypeCreate, requestID, order.OrderID)
 	return toRPCOrder(order), nil
 }
