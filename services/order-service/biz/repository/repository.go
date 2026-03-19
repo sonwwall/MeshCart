@@ -34,15 +34,17 @@ type OrderRepository interface {
 }
 
 type OrderTransition struct {
-	OrderID      int64
-	FromStatuses []int32
-	ToStatus     int32
-	CancelReason string
-	PaymentID    string
-	PaidAt       *time.Time
-	ActionType   string
-	Reason       string
-	ExternalRef  string
+	OrderID        int64
+	FromStatuses   []int32
+	ToStatus       int32
+	CancelReason   string
+	PaymentID      string
+	PaymentMethod  string
+	PaymentTradeNo string
+	PaidAt         *time.Time
+	ActionType     string
+	Reason         string
+	ExternalRef    string
 }
 
 type MySQLOrderRepository struct {
@@ -181,6 +183,12 @@ func (r *MySQLOrderRepository) TransitionStatus(ctx context.Context, transition 
 		}
 		if transition.PaymentID != "" {
 			updates["payment_id"] = transition.PaymentID
+		}
+		if transition.PaymentMethod != "" {
+			updates["payment_method"] = transition.PaymentMethod
+		}
+		if transition.PaymentTradeNo != "" {
+			updates["payment_trade_no"] = transition.PaymentTradeNo
 		}
 		if transition.PaidAt != nil {
 			updates["paid_at"] = transition.PaidAt

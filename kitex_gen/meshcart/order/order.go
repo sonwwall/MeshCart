@@ -157,16 +157,18 @@ var fieldIDToName_OrderItem = map[int16]string{
 }
 
 type Order struct {
-	OrderId      int64        `thrift:"order_id,1" frugal:"1,default,i64" json:"order_id"`
-	UserId       int64        `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
-	Status       int32        `thrift:"status,3" frugal:"3,default,i32" json:"status"`
-	TotalAmount  int64        `thrift:"total_amount,4" frugal:"4,default,i64" json:"total_amount"`
-	PayAmount    int64        `thrift:"pay_amount,5" frugal:"5,default,i64" json:"pay_amount"`
-	ExpireAt     int64        `thrift:"expire_at,6" frugal:"6,default,i64" json:"expire_at"`
-	Items        []*OrderItem `thrift:"items,7" frugal:"7,default,list<OrderItem>" json:"items"`
-	CancelReason string       `thrift:"cancel_reason,8" frugal:"8,default,string" json:"cancel_reason"`
-	PaymentId    string       `thrift:"payment_id,9" frugal:"9,default,string" json:"payment_id"`
-	PaidAt       int64        `thrift:"paid_at,10" frugal:"10,default,i64" json:"paid_at"`
+	OrderId        int64        `thrift:"order_id,1" frugal:"1,default,i64" json:"order_id"`
+	UserId         int64        `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	Status         int32        `thrift:"status,3" frugal:"3,default,i32" json:"status"`
+	TotalAmount    int64        `thrift:"total_amount,4" frugal:"4,default,i64" json:"total_amount"`
+	PayAmount      int64        `thrift:"pay_amount,5" frugal:"5,default,i64" json:"pay_amount"`
+	ExpireAt       int64        `thrift:"expire_at,6" frugal:"6,default,i64" json:"expire_at"`
+	Items          []*OrderItem `thrift:"items,7" frugal:"7,default,list<OrderItem>" json:"items"`
+	CancelReason   string       `thrift:"cancel_reason,8" frugal:"8,default,string" json:"cancel_reason"`
+	PaymentId      string       `thrift:"payment_id,9" frugal:"9,default,string" json:"payment_id"`
+	PaidAt         int64        `thrift:"paid_at,10" frugal:"10,default,i64" json:"paid_at"`
+	PaymentMethod  string       `thrift:"payment_method,11" frugal:"11,default,string" json:"payment_method"`
+	PaymentTradeNo string       `thrift:"payment_trade_no,12" frugal:"12,default,string" json:"payment_trade_no"`
 }
 
 func NewOrder() *Order {
@@ -215,6 +217,14 @@ func (p *Order) GetPaymentId() (v string) {
 func (p *Order) GetPaidAt() (v int64) {
 	return p.PaidAt
 }
+
+func (p *Order) GetPaymentMethod() (v string) {
+	return p.PaymentMethod
+}
+
+func (p *Order) GetPaymentTradeNo() (v string) {
+	return p.PaymentTradeNo
+}
 func (p *Order) SetOrderId(val int64) {
 	p.OrderId = val
 }
@@ -245,6 +255,12 @@ func (p *Order) SetPaymentId(val string) {
 func (p *Order) SetPaidAt(val int64) {
 	p.PaidAt = val
 }
+func (p *Order) SetPaymentMethod(val string) {
+	p.PaymentMethod = val
+}
+func (p *Order) SetPaymentTradeNo(val string) {
+	p.PaymentTradeNo = val
+}
 
 func (p *Order) String() string {
 	if p == nil {
@@ -264,6 +280,8 @@ var fieldIDToName_Order = map[int16]string{
 	8:  "cancel_reason",
 	9:  "payment_id",
 	10: "paid_at",
+	11: "payment_method",
+	12: "payment_trade_no",
 }
 
 type CreateOrderRequest struct {
@@ -509,9 +527,12 @@ var fieldIDToName_CancelOrderResponse = map[int16]string{
 }
 
 type ConfirmOrderPaidRequest struct {
-	OrderId   int64   `thrift:"order_id,1" frugal:"1,default,i64" json:"order_id"`
-	PaymentId string  `thrift:"payment_id,2" frugal:"2,default,string" json:"payment_id"`
-	RequestId *string `thrift:"request_id,3,optional" frugal:"3,optional,string" json:"request_id,omitempty"`
+	OrderId        int64   `thrift:"order_id,1" frugal:"1,default,i64" json:"order_id"`
+	PaymentId      string  `thrift:"payment_id,2" frugal:"2,default,string" json:"payment_id"`
+	RequestId      *string `thrift:"request_id,3,optional" frugal:"3,optional,string" json:"request_id,omitempty"`
+	PaymentMethod  *string `thrift:"payment_method,4,optional" frugal:"4,optional,string" json:"payment_method,omitempty"`
+	PaymentTradeNo *string `thrift:"payment_trade_no,5,optional" frugal:"5,optional,string" json:"payment_trade_no,omitempty"`
+	PaidAt         *int64  `thrift:"paid_at,6,optional" frugal:"6,optional,i64" json:"paid_at,omitempty"`
 }
 
 func NewConfirmOrderPaidRequest() *ConfirmOrderPaidRequest {
@@ -537,6 +558,33 @@ func (p *ConfirmOrderPaidRequest) GetRequestId() (v string) {
 	}
 	return *p.RequestId
 }
+
+var ConfirmOrderPaidRequest_PaymentMethod_DEFAULT string
+
+func (p *ConfirmOrderPaidRequest) GetPaymentMethod() (v string) {
+	if !p.IsSetPaymentMethod() {
+		return ConfirmOrderPaidRequest_PaymentMethod_DEFAULT
+	}
+	return *p.PaymentMethod
+}
+
+var ConfirmOrderPaidRequest_PaymentTradeNo_DEFAULT string
+
+func (p *ConfirmOrderPaidRequest) GetPaymentTradeNo() (v string) {
+	if !p.IsSetPaymentTradeNo() {
+		return ConfirmOrderPaidRequest_PaymentTradeNo_DEFAULT
+	}
+	return *p.PaymentTradeNo
+}
+
+var ConfirmOrderPaidRequest_PaidAt_DEFAULT int64
+
+func (p *ConfirmOrderPaidRequest) GetPaidAt() (v int64) {
+	if !p.IsSetPaidAt() {
+		return ConfirmOrderPaidRequest_PaidAt_DEFAULT
+	}
+	return *p.PaidAt
+}
 func (p *ConfirmOrderPaidRequest) SetOrderId(val int64) {
 	p.OrderId = val
 }
@@ -546,9 +594,30 @@ func (p *ConfirmOrderPaidRequest) SetPaymentId(val string) {
 func (p *ConfirmOrderPaidRequest) SetRequestId(val *string) {
 	p.RequestId = val
 }
+func (p *ConfirmOrderPaidRequest) SetPaymentMethod(val *string) {
+	p.PaymentMethod = val
+}
+func (p *ConfirmOrderPaidRequest) SetPaymentTradeNo(val *string) {
+	p.PaymentTradeNo = val
+}
+func (p *ConfirmOrderPaidRequest) SetPaidAt(val *int64) {
+	p.PaidAt = val
+}
 
 func (p *ConfirmOrderPaidRequest) IsSetRequestId() bool {
 	return p.RequestId != nil
+}
+
+func (p *ConfirmOrderPaidRequest) IsSetPaymentMethod() bool {
+	return p.PaymentMethod != nil
+}
+
+func (p *ConfirmOrderPaidRequest) IsSetPaymentTradeNo() bool {
+	return p.PaymentTradeNo != nil
+}
+
+func (p *ConfirmOrderPaidRequest) IsSetPaidAt() bool {
+	return p.PaidAt != nil
 }
 
 func (p *ConfirmOrderPaidRequest) String() string {
@@ -562,6 +631,9 @@ var fieldIDToName_ConfirmOrderPaidRequest = map[int16]string{
 	1: "order_id",
 	2: "payment_id",
 	3: "request_id",
+	4: "payment_method",
+	5: "payment_trade_no",
+	6: "paid_at",
 }
 
 type ConfirmOrderPaidResponse struct {

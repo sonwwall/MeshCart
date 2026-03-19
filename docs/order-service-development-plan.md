@@ -52,6 +52,7 @@
 - `ConfirmOrderPaid`
   - 确认扣减库存
   - 推进订单到 `paid`
+  - 落支付方式、支付渠道流水号等支付关联字段
 - 下单、取消、支付确认三类幂等控制
 - 订单状态流转日志和动作记录
 - `gateway` 侧用户订单 HTTP 接口
@@ -153,13 +154,17 @@
    - `reserved -> paid`
 5. 写入：
    - `payment_id`
+   - `payment_method`
+   - `payment_trade_no`
    - `paid_at`
 
 当前语义：
 
 - 同一个 `payment_id` 重复通知按幂等成功处理
+- 若传入 `request_id`，支付确认优先按 `request_id` 做动作幂等
+- 已支付订单要求 `payment_id` 一致；如果 `payment_method` / `payment_trade_no` 也已落库，则重复通知时也必须一致
 - 已关闭或已取消订单不允许支付成功
-- 已支付订单如果 `payment_id` 不一致，返回支付冲突
+- 已支付订单如果支付信息不一致，返回支付冲突
 
 ### 4.5 幂等与排障
 
@@ -177,6 +182,17 @@
 - 支付确认：
   - 默认使用 `payment_id`
   - 若传 `request_id`，优先使用 `request_id`
+
+支付确认边界约定：
+
+- `payment_id`
+  - 订单域关联的内部支付单号
+- `payment_method`
+  - 支付方式标识，例如 `mock` / `alipay` / `wechat`
+- `payment_trade_no`
+  - 外部支付渠道流水号
+- `paid_at`
+  - 支付服务确认的支付成功时间；如果未传，则默认使用订单服务本地时间
 
 动作状态：
 
@@ -201,6 +217,7 @@
 - [000001_create_orders.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/order-service/migrations/000001_create_orders.up.sql)
 - [000003_add_order_cancel_reason.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/order-service/migrations/000003_add_order_cancel_reason.up.sql)
 - [000004_add_order_payment_fields.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/order-service/migrations/000004_add_order_payment_fields.up.sql)
+- [000007_add_order_payment_detail_fields.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/order-service/migrations/000007_add_order_payment_detail_fields.up.sql)
 
 字段说明：
 
@@ -219,7 +236,11 @@
 - `cancel_reason`
   - 取消或关闭原因
 - `payment_id`
-  - 外部支付流水号
+  - 订单域关联的内部支付单号
+- `payment_method`
+  - 支付方式标识，例如 `mock` / `alipay` / `wechat`
+- `payment_trade_no`
+  - 外部支付渠道流水号
 - `paid_at`
   - 支付成功时间
 - `created_at`
@@ -337,7 +358,7 @@
 - `reason`
   - 变更原因
 - `external_ref`
-  - 外部引用，例如 `payment_id`
+  - 外部引用，例如 `payment_trade_no` 或 `payment_id`
 - `created_at`
   - 创建时间
 
@@ -416,11 +437,19 @@ IDL 定义见 [order.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/order.th
 - `order_id`
 - `payment_id`
 - `request_id`
+- `payment_method`
+- `payment_trade_no`
+- `paid_at`
 
 关键语义：
 
 - 当前不对外暴露给用户 HTTP
 - 支付成功后会确认扣减库存并推进订单状态
+- 当前把支付边界收口成一条内部 RPC：
+  - `payment_id` 作为内部支付单关联号
+  - `payment_trade_no` 作为外部渠道流水号
+  - `payment_method` 作为支付方式标识
+- 未来 `payment-service` 接入后，仍继续复用这条订单侧确认语义
 
 ### 6.4 `GetOrder`
 
@@ -533,6 +562,7 @@ IDL 定义见 [order.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/order.th
 - `expire_at`
 - `cancel_reason`
 - `payment_id`
+- `payment_method`
 - `paid_at`
 - `item_count`
 
@@ -551,6 +581,11 @@ IDL 定义见 [order.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/order.th
 
 - 完整订单对象
 - 包含完整 `items`
+- 包含支付关联字段：
+  - `payment_id`
+  - `payment_method`
+  - `payment_trade_no`
+  - `paid_at`
 
 ### 7.4 `POST /api/v1/orders/:order_id/cancel`
 
@@ -639,6 +674,7 @@ IDL 定义见 [order.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/order.th
 
 - 独立 `payment-service` 正式接入
 - 支付 HTTP 对外接口
+- 支付单主表与支付流水表
 - 常驻超时关闭调度器
 - 自动补偿 / 自动重试 / 恢复任务
 - 管理端订单查询接口
@@ -652,7 +688,8 @@ IDL 定义见 [order.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/order.th
 优先顺序建议：
 
 1. 接 `payment-service`
-   - 把 `ConfirmOrderPaid` 从内部 RPC 过渡到正式支付链路
+   - 让 `payment-service` 负责支付单创建、支付回调和结果确认
+   - `order-service` 继续保留 `ConfirmOrderPaid` 作为订单状态推进边界
 2. 增加常驻超时关闭调度
    - 让 `CloseExpiredOrders` 真正进入日常运行
 3. 补管理端订单查询
@@ -665,7 +702,7 @@ IDL 定义见 [order.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/order.th
 
 - 更完整的事务恢复任务
 - 更丰富的订单状态时间字段
-- 支付流水表
+- 支付单主表与支付流水表
 - 管理端操作审计
 - 与库存、支付的联调验收链路
 

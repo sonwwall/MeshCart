@@ -52,16 +52,18 @@ func toRPCOrder(order *dalmodel.Order) *orderpb.Order {
 		paidAt = order.PaidAt.Unix()
 	}
 	return &orderpb.Order{
-		OrderId:      order.OrderID,
-		UserId:       order.UserID,
-		Status:       order.Status,
-		TotalAmount:  order.TotalAmount,
-		PayAmount:    order.PayAmount,
-		ExpireAt:     expireAt,
-		Items:        items,
-		CancelReason: order.CancelReason,
-		PaymentId:    order.PaymentID,
-		PaidAt:       paidAt,
+		OrderId:        order.OrderID,
+		UserId:         order.UserID,
+		Status:         order.Status,
+		TotalAmount:    order.TotalAmount,
+		PayAmount:      order.PayAmount,
+		ExpireAt:       expireAt,
+		Items:          items,
+		CancelReason:   order.CancelReason,
+		PaymentId:      order.PaymentID,
+		PaidAt:         paidAt,
+		PaymentMethod:  order.PaymentMethod,
+		PaymentTradeNo: order.PaymentTradeNo,
 	}
 }
 

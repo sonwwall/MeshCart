@@ -3,18 +3,20 @@ package model
 import "time"
 
 type Order struct {
-	OrderID      int64       `gorm:"column:order_id;primaryKey"`
-	UserID       int64       `gorm:"column:user_id;not null;index:idx_orders_user_id_status,priority:1"`
-	Status       int32       `gorm:"column:status;type:tinyint;not null;default:1;index:idx_orders_user_id_status,priority:2;index:idx_orders_status_expire_at,priority:1"`
-	TotalAmount  int64       `gorm:"column:total_amount;not null;default:0"`
-	PayAmount    int64       `gorm:"column:pay_amount;not null;default:0"`
-	ExpireAt     time.Time   `gorm:"column:expire_at;not null;index:idx_orders_status_expire_at,priority:2"`
-	CancelReason string      `gorm:"column:cancel_reason;type:varchar(255);not null;default:''"`
-	PaymentID    string      `gorm:"column:payment_id;type:varchar(128);not null;default:''"`
-	PaidAt       *time.Time  `gorm:"column:paid_at"`
-	CreatedAt    time.Time   `gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt    time.Time   `gorm:"column:updated_at;autoUpdateTime;index:idx_orders_updated_at"`
-	Items        []OrderItem `gorm:"foreignKey:OrderID;references:OrderID"`
+	OrderID        int64       `gorm:"column:order_id;primaryKey"`
+	UserID         int64       `gorm:"column:user_id;not null;index:idx_orders_user_id_status,priority:1"`
+	Status         int32       `gorm:"column:status;type:tinyint;not null;default:1;index:idx_orders_user_id_status,priority:2;index:idx_orders_status_expire_at,priority:1"`
+	TotalAmount    int64       `gorm:"column:total_amount;not null;default:0"`
+	PayAmount      int64       `gorm:"column:pay_amount;not null;default:0"`
+	ExpireAt       time.Time   `gorm:"column:expire_at;not null;index:idx_orders_status_expire_at,priority:2"`
+	CancelReason   string      `gorm:"column:cancel_reason;type:varchar(255);not null;default:''"`
+	PaymentID      string      `gorm:"column:payment_id;type:varchar(128);not null;default:''"`
+	PaymentMethod  string      `gorm:"column:payment_method;type:varchar(32);not null;default:''"`
+	PaymentTradeNo string      `gorm:"column:payment_trade_no;type:varchar(128);not null;default:''"`
+	PaidAt         *time.Time  `gorm:"column:paid_at"`
+	CreatedAt      time.Time   `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt      time.Time   `gorm:"column:updated_at;autoUpdateTime;index:idx_orders_updated_at"`
+	Items          []OrderItem `gorm:"foreignKey:OrderID;references:OrderID"`
 }
 
 func (Order) TableName() string {

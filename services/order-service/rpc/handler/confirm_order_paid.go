@@ -22,7 +22,7 @@ func (s *OrderServiceImpl) ConfirmOrderPaid(ctx context.Context, request *orderp
 	order, bizErr := s.svc.ConfirmOrderPaid(ctx, request)
 	if bizErr != nil {
 		code = bizErr.Code
-		logx.L(ctx).Warn("confirm order paid failed", zap.Int64("order_id", request.GetOrderId()), zap.String("payment_id", request.GetPaymentId()), zap.Int32("code", bizErr.Code), zap.String("message", bizErr.Msg))
+		logx.L(ctx).Warn("confirm order paid failed", zap.Int64("order_id", request.GetOrderId()), zap.String("payment_id", request.GetPaymentId()), zap.String("payment_trade_no", request.GetPaymentTradeNo()), zap.Int32("code", bizErr.Code), zap.String("message", bizErr.Msg))
 		return &orderpb.ConfirmOrderPaidResponse{Base: &base.BaseResponse{Code: bizErr.Code, Message: bizErr.Msg}}, nil
 	}
 	return &orderpb.ConfirmOrderPaidResponse{

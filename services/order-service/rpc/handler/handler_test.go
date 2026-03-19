@@ -200,7 +200,7 @@ func TestOrderHandler_ConfirmOrderPaid_Success(t *testing.T) {
 		},
 		transitionStatusFn: func(_ context.Context, transition repository.OrderTransition) (*dalmodel.Order, error) {
 			paidAt := transition.PaidAt
-			return &dalmodel.Order{OrderID: transition.OrderID, UserID: 101, Status: bizservice.OrderStatusPaid, PaymentID: transition.PaymentID, PaidAt: paidAt}, nil
+			return &dalmodel.Order{OrderID: transition.OrderID, UserID: 101, Status: bizservice.OrderStatusPaid, PaymentID: transition.PaymentID, PaymentMethod: transition.PaymentMethod, PaymentTradeNo: transition.PaymentTradeNo, PaidAt: paidAt}, nil
 		},
 	}
 	svc := newHandlerService(t, repo, &stubProductClient{}, &stubInventoryClient{
@@ -210,11 +210,11 @@ func TestOrderHandler_ConfirmOrderPaid_Success(t *testing.T) {
 	})
 
 	h := NewOrderServiceImpl(svc)
-	resp, err := h.ConfirmOrderPaid(context.Background(), &orderpb.ConfirmOrderPaidRequest{OrderId: 1, PaymentId: "pay-1"})
+	resp, err := h.ConfirmOrderPaid(context.Background(), &orderpb.ConfirmOrderPaidRequest{OrderId: 1, PaymentId: "pay-1", PaymentMethod: ptrString("mock"), PaymentTradeNo: ptrString("trade-1")})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if resp.GetBase().GetCode() != 0 || resp.GetOrder() == nil || resp.GetOrder().GetPaymentId() != "pay-1" {
+	if resp.GetBase().GetCode() != 0 || resp.GetOrder() == nil || resp.GetOrder().GetPaymentId() != "pay-1" || resp.GetOrder().GetPaymentMethod() != "mock" || resp.GetOrder().GetPaymentTradeNo() != "trade-1" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
@@ -235,4 +235,8 @@ func TestOrderHandler_ListOrders_Success(t *testing.T) {
 	if resp.GetBase().GetCode() != 0 || len(resp.GetOrders()) != 1 || resp.GetTotal() != 1 {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
+}
+
+func ptrString(v string) *string {
+	return &v
 }

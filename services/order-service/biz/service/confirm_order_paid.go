@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
 	"meshcart/app/common"
 	logx "meshcart/app/log"
@@ -19,10 +20,10 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 		return nil, common.ErrInvalidParam
 	}
 
-	actionKey := strings.TrimSpace(req.GetPaymentId())
-	if requestID := strings.TrimSpace(req.GetRequestId()); requestID != "" {
-		actionKey = requestID
-	}
+	paymentID := strings.TrimSpace(req.GetPaymentId())
+	paymentMethod := normalizePaymentMethod(req.GetPaymentMethod())
+	paymentTradeNo := strings.TrimSpace(req.GetPaymentTradeNo())
+	actionKey := paymentActionKey(req)
 
 	existing, bizErr := s.findActionRecord(ctx, actionTypePay, actionKey)
 	if bizErr != nil {
@@ -56,7 +57,9 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 		return nil, bizErr
 	}
 	if order.Status == OrderStatusPaid {
-		if order.PaymentID == strings.TrimSpace(req.GetPaymentId()) {
+		if order.PaymentID == paymentID &&
+			!paymentConflict(order.PaymentMethod, paymentMethod) &&
+			!paymentConflict(order.PaymentTradeNo, paymentTradeNo) {
 			s.markActionSucceeded(ctx, actionTypePay, actionKey, order.OrderID)
 			return toRPCOrder(order), nil
 		}
@@ -78,7 +81,7 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 		Items:   buildReleaseItems(order),
 	})
 	if confirmErr != nil {
-		logx.L(ctx).Error("confirm deduct inventory failed", zap.Error(confirmErr), zap.Int64("order_id", order.OrderID), zap.String("payment_id", req.GetPaymentId()))
+		logx.L(ctx).Error("confirm deduct inventory failed", zap.Error(confirmErr), zap.Int64("order_id", order.OrderID), zap.String("payment_id", paymentID), zap.String("payment_trade_no", paymentTradeNo))
 		s.markActionFailed(ctx, actionTypePay, actionKey, common.ErrServiceUnavailable)
 		return nil, common.ErrServiceUnavailable
 	}
@@ -89,16 +92,25 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 	}
 
 	paidAt := s.now()
+	if req.GetPaidAt() > 0 {
+		paidAt = time.Unix(req.GetPaidAt(), 0)
+	}
+	externalRef := paymentID
+	if paymentTradeNo != "" {
+		externalRef = paymentTradeNo
+	}
 	updated, updateErr := s.repo.TransitionStatus(ctx, repository.OrderTransition{
-		OrderID:      order.OrderID,
-		FromStatuses: []int32{OrderStatusReserved},
-		ToStatus:     OrderStatusPaid,
-		CancelReason: "",
-		PaymentID:    strings.TrimSpace(req.GetPaymentId()),
-		PaidAt:       &paidAt,
-		ActionType:   actionTypePay,
-		Reason:       "payment_confirmed",
-		ExternalRef:  strings.TrimSpace(req.GetPaymentId()),
+		OrderID:        order.OrderID,
+		FromStatuses:   []int32{OrderStatusReserved},
+		ToStatus:       OrderStatusPaid,
+		CancelReason:   "",
+		PaymentID:      paymentID,
+		PaymentMethod:  paymentMethod,
+		PaymentTradeNo: paymentTradeNo,
+		PaidAt:         &paidAt,
+		ActionType:     actionTypePay,
+		Reason:         "payment_confirmed",
+		ExternalRef:    externalRef,
 	})
 	if updateErr != nil {
 		bizErr = mapRepositoryError(updateErr)

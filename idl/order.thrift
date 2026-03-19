@@ -31,6 +31,8 @@ struct Order {
     8: string cancel_reason
     9: string payment_id
     10: i64 paid_at
+    11: string payment_method
+    12: string payment_trade_no
 }
 
 struct CreateOrderRequest {
@@ -60,6 +62,9 @@ struct ConfirmOrderPaidRequest {
     1: i64 order_id
     2: string payment_id
     3: optional string request_id
+    4: optional string payment_method
+    5: optional string payment_trade_no
+    6: optional i64 paid_at
 }
 
 struct ConfirmOrderPaidResponse {

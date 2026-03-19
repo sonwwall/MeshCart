@@ -24,16 +24,18 @@ func toOrderData(order *orderpb.Order) *types.OrderData {
 		})
 	}
 	return &types.OrderData{
-		OrderID:      order.GetOrderId(),
-		UserID:       order.GetUserId(),
-		Status:       order.GetStatus(),
-		TotalAmount:  order.GetTotalAmount(),
-		PayAmount:    order.GetPayAmount(),
-		ExpireAt:     order.GetExpireAt(),
-		CancelReason: order.GetCancelReason(),
-		PaymentID:    order.GetPaymentId(),
-		PaidAt:       order.GetPaidAt(),
-		Items:        items,
+		OrderID:        order.GetOrderId(),
+		UserID:         order.GetUserId(),
+		Status:         order.GetStatus(),
+		TotalAmount:    order.GetTotalAmount(),
+		PayAmount:      order.GetPayAmount(),
+		ExpireAt:       order.GetExpireAt(),
+		CancelReason:   order.GetCancelReason(),
+		PaymentID:      order.GetPaymentId(),
+		PaymentMethod:  order.GetPaymentMethod(),
+		PaymentTradeNo: order.GetPaymentTradeNo(),
+		PaidAt:         order.GetPaidAt(),
+		Items:          items,
 	}
 }
 
@@ -52,15 +54,16 @@ func toOrderSummaryData(order *orderpb.Order) *types.OrderSummaryData {
 		return nil
 	}
 	return &types.OrderSummaryData{
-		OrderID:      order.GetOrderId(),
-		UserID:       order.GetUserId(),
-		Status:       order.GetStatus(),
-		TotalAmount:  order.GetTotalAmount(),
-		PayAmount:    order.GetPayAmount(),
-		ExpireAt:     order.GetExpireAt(),
-		CancelReason: order.GetCancelReason(),
-		PaymentID:    order.GetPaymentId(),
-		PaidAt:       order.GetPaidAt(),
-		ItemCount:    int32(len(order.GetItems())),
+		OrderID:       order.GetOrderId(),
+		UserID:        order.GetUserId(),
+		Status:        order.GetStatus(),
+		TotalAmount:   order.GetTotalAmount(),
+		PayAmount:     order.GetPayAmount(),
+		ExpireAt:      order.GetExpireAt(),
+		CancelReason:  order.GetCancelReason(),
+		PaymentID:     order.GetPaymentId(),
+		PaymentMethod: order.GetPaymentMethod(),
+		PaidAt:        order.GetPaidAt(),
+		ItemCount:     int32(len(order.GetItems())),
 	}
 }

@@ -83,10 +83,12 @@ func TestCreateLogic_Success(t *testing.T) {
 				Code:    common.CodeOK,
 				Message: "成功",
 				Order: &orderpb.Order{
-					OrderId:     1,
-					UserId:      101,
-					Status:      2,
-					TotalAmount: 3998,
+					OrderId:        1,
+					UserId:         101,
+					Status:         2,
+					TotalAmount:    3998,
+					PaymentMethod:  "mock",
+					PaymentTradeNo: "trade-1",
 					Items: []*orderpb.OrderItem{
 						{ItemId: 11, OrderId: 1, ProductId: 2001, SkuId: 3001, Quantity: 2},
 					},
@@ -104,7 +106,7 @@ func TestCreateLogic_Success(t *testing.T) {
 	if bizErr != nil {
 		t.Fatalf("expected nil error, got %+v", bizErr)
 	}
-	if data == nil || data.OrderID != 1 || len(data.Items) != 1 {
+	if data == nil || data.OrderID != 1 || len(data.Items) != 1 || data.PaymentMethod != "mock" || data.PaymentTradeNo != "trade-1" {
 		t.Fatalf("unexpected order data: %+v", data)
 	}
 }
@@ -144,10 +146,11 @@ func TestListLogic_DefaultPagination(t *testing.T) {
 			return &orderrpc.ListOrdersResponse{
 				Code: common.CodeOK,
 				Orders: []*orderpb.Order{{
-					OrderId:     1,
-					UserId:      101,
-					Status:      2,
-					TotalAmount: 3998,
+					OrderId:       1,
+					UserId:        101,
+					Status:        2,
+					TotalAmount:   3998,
+					PaymentMethod: "mock",
 					Items: []*orderpb.OrderItem{
 						{ItemId: 11, OrderId: 1, ProductId: 2001, SkuId: 3001, Quantity: 2},
 					},
@@ -164,7 +167,7 @@ func TestListLogic_DefaultPagination(t *testing.T) {
 	if data == nil || data.Total != 1 || len(data.Orders) != 1 {
 		t.Fatalf("unexpected list data: %+v", data)
 	}
-	if data.Orders[0].OrderID != 1 || data.Orders[0].ItemCount != 1 {
+	if data.Orders[0].OrderID != 1 || data.Orders[0].ItemCount != 1 || data.Orders[0].PaymentMethod != "mock" {
 		t.Fatalf("unexpected order summary: %+v", data.Orders[0])
 	}
 }

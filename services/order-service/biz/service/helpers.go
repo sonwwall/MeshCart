@@ -51,6 +51,26 @@ func (s *OrderService) reserveBizID(orderID int64) string {
 	return fmt.Sprintf("%d", orderID)
 }
 
+func paymentActionKey(req *orderpb.ConfirmOrderPaidRequest) string {
+	if req == nil {
+		return ""
+	}
+	if requestID := strings.TrimSpace(req.GetRequestId()); requestID != "" {
+		return requestID
+	}
+	return strings.TrimSpace(req.GetPaymentId())
+}
+
+func normalizePaymentMethod(method string) string {
+	return strings.ToLower(strings.TrimSpace(method))
+}
+
+func paymentConflict(existing, incoming string) bool {
+	existing = strings.TrimSpace(existing)
+	incoming = strings.TrimSpace(incoming)
+	return existing != "" && incoming != "" && existing != incoming
+}
+
 func (s *OrderService) validateAndBuildSnapshots(ctx context.Context, reqItems []*orderpb.OrderItemInput) ([]validatedOrderItem, []*inventory.StockReservationItem, int64, *common.BizError) {
 	if s.productClient == nil || s.inventoryClient == nil {
 		logx.L(ctx).Error("order service downstream client is not initialized")

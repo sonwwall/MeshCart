@@ -447,10 +447,10 @@ func TestOrderService_ConfirmOrderPaid_Success(t *testing.T) {
 			}, nil
 		},
 		transitionStatusFn: func(_ context.Context, transition repository.OrderTransition) (*dalmodel.Order, error) {
-			if transition.OrderID != 1 || transition.ToStatus != OrderStatusPaid || transition.PaymentID != "pay-1" || transition.ActionType != "pay_confirm" {
+			if transition.OrderID != 1 || transition.ToStatus != OrderStatusPaid || transition.PaymentID != "pay-1" || transition.PaymentMethod != "mock" || transition.PaymentTradeNo != "trade-1" || transition.ActionType != "pay_confirm" {
 				t.Fatalf("unexpected transition: %+v", transition)
 			}
-			return &dalmodel.Order{OrderID: 1, UserID: 101, Status: OrderStatusPaid, PaymentID: transition.PaymentID, PaidAt: transition.PaidAt}, nil
+			return &dalmodel.Order{OrderID: 1, UserID: 101, Status: OrderStatusPaid, PaymentID: transition.PaymentID, PaymentMethod: transition.PaymentMethod, PaymentTradeNo: transition.PaymentTradeNo, PaidAt: transition.PaidAt}, nil
 		},
 	}, &stubProductClient{}, &stubInventoryClient{
 		confirmFn: func(_ context.Context, req *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*inventoryrpc.ConfirmDeductReservedSkuStocksResponse, error) {
@@ -461,11 +461,11 @@ func TestOrderService_ConfirmOrderPaid_Success(t *testing.T) {
 		},
 	})
 
-	order, bizErr := svc.ConfirmOrderPaid(context.Background(), &orderpb.ConfirmOrderPaidRequest{OrderId: 1, PaymentId: "pay-1"})
+	order, bizErr := svc.ConfirmOrderPaid(context.Background(), &orderpb.ConfirmOrderPaidRequest{OrderId: 1, PaymentId: "pay-1", PaymentMethod: ptrString("MOCK"), PaymentTradeNo: ptrString("trade-1")})
 	if bizErr != nil {
 		t.Fatalf("expected nil error, got %+v", bizErr)
 	}
-	if order == nil || order.GetStatus() != OrderStatusPaid || order.GetPaymentId() != "pay-1" {
+	if order == nil || order.GetStatus() != OrderStatusPaid || order.GetPaymentId() != "pay-1" || order.GetPaymentMethod() != "mock" || order.GetPaymentTradeNo() != "trade-1" {
 		t.Fatalf("unexpected paid order: %+v", order)
 	}
 }
@@ -497,6 +497,22 @@ func TestOrderService_ConfirmOrderPaid_ConflictOnDifferentPaymentID(t *testing.T
 	}, &stubProductClient{}, &stubInventoryClient{})
 
 	order, bizErr := svc.ConfirmOrderPaid(context.Background(), &orderpb.ConfirmOrderPaidRequest{OrderId: 1, PaymentId: "pay-new"})
+	if order != nil {
+		t.Fatalf("expected nil order, got %+v", order)
+	}
+	if bizErr != errno.ErrOrderPaymentConflict {
+		t.Fatalf("expected ErrOrderPaymentConflict, got %+v", bizErr)
+	}
+}
+
+func TestOrderService_ConfirmOrderPaid_ConflictOnDifferentTradeNo(t *testing.T) {
+	svc := newOrderService(t, &stubOrderRepository{
+		getByIDFn: func(_ context.Context, orderID int64) (*dalmodel.Order, error) {
+			return &dalmodel.Order{OrderID: orderID, Status: OrderStatusPaid, PaymentID: "pay-1", PaymentTradeNo: "trade-old"}, nil
+		},
+	}, &stubProductClient{}, &stubInventoryClient{})
+
+	order, bizErr := svc.ConfirmOrderPaid(context.Background(), &orderpb.ConfirmOrderPaidRequest{OrderId: 1, PaymentId: "pay-1", PaymentTradeNo: ptrString("trade-new")})
 	if order != nil {
 		t.Fatalf("expected nil order, got %+v", order)
 	}
