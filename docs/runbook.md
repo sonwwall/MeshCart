@@ -639,6 +639,7 @@ go test ./gateway/internal/middleware ./gateway/internal/component ./gateway/rpc
 - [微服务治理规划](./microservice-governance.md)
 - [服务开发设计规范](./service-development-spec.md)
 - [Consul 服务发现设计](./consul-service-discovery.md)
+- [日志打印规范](./logging-spec.md)
 - [日志与链路追踪](./logging-tracing.md)
 - [商品服务设计方案](./product-service-design.md)
 - [用户模块设计](./user-module-design.md)

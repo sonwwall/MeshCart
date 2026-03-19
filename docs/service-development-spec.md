@@ -418,6 +418,7 @@ internal span 命名建议：
 新增可观测性接入点时，需要同步更新：
 
 - `docs/logging-tracing.md`
+- `docs/logging-spec.md`
 - 对应服务设计文档
 
 ## 9. 微服务治理规范
