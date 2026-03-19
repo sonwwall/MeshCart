@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS `payments` (
+  `payment_id` BIGINT NOT NULL,
+  `order_id` BIGINT NOT NULL,
+  `user_id` BIGINT NOT NULL,
+  `status` TINYINT NOT NULL DEFAULT 1,
+  `payment_method` VARCHAR(32) NOT NULL DEFAULT '',
+  `amount` BIGINT NOT NULL DEFAULT 0,
+  `currency` VARCHAR(8) NOT NULL DEFAULT 'CNY',
+  `payment_trade_no` VARCHAR(128) NOT NULL DEFAULT '',
+  `request_id` VARCHAR(128) NOT NULL DEFAULT '',
+  `succeeded_at` DATETIME NULL,
+  `closed_at` DATETIME NULL,
+  `fail_reason` VARCHAR(255) NOT NULL DEFAULT '',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`payment_id`),
+  KEY `idx_payments_order_id_status` (`order_id`, `status`),
+  KEY `idx_payments_user_id` (`user_id`),
+  KEY `idx_payments_status_updated_at` (`status`, `updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

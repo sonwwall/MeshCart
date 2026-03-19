@@ -1,0 +1,26 @@
+mysql:
+  address: "49.235.163.191:13306"
+  username: "root"
+  password: "2FaJkFtkMkC3yeBK"
+  database: "meshcart_payment"
+  charset: "utf8mb4"
+  parse_time: true
+  loc: "Local"
+
+migration:
+  enabled: true
+  source: "file://services/payment-service/migrations"
+
+snowflake:
+  node: 6
+
+timeout:
+  db_query_ms: 1500
+
+order_rpc:
+  service_name: meshcart.order
+  host_port: 127.0.0.1:8892
+  discovery_type: consul
+  consul_address: 127.0.0.1:8500
+  connect_timeout_ms: 500
+  rpc_timeout_ms: 2000
