@@ -19,6 +19,7 @@ type stubPaymentClient struct {
 	getPaymentFn            func(context.Context, *paymentpb.GetPaymentRequest) (*paymentrpc.GetPaymentResponse, error)
 	listPaymentsByOrderFn   func(context.Context, *paymentpb.ListPaymentsByOrderRequest) (*paymentrpc.ListPaymentsByOrderResponse, error)
 	confirmPaymentSuccessFn func(context.Context, *paymentpb.ConfirmPaymentSuccessRequest) (*paymentrpc.ConfirmPaymentSuccessResponse, error)
+	closePaymentFn          func(context.Context, *paymentpb.ClosePaymentRequest) (*paymentrpc.ClosePaymentResponse, error)
 }
 
 func (s *stubPaymentClient) CreatePayment(ctx context.Context, req *paymentpb.CreatePaymentRequest) (*paymentrpc.CreatePaymentResponse, error) {
@@ -44,6 +45,12 @@ func (s *stubPaymentClient) ConfirmPaymentSuccess(ctx context.Context, req *paym
 		return s.confirmPaymentSuccessFn(ctx, req)
 	}
 	return &paymentrpc.ConfirmPaymentSuccessResponse{Code: common.CodeOK, Message: "成功"}, nil
+}
+func (s *stubPaymentClient) ClosePayment(ctx context.Context, req *paymentpb.ClosePaymentRequest) (*paymentrpc.ClosePaymentResponse, error) {
+	if s.closePaymentFn != nil {
+		return s.closePaymentFn(ctx, req)
+	}
+	return &paymentrpc.ClosePaymentResponse{Code: common.CodeOK, Message: "成功"}, nil
 }
 
 func newPaymentTestServiceContext(t *testing.T, paymentClient paymentrpc.Client) *svc.ServiceContext {
@@ -76,7 +83,7 @@ func TestCreateLogic_Success(t *testing.T) {
 			if req.GetUserId() != 101 || req.GetOrderId() != 10 || req.GetPaymentMethod() != "mock" {
 				t.Fatalf("unexpected create payment req: %+v", req)
 			}
-			return &paymentrpc.CreatePaymentResponse{Code: common.CodeOK, Payment: &paymentpb.Payment{PaymentId: 1, OrderId: 10, UserId: 101, Status: 1, PaymentMethod: "mock", Amount: 1999, Currency: "CNY"}}, nil
+			return &paymentrpc.CreatePaymentResponse{Code: common.CodeOK, Payment: &paymentpb.Payment{PaymentId: 1, OrderId: 10, UserId: 101, Status: 1, PaymentMethod: "mock", Amount: 1999, Currency: "CNY", ExpireAt: 1710000900}}, nil
 		},
 	}))
 
@@ -86,6 +93,9 @@ func TestCreateLogic_Success(t *testing.T) {
 	}
 	if data == nil || data.PaymentID != 1 || data.PaymentMethod != "mock" {
 		t.Fatalf("unexpected payment data: %+v", data)
+	}
+	if data.ExpireAt != 1710000900 {
+		t.Fatalf("unexpected expire_at: %+v", data)
 	}
 }
 
@@ -142,6 +152,25 @@ func TestMockSuccessLogic_Success(t *testing.T) {
 		t.Fatalf("expected nil error, got %+v", bizErr)
 	}
 	if data == nil || data.Status != 2 || data.PaymentTradeNo != "trade-1" {
+		t.Fatalf("unexpected payment data: %+v", data)
+	}
+}
+
+func TestCloseLogic_Success(t *testing.T) {
+	logic := NewCloseLogic(context.Background(), newPaymentTestServiceContext(t, &stubPaymentClient{
+		closePaymentFn: func(_ context.Context, req *paymentpb.ClosePaymentRequest) (*paymentrpc.ClosePaymentResponse, error) {
+			if req.GetPaymentId() != 1 || req.GetUserId() != 101 || req.GetReason() != "user_cancelled" {
+				t.Fatalf("unexpected close payment req: %+v", req)
+			}
+			return &paymentrpc.ClosePaymentResponse{Code: common.CodeOK, Payment: &paymentpb.Payment{PaymentId: 1, Status: 4, FailReason: "user_cancelled"}}, nil
+		},
+	}))
+
+	data, bizErr := logic.Close(101, 1, &types.ClosePaymentRequest{Reason: "user_cancelled"})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if data == nil || data.Status != 4 || data.FailReason != "user_cancelled" {
 		t.Fatalf("unexpected payment data: %+v", data)
 	}
 }

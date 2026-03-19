@@ -24,6 +24,8 @@ const (
 	actionStatusPending = "pending"
 	actionTypeCreate    = "create"
 	actionTypeConfirm   = "confirm_success"
+	actionTypeClose     = "close"
+	paymentTTL          = 15 * time.Minute
 )
 
 func (s *PaymentService) now() time.Time {
@@ -58,6 +60,13 @@ func paymentConflict(existing, incoming string) bool {
 	existing = strings.TrimSpace(existing)
 	incoming = strings.TrimSpace(incoming)
 	return existing != "" && incoming != "" && existing != incoming
+}
+
+func closeActionKey(paymentID int64, requestID string) string {
+	if trimmed := strings.TrimSpace(requestID); trimmed != "" {
+		return trimmed
+	}
+	return strconv.FormatInt(paymentID, 10)
 }
 
 func (s *PaymentService) findActionRecord(ctx context.Context, actionType, actionKey string) (*dalmodel.PaymentActionRecord, *common.BizError) {
@@ -158,6 +167,7 @@ func toRPCPayment(payment *dalmodel.Payment) *paymentpb.Payment {
 		Amount:         payment.Amount,
 		Currency:       payment.Currency,
 		PaymentTradeNo: payment.PaymentTradeNo,
+		ExpireAt:       payment.ExpireAt.Unix(),
 		SucceededAt:    succeededAt,
 		ClosedAt:       closedAt,
 		FailReason:     payment.FailReason,
@@ -225,9 +235,12 @@ func mapOrderGetFailure(code int32) *common.BizError {
 	return common.ErrServiceUnavailable
 }
 
-func validateOrderForPayment(order *orderpb.Order) *common.BizError {
+func (s *PaymentService) validateOrderForPayment(order *orderpb.Order) *common.BizError {
 	if order == nil {
 		return common.ErrServiceUnavailable
+	}
+	if order.GetExpireAt() > 0 && !s.now().Before(time.Unix(order.GetExpireAt(), 0)) {
+		return errno.ErrPaymentOrderStateConflict
 	}
 	if order.GetStatus() == 3 {
 		return errno.ErrPaymentOrderStateConflict
@@ -236,4 +249,22 @@ func validateOrderForPayment(order *orderpb.Order) *common.BizError {
 		return errno.ErrPaymentOrderStateConflict
 	}
 	return nil
+}
+
+func (s *PaymentService) calculatePaymentExpireAt(order *orderpb.Order) time.Time {
+	expireAt := s.now().Add(paymentTTL)
+	if order != nil && order.GetExpireAt() > 0 {
+		orderExpireAt := time.Unix(order.GetExpireAt(), 0)
+		if orderExpireAt.Before(expireAt) {
+			expireAt = orderExpireAt
+		}
+	}
+	return expireAt
+}
+
+func (s *PaymentService) isPaymentExpired(payment *dalmodel.Payment) bool {
+	if payment == nil || payment.ExpireAt.IsZero() {
+		return false
+	}
+	return !s.now().Before(payment.ExpireAt)
 }

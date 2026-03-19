@@ -12,11 +12,12 @@ type Payment struct {
 	Currency       string     `gorm:"column:currency;type:varchar(8);not null;default:'CNY'"`
 	PaymentTradeNo string     `gorm:"column:payment_trade_no;type:varchar(128);not null;default:''"`
 	RequestID      string     `gorm:"column:request_id;type:varchar(128);not null;default:''"`
+	ExpireAt       time.Time  `gorm:"column:expire_at;not null;index:idx_payments_status_expire_at,priority:2"`
 	SucceededAt    *time.Time `gorm:"column:succeeded_at"`
 	ClosedAt       *time.Time `gorm:"column:closed_at"`
 	FailReason     string     `gorm:"column:fail_reason;type:varchar(255);not null;default:''"`
 	CreatedAt      time.Time  `gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt      time.Time  `gorm:"column:updated_at;autoUpdateTime;index:idx_payments_status_updated_at,priority:2"`
+	UpdatedAt      time.Time  `gorm:"column:updated_at;autoUpdateTime;index:idx_payments_status_updated_at,priority:2;index:idx_payments_status_expire_at,priority:1"`
 }
 
 func (Payment) TableName() string {

@@ -164,3 +164,24 @@ func TestPaymentHandler_ConfirmPaymentSuccess_Success(t *testing.T) {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
+
+func TestPaymentHandler_ClosePayment_Success(t *testing.T) {
+	svc := newHandlerService(t, &stubPaymentRepository{
+		getByPaymentIDUserFn: func(_ context.Context, paymentID, userID int64) (*dalmodel.Payment, error) {
+			return &dalmodel.Payment{PaymentID: paymentID, OrderID: 10, UserID: userID, Status: bizservice.PaymentStatusPending, PaymentMethod: "mock", Amount: 2999, Currency: "CNY", ExpireAt: time.Unix(1710000000, 0).Add(5 * time.Minute)}, nil
+		},
+		transitionStatusFn: func(_ context.Context, transition repository.PaymentTransition) (*dalmodel.Payment, error) {
+			return &dalmodel.Payment{PaymentID: transition.PaymentID, OrderID: 10, UserID: 101, Status: bizservice.PaymentStatusClosed, ClosedAt: transition.ClosedAt, FailReason: transition.FailReason}, nil
+		},
+	}, &stubOrderClient{})
+
+	h := NewPaymentServiceImpl(svc)
+	reason := "user_cancelled"
+	resp, err := h.ClosePayment(context.Background(), &paymentpb.ClosePaymentRequest{PaymentId: 100, UserId: 101, Reason: &reason})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if resp.GetBase().GetCode() != 0 || resp.GetPayment() == nil || resp.GetPayment().GetStatus() != bizservice.PaymentStatusClosed {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+}

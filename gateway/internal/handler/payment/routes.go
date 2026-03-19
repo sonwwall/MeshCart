@@ -11,6 +11,7 @@ func RegisterRoutes(api *route.RouterGroup, svcCtx *svc.ServiceContext) {
 	paymentGroup.Use(svcCtx.JWT.MiddlewareFunc())
 	paymentGroup.POST("", CreatePayment(svcCtx))
 	paymentGroup.GET("/:payment_id", GetPayment(svcCtx))
+	paymentGroup.POST("/:payment_id/close", ClosePayment(svcCtx))
 	paymentGroup.POST("/:payment_id/mock_success", ConfirmMockSuccess(svcCtx))
 
 	orderPaymentGroup := api.Group("/orders")

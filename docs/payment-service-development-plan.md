@@ -47,7 +47,12 @@
   - 当前只支持 `mock`
   - 调 `order-service.ConfirmOrderPaid`
   - 订单确认成功后推进支付单到 `succeeded`
+- `ClosePayment`
+  - 支付单主动关闭
+  - 幂等关闭
 - 创建支付单、支付成功确认两类幂等控制
+- 支付单独立过期时间 `payments.expire_at`
+- 支付确认时同时校验订单过期和支付单过期
 - 支付状态流转日志和动作记录
 - `gateway` 侧用户支付 HTTP 接口
 
@@ -64,11 +69,12 @@
 - `3 = failed`
   - 预留状态，当前第一版还没有启用
 - `4 = closed`
-  - 预留状态，当前第一版还没有启用
+  - 支付单已关闭，不允许再确认支付成功
 
 当前主要状态流转：
 
 - `pending -> succeeded`
+- `pending -> closed`
 
 当前明确禁止：
 
@@ -90,7 +96,9 @@
 4. 调 `order-service.GetOrder`
 5. 校验订单状态必须为 `reserved`
 6. 读取订单应付金额 `pay_amount`
-7. 创建支付单并写入：
+7. 计算支付单过期时间：
+   - `min(当前时间 + 15 分钟, order.expire_at)`
+8. 创建支付单并写入：
    - `payment_id`
    - `order_id`
    - `user_id`
@@ -98,7 +106,8 @@
    - `amount`
    - `currency`
    - `request_id`
-8. 写支付状态流转日志：
+   - `expire_at`
+9. 写支付状态流转日志：
    - `0 -> pending`
 
 当前语义：
@@ -106,6 +115,9 @@
 - 同一订单不会反复创建多笔有效支付单
 - 如果用户重复点击支付，优先返回已有支付单
 - 第一版只允许 `mock` 支付方式
+- 支付单有独立的 `expire_at`
+- 已过期的 `pending` 支付单在创建新支付单时会先被关闭
+- 支付单超时与订单超时分开计算，但支付单超时时间不会晚于订单超时
 
 ### 4.3 支付成功确认链路
 
@@ -116,15 +128,16 @@
 1. 校验 `payment_id` 和 `payment_method`
 2. 若传 `request_id`，先检查支付成功确认幂等记录
 3. 查询支付单并校验状态必须为 `pending`
-4. 生成或读取 `payment_trade_no`
+4. 校验支付单未过期
+5. 生成或读取 `payment_trade_no`
    - `mock` 场景默认生成 `mock-{payment_id}`
-5. 调 `order-service.ConfirmOrderPaid`
+6. 调 `order-service.ConfirmOrderPaid`
    - `payment_id = payment_id` 的字符串形式
    - `payment_method`
    - `payment_trade_no`
    - `paid_at`
-6. 若订单确认成功，再把支付单推进到 `succeeded`
-7. 写支付状态流转日志：
+7. 若订单确认成功，再把支付单推进到 `succeeded`
+8. 写支付状态流转日志：
    - `pending -> succeeded`
 
 当前语义：
@@ -134,8 +147,33 @@
 - 同一个支付成功结果重复通知按幂等成功处理
 - 如果某次支付确认失败，后续允许用同一笔支付单再次重试确认，不会因为旧的 `failed` 动作记录被永久封死
 - 已成功支付的支付单如果收到不同的 `payment_trade_no`，返回支付冲突
+- 订单侧仍然会继续校验订单是否已经到或超过 `expire_at`
+  - 也就是说，支付单已创建并不意味着订单过期时间失效
+- 支付单只要已经到或超过自己的 `expire_at`，也会被拒绝确认支付成功，并会被自动关闭
 
-### 4.4 幂等与排障
+### 4.4 支付单关闭链路
+
+当前实现位于 [close_payment.go](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/biz/service/close_payment.go)。
+
+执行顺序：
+
+1. 校验 `payment_id` 和 `user_id`
+2. 按 `request_id` 或 `payment_id` 做关闭动作幂等
+3. 查询支付单并校验归属
+4. 仅允许 `pending -> closed`
+5. 写入：
+   - `closed_at`
+   - `fail_reason`
+6. 写支付状态流转日志：
+   - `pending -> closed`
+
+当前语义：
+
+- 已成功支付的支付单不允许关闭
+- 已关闭支付单重复关闭按幂等成功返回
+- 关闭支付单不会反向关闭订单；订单关闭联动支付关闭属于后续跨域收口动作
+
+### 4.5 幂等与排障
 
 当前实现位于：
 
@@ -147,6 +185,9 @@
 - 创建支付单：
   - `CreatePaymentRequest.request_id`
 - 支付成功确认：
+  - 默认使用 `payment_id`
+  - 若传 `request_id`，优先使用 `request_id`
+- 关闭支付单：
   - 默认使用 `payment_id`
   - 若传 `request_id`，优先使用 `request_id`
 
@@ -171,6 +212,7 @@
 
 - [model.go](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/dal/model/model.go)
 - [000001_create_payments.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/migrations/000001_create_payments.up.sql)
+- [000004_add_payment_expire_at.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/migrations/000004_add_payment_expire_at.up.sql)
 
 字段说明：
 
@@ -192,12 +234,15 @@
   - 外部渠道流水号；`mock` 场景在支付确认时生成
 - `request_id`
   - 创建支付单请求幂等键
+- `expire_at`
+  - 支付单过期时间
+  - 表示“这一次支付尝试还能持续多久”
 - `succeeded_at`
   - 支付成功时间
 - `closed_at`
-  - 关闭时间，当前第一版预留
+  - 关闭时间
 - `fail_reason`
-  - 支付失败原因，当前第一版预留
+  - 关闭或失败原因
 - `created_at`
   - 创建时间
 - `updated_at`
@@ -211,6 +256,18 @@
   - 支撑按用户查支付单
 - `idx_payments_status_updated_at`
   - 支撑按状态排障和后续恢复任务
+- `idx_payments_status_expire_at`
+  - 支撑按状态扫描过期支付单
+
+支付单超时设计约定：
+
+- `payments.expire_at` 表示支付单自己的过期时间
+- 它和订单侧的 `orders.expire_at` 不是同一个概念
+- 当前计算规则：
+  - `payment_expire_at = min(创建时间 + 15 分钟, order.expire_at)`
+- 这样可以保证：
+  - 支付单超时不会晚于订单超时
+  - 订单没过期时，用户仍可重新发起新的支付单
 
 ### 5.2 支付动作幂等表 `payment_action_records`
 
@@ -292,6 +349,7 @@ IDL 定义见 [payment.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/paymen
 - `GetPayment`
 - `ListPaymentsByOrder`
 - `ConfirmPaymentSuccess`
+- `ClosePayment`
 
 ### 6.1 `CreatePayment`
 
@@ -310,6 +368,8 @@ IDL 定义见 [payment.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/paymen
 
 - 当前只支持 `mock`
 - 同一订单已有有效支付单时，直接返回已有支付单
+- 已过期 `pending` 支付单不会复用，而是会先关闭
+- 支付单自己的过期时间仍然先受订单过期时间约束
 
 ### 6.2 `GetPayment`
 
@@ -360,6 +420,28 @@ IDL 定义见 [payment.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/paymen
 - 当前第一版既是支付成功确认入口，也是 `mock` 支付成功入口
 - 当前会先调用 `order-service.ConfirmOrderPaid`
 - 只有订单确认成功后，支付单才会推进到 `succeeded`
+- 当前已经会同时校验：
+  - 支付单未过期
+  - 订单未过期
+
+### 6.5 `ClosePayment`
+
+作用：
+
+- 主动关闭当前支付单
+
+请求字段：
+
+- `payment_id`
+- `user_id`
+- `reason`
+- `request_id`
+
+关键语义：
+
+- 仅允许关闭 `pending` 支付单
+- 已关闭支付单重复调用按幂等成功处理
+- 已支付成功的支付单不能关闭
 
 ## 7. HTTP 接口设计
 
@@ -368,6 +450,7 @@ IDL 定义见 [payment.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/paymen
 - [routes.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/handler/payment/routes.go)
 - [create.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/handler/payment/create.go)
 - [get.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/handler/payment/get.go)
+- [close.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/handler/payment/close.go)
 - [list_by_order.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/handler/payment/list_by_order.go)
 - [mock_success.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/handler/payment/mock_success.go)
 
@@ -375,6 +458,7 @@ IDL 定义见 [payment.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/paymen
 
 - `POST /api/v1/payments`
 - `GET /api/v1/payments/:payment_id`
+- `POST /api/v1/payments/:payment_id/close`
 - `GET /api/v1/orders/:order_id/payments`
 - `POST /api/v1/payments/:payment_id/mock_success`
 
@@ -432,6 +516,7 @@ IDL 定义见 [payment.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/paymen
     "amount": 1179800,
     "currency": "CNY",
     "payment_trade_no": "",
+    "expire_at": 1773911300,
     "succeeded_at": 0,
     "closed_at": 0,
     "fail_reason": ""
@@ -443,6 +528,7 @@ IDL 定义见 [payment.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/paymen
 
 - 当前只允许对状态为 `reserved` 的订单创建支付单
 - 同一订单如果已经有有效支付单，当前会直接返回已有支付单，而不是新建一笔
+- 已过期的 `pending` 支付单不会复用，系统会先把它关闭，再允许创建新支付单
 - `status = 1` 表示支付单已创建、等待支付成功
 
 ### 7.2 `GET /api/v1/payments/:payment_id`
@@ -482,6 +568,7 @@ GET /api/v1/payments/2035000000000000001
     "amount": 1179800,
     "currency": "CNY",
     "payment_trade_no": "",
+    "expire_at": 1773911300,
     "succeeded_at": 0,
     "closed_at": 0,
     "fail_reason": ""
@@ -494,7 +581,68 @@ GET /api/v1/payments/2035000000000000001
 - 当前按 `user_id + payment_id` 做资源隔离
 - 只能查自己的支付单
 
-### 7.3 `GET /api/v1/orders/:order_id/payments`
+### 7.3 `POST /api/v1/payments/:payment_id/close`
+
+作用：
+
+- 主动关闭当前登录用户的一笔 `pending` 支付单
+
+路径参数：
+
+- `payment_id`
+  - 类型：`int64`
+  - 必填
+
+请求体字段：
+
+- `request_id`
+  - 类型：`string`
+  - 可选
+  - 建议用于关闭动作幂等
+- `reason`
+  - 类型：`string`
+  - 可选
+  - 若不传，默认使用 `payment_closed`
+
+请求示例：
+
+```json
+{
+  "request_id": "pay-close-2035000000000000001-1",
+  "reason": "user_cancelled"
+}
+```
+
+成功响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "data": {
+    "payment_id": 2035000000000000001,
+    "order_id": 2034545492230164480,
+    "user_id": 2031538004429901824,
+    "status": 4,
+    "payment_method": "mock",
+    "amount": 1179800,
+    "currency": "CNY",
+    "payment_trade_no": "",
+    "expire_at": 1773911300,
+    "succeeded_at": 0,
+    "closed_at": 1773910500,
+    "fail_reason": "user_cancelled"
+  }
+}
+```
+
+关键语义：
+
+- 只能关闭自己的 `pending` 支付单
+- 已关闭支付单重复关闭按幂等成功返回
+- 已成功支付的支付单不能关闭
+
+### 7.4 `GET /api/v1/orders/:order_id/payments`
 
 作用：
 
@@ -533,6 +681,7 @@ GET /api/v1/orders/2034545492230164480/payments
         "amount": 1179800,
         "currency": "CNY",
         "payment_trade_no": "",
+        "expire_at": 1773911300,
         "succeeded_at": 0,
         "closed_at": 0,
         "fail_reason": ""
@@ -547,7 +696,7 @@ GET /api/v1/orders/2034545492230164480/payments
 - 当前返回该订单下全部支付单
 - 第一版通常只有 1 笔有效支付单，但结构保留为列表，便于后续扩展
 
-### 7.4 `POST /api/v1/payments/:payment_id/mock_success`
+### 7.5 `POST /api/v1/payments/:payment_id/mock_success`
 
 作用：
 
@@ -605,6 +754,7 @@ GET /api/v1/orders/2034545492230164480/payments
     "amount": 1179800,
     "currency": "CNY",
     "payment_trade_no": "mock-trade-2035000000000000001",
+    "expire_at": 1773911300,
     "succeeded_at": 1773910400,
     "closed_at": 0,
     "fail_reason": ""
@@ -617,6 +767,7 @@ GET /api/v1/orders/2034545492230164480/payments
 - 当前固定走 `mock` 支付方式
 - 成功后会内部调用 `order-service.ConfirmOrderPaid`
 - `status = 2` 表示支付成功
+- 如果支付单已过期，即使订单还没被关闭，也会拒绝支付成功
 - 这是开发和联调用入口，不是未来真实支付渠道回调的最终形态
 
 ## 8. 运行与治理基线
@@ -660,21 +811,23 @@ GET /api/v1/orders/2034545492230164480/payments
   - 复用有效支付单
   - 支付成功确认成功
   - 支付成功确认时订单 RPC 异常
+  - 支付单过期后拒绝确认成功
+  - 主动关闭支付单成功
   - 查询支付单不存在
 - RPC handler 测试
   - 创建支付单成功
   - 支付成功确认成功
+  - 关闭支付单成功
 
 ## 10. 当前边界与未完成部分
 
 当前还没有完成的主要是：
 
-- `ClosePayment`
-- `failed / closed` 状态的完整流转
 - 常驻补偿与恢复任务
 - 管理端支付查询接口
 - 真实支付渠道接入
 - 第三方支付回调验签和原始报文留存
+- 订单超时关闭后联动关闭未成功支付单
 
 ## 11. 后续推进计划
 
@@ -682,12 +835,12 @@ GET /api/v1/orders/2034545492230164480/payments
 
 优先顺序建议：
 
-1. 接 `gateway`
-   - 已完成创建支付单、查询支付单、按订单查支付单、`mock_success`
-2. 补 `ClosePayment`
+1. 接订单关闭联动支付关闭
    - 为订单超时关闭后的支付单关闭做准备
-3. 补管理端支付查询
+2. 补管理端支付查询
    - 后台可查支付单和状态流转
+3. 补支付过期扫描任务
+   - 自动关闭已到期但仍处于 `pending` 的支付单
 
 ### 11.2 中期计划
 

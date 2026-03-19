@@ -17,9 +17,10 @@ type Payment struct {
 	Amount         int64  `thrift:"amount,6" frugal:"6,default,i64" json:"amount"`
 	Currency       string `thrift:"currency,7" frugal:"7,default,string" json:"currency"`
 	PaymentTradeNo string `thrift:"payment_trade_no,8" frugal:"8,default,string" json:"payment_trade_no"`
-	SucceededAt    int64  `thrift:"succeeded_at,9" frugal:"9,default,i64" json:"succeeded_at"`
-	ClosedAt       int64  `thrift:"closed_at,10" frugal:"10,default,i64" json:"closed_at"`
-	FailReason     string `thrift:"fail_reason,11" frugal:"11,default,string" json:"fail_reason"`
+	ExpireAt       int64  `thrift:"expire_at,9" frugal:"9,default,i64" json:"expire_at"`
+	SucceededAt    int64  `thrift:"succeeded_at,10" frugal:"10,default,i64" json:"succeeded_at"`
+	ClosedAt       int64  `thrift:"closed_at,11" frugal:"11,default,i64" json:"closed_at"`
+	FailReason     string `thrift:"fail_reason,12" frugal:"12,default,string" json:"fail_reason"`
 }
 
 func NewPayment() *Payment {
@@ -61,6 +62,10 @@ func (p *Payment) GetPaymentTradeNo() (v string) {
 	return p.PaymentTradeNo
 }
 
+func (p *Payment) GetExpireAt() (v int64) {
+	return p.ExpireAt
+}
+
 func (p *Payment) GetSucceededAt() (v int64) {
 	return p.SucceededAt
 }
@@ -96,6 +101,9 @@ func (p *Payment) SetCurrency(val string) {
 func (p *Payment) SetPaymentTradeNo(val string) {
 	p.PaymentTradeNo = val
 }
+func (p *Payment) SetExpireAt(val int64) {
+	p.ExpireAt = val
+}
 func (p *Payment) SetSucceededAt(val int64) {
 	p.SucceededAt = val
 }
@@ -122,9 +130,10 @@ var fieldIDToName_Payment = map[int16]string{
 	6:  "amount",
 	7:  "currency",
 	8:  "payment_trade_no",
-	9:  "succeeded_at",
-	10: "closed_at",
-	11: "fail_reason",
+	9:  "expire_at",
+	10: "succeeded_at",
+	11: "closed_at",
+	12: "fail_reason",
 }
 
 type CreatePaymentRequest struct {
@@ -575,6 +584,136 @@ var fieldIDToName_ConfirmPaymentSuccessResponse = map[int16]string{
 	255: "base",
 }
 
+type ClosePaymentRequest struct {
+	PaymentId int64   `thrift:"payment_id,1" frugal:"1,default,i64" json:"payment_id"`
+	UserId    int64   `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	Reason    *string `thrift:"reason,3,optional" frugal:"3,optional,string" json:"reason,omitempty"`
+	RequestId *string `thrift:"request_id,4,optional" frugal:"4,optional,string" json:"request_id,omitempty"`
+}
+
+func NewClosePaymentRequest() *ClosePaymentRequest {
+	return &ClosePaymentRequest{}
+}
+
+func (p *ClosePaymentRequest) InitDefault() {
+}
+
+func (p *ClosePaymentRequest) GetPaymentId() (v int64) {
+	return p.PaymentId
+}
+
+func (p *ClosePaymentRequest) GetUserId() (v int64) {
+	return p.UserId
+}
+
+var ClosePaymentRequest_Reason_DEFAULT string
+
+func (p *ClosePaymentRequest) GetReason() (v string) {
+	if !p.IsSetReason() {
+		return ClosePaymentRequest_Reason_DEFAULT
+	}
+	return *p.Reason
+}
+
+var ClosePaymentRequest_RequestId_DEFAULT string
+
+func (p *ClosePaymentRequest) GetRequestId() (v string) {
+	if !p.IsSetRequestId() {
+		return ClosePaymentRequest_RequestId_DEFAULT
+	}
+	return *p.RequestId
+}
+func (p *ClosePaymentRequest) SetPaymentId(val int64) {
+	p.PaymentId = val
+}
+func (p *ClosePaymentRequest) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *ClosePaymentRequest) SetReason(val *string) {
+	p.Reason = val
+}
+func (p *ClosePaymentRequest) SetRequestId(val *string) {
+	p.RequestId = val
+}
+
+func (p *ClosePaymentRequest) IsSetReason() bool {
+	return p.Reason != nil
+}
+
+func (p *ClosePaymentRequest) IsSetRequestId() bool {
+	return p.RequestId != nil
+}
+
+func (p *ClosePaymentRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ClosePaymentRequest(%+v)", *p)
+}
+
+var fieldIDToName_ClosePaymentRequest = map[int16]string{
+	1: "payment_id",
+	2: "user_id",
+	3: "reason",
+	4: "request_id",
+}
+
+type ClosePaymentResponse struct {
+	Payment *Payment           `thrift:"payment,1" frugal:"1,default,Payment" json:"payment"`
+	Base    *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+}
+
+func NewClosePaymentResponse() *ClosePaymentResponse {
+	return &ClosePaymentResponse{}
+}
+
+func (p *ClosePaymentResponse) InitDefault() {
+}
+
+var ClosePaymentResponse_Payment_DEFAULT *Payment
+
+func (p *ClosePaymentResponse) GetPayment() (v *Payment) {
+	if !p.IsSetPayment() {
+		return ClosePaymentResponse_Payment_DEFAULT
+	}
+	return p.Payment
+}
+
+var ClosePaymentResponse_Base_DEFAULT *base.BaseResponse
+
+func (p *ClosePaymentResponse) GetBase() (v *base.BaseResponse) {
+	if !p.IsSetBase() {
+		return ClosePaymentResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+func (p *ClosePaymentResponse) SetPayment(val *Payment) {
+	p.Payment = val
+}
+func (p *ClosePaymentResponse) SetBase(val *base.BaseResponse) {
+	p.Base = val
+}
+
+func (p *ClosePaymentResponse) IsSetPayment() bool {
+	return p.Payment != nil
+}
+
+func (p *ClosePaymentResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *ClosePaymentResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ClosePaymentResponse(%+v)", *p)
+}
+
+var fieldIDToName_ClosePaymentResponse = map[int16]string{
+	1:   "payment",
+	255: "base",
+}
+
 type PaymentService interface {
 	CreatePayment(ctx context.Context, request *CreatePaymentRequest) (r *CreatePaymentResponse, err error)
 
@@ -583,6 +722,8 @@ type PaymentService interface {
 	ListPaymentsByOrder(ctx context.Context, request *ListPaymentsByOrderRequest) (r *ListPaymentsByOrderResponse, err error)
 
 	ConfirmPaymentSuccess(ctx context.Context, request *ConfirmPaymentSuccessRequest) (r *ConfirmPaymentSuccessResponse, err error)
+
+	ClosePayment(ctx context.Context, request *ClosePaymentRequest) (r *ClosePaymentResponse, err error)
 }
 
 type PaymentServiceCreatePaymentArgs struct {
@@ -886,5 +1027,81 @@ func (p *PaymentServiceConfirmPaymentSuccessResult) String() string {
 }
 
 var fieldIDToName_PaymentServiceConfirmPaymentSuccessResult = map[int16]string{
+	0: "success",
+}
+
+type PaymentServiceClosePaymentArgs struct {
+	Request *ClosePaymentRequest `thrift:"request,1" frugal:"1,default,ClosePaymentRequest" json:"request"`
+}
+
+func NewPaymentServiceClosePaymentArgs() *PaymentServiceClosePaymentArgs {
+	return &PaymentServiceClosePaymentArgs{}
+}
+
+func (p *PaymentServiceClosePaymentArgs) InitDefault() {
+}
+
+var PaymentServiceClosePaymentArgs_Request_DEFAULT *ClosePaymentRequest
+
+func (p *PaymentServiceClosePaymentArgs) GetRequest() (v *ClosePaymentRequest) {
+	if !p.IsSetRequest() {
+		return PaymentServiceClosePaymentArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *PaymentServiceClosePaymentArgs) SetRequest(val *ClosePaymentRequest) {
+	p.Request = val
+}
+
+func (p *PaymentServiceClosePaymentArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *PaymentServiceClosePaymentArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceClosePaymentArgs(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceClosePaymentArgs = map[int16]string{
+	1: "request",
+}
+
+type PaymentServiceClosePaymentResult struct {
+	Success *ClosePaymentResponse `thrift:"success,0,optional" frugal:"0,optional,ClosePaymentResponse" json:"success,omitempty"`
+}
+
+func NewPaymentServiceClosePaymentResult() *PaymentServiceClosePaymentResult {
+	return &PaymentServiceClosePaymentResult{}
+}
+
+func (p *PaymentServiceClosePaymentResult) InitDefault() {
+}
+
+var PaymentServiceClosePaymentResult_Success_DEFAULT *ClosePaymentResponse
+
+func (p *PaymentServiceClosePaymentResult) GetSuccess() (v *ClosePaymentResponse) {
+	if !p.IsSetSuccess() {
+		return PaymentServiceClosePaymentResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *PaymentServiceClosePaymentResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ClosePaymentResponse)
+}
+
+func (p *PaymentServiceClosePaymentResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PaymentServiceClosePaymentResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PaymentServiceClosePaymentResult(%+v)", *p)
+}
+
+var fieldIDToName_PaymentServiceClosePaymentResult = map[int16]string{
 	0: "success",
 }

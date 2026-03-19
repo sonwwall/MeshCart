@@ -15,6 +15,7 @@ type Client interface {
 	GetPayment(ctx context.Context, request *payment.GetPaymentRequest, callOptions ...callopt.Option) (r *payment.GetPaymentResponse, err error)
 	ListPaymentsByOrder(ctx context.Context, request *payment.ListPaymentsByOrderRequest, callOptions ...callopt.Option) (r *payment.ListPaymentsByOrderResponse, err error)
 	ConfirmPaymentSuccess(ctx context.Context, request *payment.ConfirmPaymentSuccessRequest, callOptions ...callopt.Option) (r *payment.ConfirmPaymentSuccessResponse, err error)
+	ClosePayment(ctx context.Context, request *payment.ClosePaymentRequest, callOptions ...callopt.Option) (r *payment.ClosePaymentResponse, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -64,4 +65,9 @@ func (p *kPaymentServiceClient) ListPaymentsByOrder(ctx context.Context, request
 func (p *kPaymentServiceClient) ConfirmPaymentSuccess(ctx context.Context, request *payment.ConfirmPaymentSuccessRequest, callOptions ...callopt.Option) (r *payment.ConfirmPaymentSuccessResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.ConfirmPaymentSuccess(ctx, request)
+}
+
+func (p *kPaymentServiceClient) ClosePayment(ctx context.Context, request *payment.ClosePaymentRequest, callOptions ...callopt.Option) (r *payment.ClosePaymentResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ClosePayment(ctx, request)
 }

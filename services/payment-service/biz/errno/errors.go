@@ -11,6 +11,7 @@ const (
 	CodePaymentOrderStateConflict int32 = 2060006
 	CodePaymentConflict           int32 = 2060007
 	CodePaymentIdempotencyBusy    int32 = 2060008
+	CodePaymentExpired            int32 = 2060009
 )
 
 var (
@@ -22,4 +23,5 @@ var (
 	ErrPaymentOrderStateConflict = common.NewBizError(CodePaymentOrderStateConflict, "订单状态不允许发起支付")
 	ErrPaymentConflict           = common.NewBizError(CodePaymentConflict, "支付信息冲突")
 	ErrPaymentIdempotencyBusy    = common.NewBizError(CodePaymentIdempotencyBusy, "请求正在处理中，请稍后重试")
+	ErrPaymentExpired            = common.NewBizError(CodePaymentExpired, "支付单已过期")
 )

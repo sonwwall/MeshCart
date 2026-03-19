@@ -41,6 +41,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"closePayment": kitex.NewMethodInfo(
+		closePaymentHandler,
+		newPaymentServiceClosePaymentArgs,
+		newPaymentServiceClosePaymentResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -179,6 +186,24 @@ func newPaymentServiceConfirmPaymentSuccessResult() interface{} {
 	return payment.NewPaymentServiceConfirmPaymentSuccessResult()
 }
 
+func closePaymentHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*payment.PaymentServiceClosePaymentArgs)
+	realResult := result.(*payment.PaymentServiceClosePaymentResult)
+	success, err := handler.(payment.PaymentService).ClosePayment(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newPaymentServiceClosePaymentArgs() interface{} {
+	return payment.NewPaymentServiceClosePaymentArgs()
+}
+
+func newPaymentServiceClosePaymentResult() interface{} {
+	return payment.NewPaymentServiceClosePaymentResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -224,6 +249,16 @@ func (p *kClient) ConfirmPaymentSuccess(ctx context.Context, request *payment.Co
 	_args.Request = request
 	var _result payment.PaymentServiceConfirmPaymentSuccessResult
 	if err = p.c.Call(ctx, "confirmPaymentSuccess", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ClosePayment(ctx context.Context, request *payment.ClosePaymentRequest) (r *payment.ClosePaymentResponse, err error) {
+	var _args payment.PaymentServiceClosePaymentArgs
+	_args.Request = request
+	var _result payment.PaymentServiceClosePaymentResult
+	if err = p.c.Call(ctx, "closePayment", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

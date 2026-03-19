@@ -43,6 +43,7 @@ func toPaymentData(payment *paymentpb.Payment) *types.PaymentData {
 		Amount:         payment.GetAmount(),
 		Currency:       payment.GetCurrency(),
 		PaymentTradeNo: payment.GetPaymentTradeNo(),
+		ExpireAt:       payment.GetExpireAt(),
 		SucceededAt:    payment.GetSucceededAt(),
 		ClosedAt:       payment.GetClosedAt(),
 		FailReason:     payment.GetFailReason(),

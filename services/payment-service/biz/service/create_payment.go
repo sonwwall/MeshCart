@@ -51,15 +51,37 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req *paymentpb.Creat
 		}
 	}
 
-	active, err := s.repo.GetLatestActiveByOrderID(ctx, req.GetOrderId(), req.GetUserId())
-	if err == nil {
-		s.markActionSucceeded(ctx, actionTypeCreate, requestID, active.PaymentID, active.OrderID)
-		return toRPCPayment(active), nil
-	}
-	if err != nil && err != repository.ErrPaymentNotFound {
+	existingPayments, err := s.repo.ListByOrderID(ctx, req.GetOrderId(), req.GetUserId())
+	if err != nil {
 		bizErr := mapRepositoryError(err)
 		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
+	}
+	for _, existingPayment := range existingPayments {
+		switch existingPayment.Status {
+		case PaymentStatusSucceeded:
+			s.markActionSucceeded(ctx, actionTypeCreate, requestID, existingPayment.PaymentID, existingPayment.OrderID)
+			return toRPCPayment(existingPayment), nil
+		case PaymentStatusPending:
+			if s.isPaymentExpired(existingPayment) {
+				closedAt := s.now()
+				if _, closeErr := s.repo.TransitionStatus(ctx, repository.PaymentTransition{
+					PaymentID:    existingPayment.PaymentID,
+					FromStatuses: []int32{PaymentStatusPending},
+					ToStatus:     PaymentStatusClosed,
+					ClosedAt:     &closedAt,
+					FailReason:   "payment_expired",
+					ActionType:   actionTypeClose,
+					Reason:       "payment_expired",
+					ExternalRef:  "system",
+				}); closeErr != nil && closeErr != repository.ErrPaymentStateConflict {
+					logx.L(ctx).Warn("close expired pending payment before create failed", zap.Error(closeErr), zap.Int64("payment_id", existingPayment.PaymentID), zap.Int64("order_id", existingPayment.OrderID))
+				}
+				continue
+			}
+			s.markActionSucceeded(ctx, actionTypeCreate, requestID, existingPayment.PaymentID, existingPayment.OrderID)
+			return toRPCPayment(existingPayment), nil
+		}
 	}
 
 	orderResp, rpcErr := s.orderClient.GetOrder(ctx, req.GetUserId(), req.GetOrderId())
@@ -73,10 +95,11 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req *paymentpb.Creat
 		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
 	}
-	if bizErr := validateOrderForPayment(orderResp.Order); bizErr != nil {
+	if bizErr := s.validateOrderForPayment(orderResp.Order); bizErr != nil {
 		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
 	}
+	expireAt := s.calculatePaymentExpireAt(orderResp.Order)
 
 	model := &dalmodel.Payment{
 		PaymentID:     s.node.Generate().Int64(),
@@ -87,6 +110,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req *paymentpb.Creat
 		Amount:        orderResp.Order.GetPayAmount(),
 		Currency:      "CNY",
 		RequestID:     requestID,
+		ExpireAt:      expireAt,
 	}
 	created, createErr := s.repo.Create(ctx, model)
 	if createErr != nil {

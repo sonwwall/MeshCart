@@ -16,6 +16,7 @@ type stubKitexPaymentClient struct {
 	getPaymentFn            func(context.Context, *paymentpb.GetPaymentRequest) (*paymentpb.GetPaymentResponse, error)
 	listPaymentsByOrderFn   func(context.Context, *paymentpb.ListPaymentsByOrderRequest) (*paymentpb.ListPaymentsByOrderResponse, error)
 	confirmPaymentSuccessFn func(context.Context, *paymentpb.ConfirmPaymentSuccessRequest) (*paymentpb.ConfirmPaymentSuccessResponse, error)
+	closePaymentFn          func(context.Context, *paymentpb.ClosePaymentRequest) (*paymentpb.ClosePaymentResponse, error)
 }
 
 var _ paymentservice.Client = (*stubKitexPaymentClient)(nil)
@@ -31,6 +32,9 @@ func (s *stubKitexPaymentClient) ListPaymentsByOrder(ctx context.Context, reques
 }
 func (s *stubKitexPaymentClient) ConfirmPaymentSuccess(ctx context.Context, request *paymentpb.ConfirmPaymentSuccessRequest, _ ...callopt.Option) (*paymentpb.ConfirmPaymentSuccessResponse, error) {
 	return s.confirmPaymentSuccessFn(ctx, request)
+}
+func (s *stubKitexPaymentClient) ClosePayment(ctx context.Context, request *paymentpb.ClosePaymentRequest, _ ...callopt.Option) (*paymentpb.ClosePaymentResponse, error) {
+	return s.closePaymentFn(ctx, request)
 }
 
 func TestClient_CreatePayment_NilResponse(t *testing.T) {
@@ -103,6 +107,26 @@ func TestClient_ConfirmPaymentSuccess_MapsBaseResponse(t *testing.T) {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 	if resp.Code != 0 || resp.Payment == nil || resp.Payment.GetStatus() != 2 || resp.Payment.GetPaymentTradeNo() != "mock-1" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+}
+
+func TestClient_ClosePayment_MapsBaseResponse(t *testing.T) {
+	stub := &stubKitexPaymentClient{
+		closePaymentFn: func(context.Context, *paymentpb.ClosePaymentRequest) (*paymentpb.ClosePaymentResponse, error) {
+			return &paymentpb.ClosePaymentResponse{
+				Base:    &basepb.BaseResponse{Code: 0, Message: "成功"},
+				Payment: &paymentpb.Payment{PaymentId: 1, Status: 4, FailReason: "payment_closed"},
+			}, nil
+		},
+	}
+	c := &kitexClient{readCli: stub, writeCli: stub}
+
+	resp, err := c.ClosePayment(context.Background(), &paymentpb.ClosePaymentRequest{PaymentId: 1, UserId: 101})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if resp.Code != 0 || resp.Payment == nil || resp.Payment.GetStatus() != 4 {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }

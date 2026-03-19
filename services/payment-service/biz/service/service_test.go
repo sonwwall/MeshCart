@@ -123,14 +123,15 @@ func newPaymentService(t *testing.T, repo repository.PaymentRepository, orderCli
 func TestPaymentService_CreatePayment_Success(t *testing.T) {
 	svc := newPaymentService(t, &stubPaymentRepository{
 		createFn: func(_ context.Context, payment *dalmodel.Payment) (*dalmodel.Payment, error) {
-			if payment.OrderID != 10 || payment.UserID != 101 || payment.Amount != 1999 || payment.PaymentMethod != "mock" {
+			expectedExpireAt := time.Unix(1710000000, 0).Add(15 * time.Minute)
+			if payment.OrderID != 10 || payment.UserID != 101 || payment.Amount != 1999 || payment.PaymentMethod != "mock" || !payment.ExpireAt.Equal(expectedExpireAt) {
 				t.Fatalf("unexpected payment create args: %+v", payment)
 			}
 			return payment, nil
 		},
 	}, &stubOrderClient{
 		getOrderFn: func(_ context.Context, userID, orderID int64) (*orderrpc.GetOrderResponse, error) {
-			return &orderrpc.GetOrderResponse{Code: 0, Order: &orderpb.Order{OrderId: orderID, UserId: userID, Status: 2, PayAmount: 1999}}, nil
+			return &orderrpc.GetOrderResponse{Code: 0, Order: &orderpb.Order{OrderId: orderID, UserId: userID, Status: 2, PayAmount: 1999, ExpireAt: time.Unix(1710000000, 0).Add(30 * time.Minute).Unix()}}, nil
 		},
 	})
 
@@ -145,8 +146,8 @@ func TestPaymentService_CreatePayment_Success(t *testing.T) {
 
 func TestPaymentService_CreatePayment_ReturnActivePayment(t *testing.T) {
 	svc := newPaymentService(t, &stubPaymentRepository{
-		getLatestActiveByOrderIDFn: func(_ context.Context, orderID, userID int64) (*dalmodel.Payment, error) {
-			return &dalmodel.Payment{PaymentID: 1, OrderID: orderID, UserID: userID, Status: PaymentStatusPending, PaymentMethod: "mock", Amount: 1999, Currency: "CNY"}, nil
+		listByOrderIDFn: func(_ context.Context, orderID, userID int64) ([]*dalmodel.Payment, error) {
+			return []*dalmodel.Payment{{PaymentID: 1, OrderID: orderID, UserID: userID, Status: PaymentStatusPending, PaymentMethod: "mock", Amount: 1999, Currency: "CNY", ExpireAt: time.Unix(1710000000, 0).Add(5 * time.Minute)}}, nil
 		},
 	}, &stubOrderClient{})
 
@@ -162,7 +163,7 @@ func TestPaymentService_CreatePayment_ReturnActivePayment(t *testing.T) {
 func TestPaymentService_ConfirmPaymentSuccess_Success(t *testing.T) {
 	svc := newPaymentService(t, &stubPaymentRepository{
 		getByPaymentIDFn: func(_ context.Context, paymentID int64) (*dalmodel.Payment, error) {
-			return &dalmodel.Payment{PaymentID: paymentID, OrderID: 10, UserID: 101, Status: PaymentStatusPending, PaymentMethod: "mock", Amount: 1999, Currency: "CNY"}, nil
+			return &dalmodel.Payment{PaymentID: paymentID, OrderID: 10, UserID: 101, Status: PaymentStatusPending, PaymentMethod: "mock", Amount: 1999, Currency: "CNY", ExpireAt: time.Unix(1710000000, 0).Add(5 * time.Minute)}, nil
 		},
 		transitionStatusFn: func(_ context.Context, transition repository.PaymentTransition) (*dalmodel.Payment, error) {
 			if transition.ToStatus != PaymentStatusSucceeded || transition.PaymentMethod != "mock" || transition.PaymentTradeNo != "mock-100" {
@@ -191,7 +192,7 @@ func TestPaymentService_ConfirmPaymentSuccess_Success(t *testing.T) {
 func TestPaymentService_ConfirmPaymentSuccess_OrderRPCError(t *testing.T) {
 	svc := newPaymentService(t, &stubPaymentRepository{
 		getByPaymentIDFn: func(_ context.Context, paymentID int64) (*dalmodel.Payment, error) {
-			return &dalmodel.Payment{PaymentID: paymentID, OrderID: 10, UserID: 101, Status: PaymentStatusPending, PaymentMethod: "mock", Amount: 1999, Currency: "CNY"}, nil
+			return &dalmodel.Payment{PaymentID: paymentID, OrderID: 10, UserID: 101, Status: PaymentStatusPending, PaymentMethod: "mock", Amount: 1999, Currency: "CNY", ExpireAt: time.Unix(1710000000, 0).Add(5 * time.Minute)}, nil
 		},
 	}, &stubOrderClient{
 		confirmOrderPaidFn: func(context.Context, *orderpb.ConfirmOrderPaidRequest) (*orderrpc.ConfirmOrderPaidResponse, error) {
@@ -214,7 +215,7 @@ func TestPaymentService_ConfirmPaymentSuccess_RetryAfterFailedActionRecord(t *te
 			return &dalmodel.PaymentActionRecord{ActionType: actionType, ActionKey: actionKey, PaymentID: 100, OrderID: 10, Status: "failed"}, nil
 		},
 		getByPaymentIDFn: func(_ context.Context, paymentID int64) (*dalmodel.Payment, error) {
-			return &dalmodel.Payment{PaymentID: paymentID, OrderID: 10, UserID: 101, Status: PaymentStatusPending, PaymentMethod: "mock", Amount: 1999, Currency: "CNY"}, nil
+			return &dalmodel.Payment{PaymentID: paymentID, OrderID: 10, UserID: 101, Status: PaymentStatusPending, PaymentMethod: "mock", Amount: 1999, Currency: "CNY", ExpireAt: time.Unix(1710000000, 0).Add(5 * time.Minute)}, nil
 		},
 		transitionStatusFn: func(_ context.Context, transition repository.PaymentTransition) (*dalmodel.Payment, error) {
 			return &dalmodel.Payment{PaymentID: transition.PaymentID, OrderID: 10, UserID: 101, Status: PaymentStatusSucceeded, PaymentMethod: transition.PaymentMethod, PaymentTradeNo: transition.PaymentTradeNo, SucceededAt: transition.SucceededAt}, nil
@@ -242,5 +243,49 @@ func TestPaymentService_GetPayment_NotFound(t *testing.T) {
 	}
 	if bizErr != errno.ErrPaymentNotFound {
 		t.Fatalf("expected ErrPaymentNotFound, got %+v", bizErr)
+	}
+}
+
+func TestPaymentService_ConfirmPaymentSuccess_ExpiredPayment(t *testing.T) {
+	svc := newPaymentService(t, &stubPaymentRepository{
+		getByPaymentIDFn: func(_ context.Context, paymentID int64) (*dalmodel.Payment, error) {
+			return &dalmodel.Payment{PaymentID: paymentID, OrderID: 10, UserID: 101, Status: PaymentStatusPending, PaymentMethod: "mock", Amount: 1999, Currency: "CNY", ExpireAt: time.Unix(1710000000, 0).Add(-time.Minute)}, nil
+		},
+		transitionStatusFn: func(_ context.Context, transition repository.PaymentTransition) (*dalmodel.Payment, error) {
+			if transition.ToStatus != PaymentStatusClosed || transition.FailReason != "payment_expired" {
+				t.Fatalf("unexpected transition: %+v", transition)
+			}
+			return &dalmodel.Payment{PaymentID: transition.PaymentID, OrderID: 10, UserID: 101, Status: PaymentStatusClosed, ClosedAt: transition.ClosedAt, FailReason: transition.FailReason}, nil
+		},
+	}, &stubOrderClient{})
+
+	payment, bizErr := svc.ConfirmPaymentSuccess(context.Background(), &paymentpb.ConfirmPaymentSuccessRequest{PaymentId: 100, PaymentMethod: "mock"})
+	if payment != nil {
+		t.Fatalf("expected nil payment, got %+v", payment)
+	}
+	if bizErr != errno.ErrPaymentExpired {
+		t.Fatalf("expected ErrPaymentExpired, got %+v", bizErr)
+	}
+}
+
+func TestPaymentService_ClosePayment_Success(t *testing.T) {
+	svc := newPaymentService(t, &stubPaymentRepository{
+		getByPaymentIDUserFn: func(_ context.Context, paymentID, userID int64) (*dalmodel.Payment, error) {
+			return &dalmodel.Payment{PaymentID: paymentID, OrderID: 10, UserID: userID, Status: PaymentStatusPending, PaymentMethod: "mock", Amount: 1999, Currency: "CNY", ExpireAt: time.Unix(1710000000, 0).Add(5 * time.Minute)}, nil
+		},
+		transitionStatusFn: func(_ context.Context, transition repository.PaymentTransition) (*dalmodel.Payment, error) {
+			if transition.ToStatus != PaymentStatusClosed || transition.FailReason != "user_cancelled" {
+				t.Fatalf("unexpected transition: %+v", transition)
+			}
+			return &dalmodel.Payment{PaymentID: transition.PaymentID, OrderID: 10, UserID: 101, Status: PaymentStatusClosed, ClosedAt: transition.ClosedAt, FailReason: transition.FailReason}, nil
+		},
+	}, &stubOrderClient{})
+
+	payment, bizErr := svc.ClosePayment(context.Background(), &paymentpb.ClosePaymentRequest{PaymentId: 100, UserId: 101, Reason: stringPointer("user_cancelled")})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if payment == nil || payment.GetStatus() != PaymentStatusClosed || payment.GetFailReason() != "user_cancelled" {
+		t.Fatalf("unexpected payment: %+v", payment)
 	}
 }

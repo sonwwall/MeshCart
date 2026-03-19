@@ -110,10 +110,38 @@ func (s *PaymentService) ConfirmPaymentSuccess(ctx context.Context, req *payment
 		s.markActionSucceeded(ctx, actionTypeConfirm, actionKey, payment.PaymentID, payment.OrderID)
 		return toRPCPayment(payment), nil
 	}
+	if payment.Status == PaymentStatusClosed {
+		logx.L(ctx).Warn("confirm payment success rejected by closed payment", zap.Int64("payment_id", payment.PaymentID), zap.Int64("order_id", payment.OrderID))
+		s.markActionFailed(ctx, actionTypeConfirm, actionKey, errno.ErrPaymentStateConflict)
+		return nil, errno.ErrPaymentStateConflict
+	}
 	if payment.Status != PaymentStatusPending {
 		logx.L(ctx).Warn("confirm payment success rejected by payment status", zap.Int64("payment_id", payment.PaymentID), zap.Int32("status", payment.Status), zap.Int64("order_id", payment.OrderID))
 		s.markActionFailed(ctx, actionTypeConfirm, actionKey, errno.ErrPaymentStateConflict)
 		return nil, errno.ErrPaymentStateConflict
+	}
+	if s.isPaymentExpired(payment) {
+		logx.L(ctx).Warn("confirm payment success rejected by payment expiry",
+			zap.Int64("payment_id", payment.PaymentID),
+			zap.Int64("order_id", payment.OrderID),
+			zap.Time("expire_at", payment.ExpireAt),
+			zap.Time("now", s.now()),
+		)
+		closedAt := s.now()
+		if _, closeErr := s.repo.TransitionStatus(ctx, repository.PaymentTransition{
+			PaymentID:    payment.PaymentID,
+			FromStatuses: []int32{PaymentStatusPending},
+			ToStatus:     PaymentStatusClosed,
+			ClosedAt:     &closedAt,
+			FailReason:   "payment_expired",
+			ActionType:   actionTypeClose,
+			Reason:       "payment_expired",
+			ExternalRef:  "system",
+		}); closeErr != nil && closeErr != repository.ErrPaymentStateConflict {
+			logx.L(ctx).Warn("confirm payment success close expired payment failed", zap.Error(closeErr), zap.Int64("payment_id", payment.PaymentID))
+		}
+		s.markActionFailed(ctx, actionTypeConfirm, actionKey, errno.ErrPaymentExpired)
+		return nil, errno.ErrPaymentExpired
 	}
 
 	orderReq := &orderpb.ConfirmOrderPaidRequest{

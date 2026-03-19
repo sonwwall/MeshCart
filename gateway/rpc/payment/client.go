@@ -23,6 +23,7 @@ var (
 	errNilGetPaymentResponse            = errors.New("payment rpc returned nil get payment response")
 	errNilListPaymentsByOrderResponse   = errors.New("payment rpc returned nil list payments by order response")
 	errNilConfirmPaymentSuccessResponse = errors.New("payment rpc returned nil confirm payment success response")
+	errNilClosePaymentResponse          = errors.New("payment rpc returned nil close payment response")
 )
 
 type CreatePaymentResponse struct {
@@ -49,11 +50,18 @@ type ConfirmPaymentSuccessResponse struct {
 	Payment *paymentpb.Payment
 }
 
+type ClosePaymentResponse struct {
+	Code    int32
+	Message string
+	Payment *paymentpb.Payment
+}
+
 type Client interface {
 	CreatePayment(ctx context.Context, req *paymentpb.CreatePaymentRequest) (*CreatePaymentResponse, error)
 	GetPayment(ctx context.Context, req *paymentpb.GetPaymentRequest) (*GetPaymentResponse, error)
 	ListPaymentsByOrder(ctx context.Context, req *paymentpb.ListPaymentsByOrderRequest) (*ListPaymentsByOrderResponse, error)
 	ConfirmPaymentSuccess(ctx context.Context, req *paymentpb.ConfirmPaymentSuccessRequest) (*ConfirmPaymentSuccessResponse, error)
+	ClosePayment(ctx context.Context, req *paymentpb.ClosePaymentRequest) (*ClosePaymentResponse, error)
 }
 
 type kitexClient struct {
@@ -148,6 +156,18 @@ func (c *kitexClient) ConfirmPaymentSuccess(ctx context.Context, req *paymentpb.
 	}
 	code, message := baseCodeMessage(resp.Base)
 	return &ConfirmPaymentSuccessResponse{Code: code, Message: message, Payment: resp.Payment}, nil
+}
+
+func (c *kitexClient) ClosePayment(ctx context.Context, req *paymentpb.ClosePaymentRequest) (*ClosePaymentResponse, error) {
+	resp, err := c.writeCli.ClosePayment(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilClosePaymentResponse
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &ClosePaymentResponse{Code: code, Message: message, Payment: resp.Payment}, nil
 }
 
 func baseCodeMessage(base *basepb.BaseResponse) (int32, string) {

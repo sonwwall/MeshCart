@@ -11,9 +11,10 @@ struct Payment {
     6: i64 amount
     7: string currency
     8: string payment_trade_no
-    9: i64 succeeded_at
-    10: i64 closed_at
-    11: string fail_reason
+    9: i64 expire_at
+    10: i64 succeeded_at
+    11: i64 closed_at
+    12: string fail_reason
 }
 
 struct CreatePaymentRequest {
@@ -61,9 +62,22 @@ struct ConfirmPaymentSuccessResponse {
     255: base.BaseResponse base
 }
 
+struct ClosePaymentRequest {
+    1: i64 payment_id
+    2: i64 user_id
+    3: optional string reason
+    4: optional string request_id
+}
+
+struct ClosePaymentResponse {
+    1: Payment payment
+    255: base.BaseResponse base
+}
+
 service PaymentService {
     CreatePaymentResponse createPayment(1: CreatePaymentRequest request)
     GetPaymentResponse getPayment(1: GetPaymentRequest request)
     ListPaymentsByOrderResponse listPaymentsByOrder(1: ListPaymentsByOrderRequest request)
     ConfirmPaymentSuccessResponse confirmPaymentSuccess(1: ConfirmPaymentSuccessRequest request)
+    ClosePaymentResponse closePayment(1: ClosePaymentRequest request)
 }

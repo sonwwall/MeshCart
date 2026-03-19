@@ -12,6 +12,11 @@ type ConfirmMockPaymentRequest struct {
 	PaidAt         int64  `json:"paid_at"`
 }
 
+type ClosePaymentRequest struct {
+	RequestID string `json:"request_id"`
+	Reason    string `json:"reason"`
+}
+
 type PaymentData struct {
 	PaymentID      int64  `json:"payment_id"`
 	OrderID        int64  `json:"order_id"`
@@ -21,6 +26,7 @@ type PaymentData struct {
 	Amount         int64  `json:"amount"`
 	Currency       string `json:"currency"`
 	PaymentTradeNo string `json:"payment_trade_no"`
+	ExpireAt       int64  `json:"expire_at"`
 	SucceededAt    int64  `json:"succeeded_at"`
 	ClosedAt       int64  `json:"closed_at"`
 	FailReason     string `json:"fail_reason"`
