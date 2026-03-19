@@ -74,6 +74,10 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 		s.markActionFailed(ctx, actionTypePay, actionKey, errno.ErrOrderStateConflict)
 		return nil, errno.ErrOrderStateConflict
 	}
+	if !order.ExpireAt.IsZero() && !s.now().Before(order.ExpireAt) {
+		s.markActionFailed(ctx, actionTypePay, actionKey, errno.ErrOrderStateConflict)
+		return nil, errno.ErrOrderStateConflict
+	}
 
 	confirmResp, confirmErr := s.inventoryClient.ConfirmDeductReservedSkuStocks(ctx, &inventory.ConfirmDeductReservedSkuStocksRequest{
 		BizType: orderReserveBizType,

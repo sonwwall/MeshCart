@@ -63,9 +63,11 @@ func paymentConflict(existing, incoming string) bool {
 func (s *PaymentService) findActionRecord(ctx context.Context, actionType, actionKey string) (*dalmodel.PaymentActionRecord, *common.BizError) {
 	record, err := s.repo.GetActionRecord(ctx, actionType, actionKey)
 	if err == nil {
+		logx.L(ctx).Info("payment action record found", zap.String("action_type", actionType), zap.String("action_key", actionKey), zap.String("status", record.Status), zap.Int64("payment_id", record.PaymentID), zap.Int64("order_id", record.OrderID))
 		return record, nil
 	}
 	if err == repository.ErrActionRecordNotFound {
+		logx.L(ctx).Debug("payment action record not found", zap.String("action_type", actionType), zap.String("action_key", actionKey))
 		return nil, nil
 	}
 	logx.L(ctx).Error("get payment action record failed", zap.Error(err), zap.String("action_type", actionType), zap.String("action_key", actionKey))
@@ -86,6 +88,7 @@ func (s *PaymentService) createPendingActionRecord(ctx context.Context, actionTy
 	}
 	if err := s.repo.CreateActionRecord(ctx, record); err != nil {
 		if err == repository.ErrActionRecordExists {
+			logx.L(ctx).Warn("payment action record already exists", zap.String("action_type", actionType), zap.String("action_key", actionKey), zap.Int64("payment_id", paymentID), zap.Int64("order_id", orderID))
 			existing, bizErr := s.findActionRecord(ctx, actionType, actionKey)
 			if bizErr != nil {
 				return nil, bizErr
@@ -97,6 +100,7 @@ func (s *PaymentService) createPendingActionRecord(ctx context.Context, actionTy
 		logx.L(ctx).Error("create payment action record failed", zap.Error(err), zap.String("action_type", actionType), zap.String("action_key", actionKey))
 		return nil, common.ErrInternalError
 	}
+	logx.L(ctx).Info("payment action record created", zap.String("action_type", actionType), zap.String("action_key", actionKey), zap.Int64("payment_id", paymentID), zap.Int64("order_id", orderID))
 	return record, nil
 }
 

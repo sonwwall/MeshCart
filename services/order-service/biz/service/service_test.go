@@ -521,6 +521,33 @@ func TestOrderService_ConfirmOrderPaid_ConflictOnDifferentTradeNo(t *testing.T) 
 	}
 }
 
+func TestOrderService_ConfirmOrderPaid_ExpiredOrder(t *testing.T) {
+	svc := newOrderService(t, &stubOrderRepository{
+		getByIDFn: func(_ context.Context, orderID int64) (*dalmodel.Order, error) {
+			return &dalmodel.Order{
+				OrderID:  orderID,
+				UserID:   101,
+				Status:   OrderStatusReserved,
+				ExpireAt: time.Unix(1709999999, 0),
+				Items:    []dalmodel.OrderItem{{SKUID: 3001, Quantity: 1}},
+			}, nil
+		},
+	}, &stubProductClient{}, &stubInventoryClient{
+		confirmFn: func(_ context.Context, req *inventorypb.ConfirmDeductReservedSkuStocksRequest) (*inventoryrpc.ConfirmDeductReservedSkuStocksResponse, error) {
+			t.Fatalf("inventory confirm should not be called for expired order: %+v", req)
+			return nil, nil
+		},
+	})
+
+	order, bizErr := svc.ConfirmOrderPaid(context.Background(), &orderpb.ConfirmOrderPaidRequest{OrderId: 1, PaymentId: "pay-1"})
+	if order != nil {
+		t.Fatalf("expected nil order, got %+v", order)
+	}
+	if bizErr != errno.ErrOrderStateConflict {
+		t.Fatalf("expected ErrOrderStateConflict, got %+v", bizErr)
+	}
+}
+
 func ptrString(v string) *string {
 	return &v
 }

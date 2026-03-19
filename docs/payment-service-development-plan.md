@@ -24,7 +24,7 @@
 - `payment-service`
   - 负责支付单状态机、支付成功确认、支付动作幂等
 - `gateway`
-  - 当前还没有接入支付 HTTP
+  - 当前已经对外暴露用户侧支付 HTTP
 - 第三方支付渠道
   - 当前第一版只支持 `mock`
   - 还没有接真实支付宝、微信支付
@@ -49,6 +49,7 @@
   - 订单确认成功后推进支付单到 `succeeded`
 - 创建支付单、支付成功确认两类幂等控制
 - 支付状态流转日志和动作记录
+- `gateway` 侧用户支付 HTTP 接口
 
 ## 4. 核心业务设计
 
@@ -131,6 +132,7 @@
 - 当前第一版采用“先确认订单成功，再确认支付成功”的顺序
 - 这样可以避免出现“支付单已成功但订单未推进”的悬挂状态
 - 同一个支付成功结果重复通知按幂等成功处理
+- 如果某次支付确认失败，后续允许用同一笔支付单再次重试确认，不会因为旧的 `failed` 动作记录被永久封死
 - 已成功支付的支付单如果收到不同的 `payment_trade_no`，返回支付冲突
 
 ### 4.4 幂等与排障
@@ -359,16 +361,263 @@ IDL 定义见 [payment.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/paymen
 - 当前会先调用 `order-service.ConfirmOrderPaid`
 - 只有订单确认成功后，支付单才会推进到 `succeeded`
 
-## 7. HTTP 接口现状
+## 7. HTTP 接口设计
 
-当前还没有对外开放支付 HTTP 接口。
+当前对外 HTTP 接口已经由 `gateway` 暴露，相关实现位于：
 
-也就是说，第一版已经具备支付域内部 RPC 能力，但还没有接入：
+- [routes.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/handler/payment/routes.go)
+- [create.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/handler/payment/create.go)
+- [get.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/handler/payment/get.go)
+- [list_by_order.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/handler/payment/list_by_order.go)
+- [mock_success.go](/Users/ruitong/GolandProjects/MeshCart/gateway/internal/handler/payment/mock_success.go)
 
-- `gateway/rpc/payment`
-- 用户侧支付 HTTP handler / logic / types
+当前已开放：
 
-这部分会放到下一阶段。
+- `POST /api/v1/payments`
+- `GET /api/v1/payments/:payment_id`
+- `GET /api/v1/orders/:order_id/payments`
+- `POST /api/v1/payments/:payment_id/mock_success`
+
+这些接口都要求 JWT。
+
+### 7.1 `POST /api/v1/payments`
+
+作用：
+
+- 为当前登录用户的订单创建支付单
+
+请求体字段：
+
+- `order_id`
+  - 类型：`int64`
+  - 必填
+  - 需要是当前登录用户自己的订单 ID
+- `payment_method`
+  - 类型：`string`
+  - 必填
+  - 当前可选值：
+    - `mock`
+  - 当前第一版只有 `mock` 会被接受，传其他值会返回“暂不支持该支付方式”
+- `request_id`
+  - 类型：`string`
+  - 可选
+  - 建议由调用方生成唯一值，用于防止重复点击“去支付”时重复创建支付单
+
+请求示例：
+
+```json
+{
+  "order_id": 2034545492230164480,
+  "payment_method": "mock",
+  "request_id": "pay-create-2034545492230164480-1"
+}
+```
+
+成功响应 `data`：
+
+- 完整支付单对象
+
+成功响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "data": {
+    "payment_id": 2035000000000000001,
+    "order_id": 2034545492230164480,
+    "user_id": 2031538004429901824,
+    "status": 1,
+    "payment_method": "mock",
+    "amount": 1179800,
+    "currency": "CNY",
+    "payment_trade_no": "",
+    "succeeded_at": 0,
+    "closed_at": 0,
+    "fail_reason": ""
+  }
+}
+```
+
+关键语义：
+
+- 当前只允许对状态为 `reserved` 的订单创建支付单
+- 同一订单如果已经有有效支付单，当前会直接返回已有支付单，而不是新建一笔
+- `status = 1` 表示支付单已创建、等待支付成功
+
+### 7.2 `GET /api/v1/payments/:payment_id`
+
+作用：
+
+- 查询当前登录用户的单笔支付单详情
+
+路径参数：
+
+- `payment_id`
+  - 类型：`int64`
+  - 必填
+
+请求示例：
+
+```http
+GET /api/v1/payments/2035000000000000001
+```
+
+成功响应 `data`：
+
+- 完整支付单对象
+
+成功响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "data": {
+    "payment_id": 2035000000000000001,
+    "order_id": 2034545492230164480,
+    "user_id": 2031538004429901824,
+    "status": 1,
+    "payment_method": "mock",
+    "amount": 1179800,
+    "currency": "CNY",
+    "payment_trade_no": "",
+    "succeeded_at": 0,
+    "closed_at": 0,
+    "fail_reason": ""
+  }
+}
+```
+
+关键语义：
+
+- 当前按 `user_id + payment_id` 做资源隔离
+- 只能查自己的支付单
+
+### 7.3 `GET /api/v1/orders/:order_id/payments`
+
+作用：
+
+- 查询当前登录用户某笔订单下的支付单列表
+
+路径参数：
+
+- `order_id`
+  - 类型：`int64`
+  - 必填
+
+请求示例：
+
+```http
+GET /api/v1/orders/2034545492230164480/payments
+```
+
+成功响应 `data`：
+
+- `payments`
+
+成功响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "data": {
+    "payments": [
+      {
+        "payment_id": 2035000000000000001,
+        "order_id": 2034545492230164480,
+        "user_id": 2031538004429901824,
+        "status": 1,
+        "payment_method": "mock",
+        "amount": 1179800,
+        "currency": "CNY",
+        "payment_trade_no": "",
+        "succeeded_at": 0,
+        "closed_at": 0,
+        "fail_reason": ""
+      }
+    ]
+  }
+}
+```
+
+关键语义：
+
+- 当前返回该订单下全部支付单
+- 第一版通常只有 1 笔有效支付单，但结构保留为列表，便于后续扩展
+
+### 7.4 `POST /api/v1/payments/:payment_id/mock_success`
+
+作用：
+
+- 开发环境模拟支付成功
+
+路径参数：
+
+- `payment_id`
+  - 类型：`int64`
+  - 必填
+
+请求体字段：
+
+- `request_id`
+  - 类型：`string`
+  - 可选
+  - 建议用于模拟支付成功动作幂等
+- `payment_trade_no`
+  - 类型：`string`
+  - 可选
+  - 当前若不传，服务内部会默认生成：
+    - `mock-{payment_id}`
+- `paid_at`
+  - 类型：`int64`
+  - 可选
+  - Unix 秒级时间戳
+  - 若不传，则默认使用服务当前时间
+
+请求示例：
+
+```json
+{
+  "request_id": "pay-success-2035000000000000001-1",
+  "payment_trade_no": "mock-trade-2035000000000000001",
+  "paid_at": 1773910400
+}
+```
+
+成功响应 `data`：
+
+- 返回支付成功后的完整支付单对象
+
+成功响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "data": {
+    "payment_id": 2035000000000000001,
+    "order_id": 2034545492230164480,
+    "user_id": 2031538004429901824,
+    "status": 2,
+    "payment_method": "mock",
+    "amount": 1179800,
+    "currency": "CNY",
+    "payment_trade_no": "mock-trade-2035000000000000001",
+    "succeeded_at": 1773910400,
+    "closed_at": 0,
+    "fail_reason": ""
+  }
+}
+```
+
+关键语义：
+
+- 当前固定走 `mock` 支付方式
+- 成功后会内部调用 `order-service.ConfirmOrderPaid`
+- `status = 2` 表示支付成功
+- 这是开发和联调用入口，不是未来真实支付渠道回调的最终形态
 
 ## 8. 运行与治理基线
 
@@ -381,6 +630,7 @@ IDL 定义见 [payment.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/paymen
 - tracing / metrics / logging
 - 下游 `order-service` RPC timeout
 - `GetOrder` 读 RPC 有限重试
+- `gateway -> payment-service` 的 HTTP / RPC 接入
 
 关键落点：
 
@@ -419,8 +669,6 @@ IDL 定义见 [payment.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/paymen
 
 当前还没有完成的主要是：
 
-- `gateway` 对外支付 HTTP 接口
-- `mock_success` 开发环境 HTTP 联调接口
 - `ClosePayment`
 - `failed / closed` 状态的完整流转
 - 常驻补偿与恢复任务
@@ -435,12 +683,10 @@ IDL 定义见 [payment.thrift](/Users/ruitong/GolandProjects/MeshCart/idl/paymen
 优先顺序建议：
 
 1. 接 `gateway`
-   - 对外开放创建支付单、查询支付单接口
-2. 增加开发环境 `mock_success` 联调接口
-   - 让下单到支付成功的整条链路可从 HTTP 跑通
-3. 补 `ClosePayment`
+   - 已完成创建支付单、查询支付单、按订单查支付单、`mock_success`
+2. 补 `ClosePayment`
    - 为订单超时关闭后的支付单关闭做准备
-4. 补管理端支付查询
+3. 补管理端支付查询
    - 后台可查支付单和状态流转
 
 ### 11.2 中期计划

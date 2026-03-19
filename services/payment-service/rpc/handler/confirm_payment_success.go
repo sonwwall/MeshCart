@@ -22,7 +22,15 @@ func (s *PaymentServiceImpl) ConfirmPaymentSuccess(ctx context.Context, request 
 	payment, bizErr := s.svc.ConfirmPaymentSuccess(ctx, request)
 	if bizErr != nil {
 		code = bizErr.Code
-		logx.L(ctx).Warn("confirm payment success failed", zap.Int64("payment_id", request.GetPaymentId()), zap.Int32("code", bizErr.Code), zap.String("message", bizErr.Msg))
+		logx.L(ctx).Warn("confirm payment success failed",
+			zap.Int64("payment_id", request.GetPaymentId()),
+			zap.String("payment_method", request.GetPaymentMethod()),
+			zap.String("payment_trade_no", request.GetPaymentTradeNo()),
+			zap.String("request_id", request.GetRequestId()),
+			zap.Int64("paid_at", request.GetPaidAt()),
+			zap.Int32("code", bizErr.Code),
+			zap.String("message", bizErr.Msg),
+		)
 		return &paymentpb.ConfirmPaymentSuccessResponse{Base: &base.BaseResponse{Code: bizErr.Code, Message: bizErr.Msg}}, nil
 	}
 	return &paymentpb.ConfirmPaymentSuccessResponse{
