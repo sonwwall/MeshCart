@@ -57,9 +57,19 @@ func (l *CloseLogic) Close(userID, paymentID int64, req *types.ClosePaymentReque
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("payment rpc close returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int64("payment_id", paymentID),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
 	if resp.Payment == nil {
+		logx.L(ctx).Error("payment rpc close returned nil payment",
+			zap.Int64("user_id", userID),
+			zap.Int64("payment_id", paymentID),
+		)
 		return nil, common.ErrInternalError
 	}
 

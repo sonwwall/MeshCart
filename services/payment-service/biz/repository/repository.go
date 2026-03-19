@@ -6,8 +6,10 @@ import (
 	"strings"
 	"time"
 
+	logx "meshcart/app/log"
 	dalmodel "meshcart/services/payment-service/dal/model"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -65,18 +67,40 @@ func (r *MySQLPaymentRepository) Create(ctx context.Context, payment *dalmodel.P
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(payment).Error; err != nil {
 			if isUniqueConstraintError(err) {
+				logx.L(ctx).Warn("create payment duplicate key",
+					zap.Error(err),
+					zap.Int64("payment_id", payment.PaymentID),
+					zap.Int64("order_id", payment.OrderID),
+					zap.Int64("user_id", payment.UserID),
+					zap.String("request_id", payment.RequestID),
+				)
 				return ErrActionRecordExists
 			}
+			logx.L(ctx).Error("create payment insert failed",
+				zap.Error(err),
+				zap.Int64("payment_id", payment.PaymentID),
+				zap.Int64("order_id", payment.OrderID),
+				zap.Int64("user_id", payment.UserID),
+				zap.String("payment_method", payment.PaymentMethod),
+			)
 			return err
 		}
-		return tx.Create(&dalmodel.PaymentStatusLog{
+		if err := tx.Create(&dalmodel.PaymentStatusLog{
 			ID:         payment.PaymentID,
 			PaymentID:  payment.PaymentID,
 			FromStatus: 0,
 			ToStatus:   payment.Status,
 			ActionType: "create",
 			Reason:     "payment_created",
-		}).Error
+		}).Error; err != nil {
+			logx.L(ctx).Error("create payment status log failed",
+				zap.Error(err),
+				zap.Int64("payment_id", payment.PaymentID),
+				zap.Int32("to_status", payment.Status),
+			)
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -93,6 +117,7 @@ func (r *MySQLPaymentRepository) GetByPaymentID(ctx context.Context, paymentID i
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrPaymentNotFound
 		}
+		logx.L(ctx).Error("get payment by payment_id failed", zap.Error(err), zap.Int64("payment_id", paymentID))
 		return nil, err
 	}
 	return &payment, nil
@@ -107,6 +132,11 @@ func (r *MySQLPaymentRepository) GetByPaymentIDUser(ctx context.Context, payment
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrPaymentNotFound
 		}
+		logx.L(ctx).Error("get payment by payment_id and user_id failed",
+			zap.Error(err),
+			zap.Int64("payment_id", paymentID),
+			zap.Int64("user_id", userID),
+		)
 		return nil, err
 	}
 	return &payment, nil
@@ -124,6 +154,11 @@ func (r *MySQLPaymentRepository) ListByOrderID(ctx context.Context, orderID, use
 		Where("order_id = ? AND user_id = ?", orderID, userID).
 		Order("created_at DESC, payment_id DESC").
 		Find(&payments).Error; err != nil {
+		logx.L(ctx).Error("list payments by order_id failed",
+			zap.Error(err),
+			zap.Int64("order_id", orderID),
+			zap.Int64("user_id", userID),
+		)
 		return nil, err
 	}
 	return payments, nil
@@ -141,6 +176,11 @@ func (r *MySQLPaymentRepository) GetLatestActiveByOrderID(ctx context.Context, o
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrPaymentNotFound
 		}
+		logx.L(ctx).Error("get latest active payment by order_id failed",
+			zap.Error(err),
+			zap.Int64("order_id", orderID),
+			zap.Int64("user_id", userID),
+		)
 		return nil, err
 	}
 	return &payment, nil
@@ -158,8 +198,20 @@ func (r *MySQLPaymentRepository) TransitionStatus(ctx context.Context, transitio
 		var payment dalmodel.Payment
 		if err := tx.Where("payment_id = ? AND status IN ?", transition.PaymentID, transition.FromStatuses).Take(&payment).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				logx.L(ctx).Warn("payment transition rejected by current status",
+					zap.Int64("payment_id", transition.PaymentID),
+					zap.Any("from_statuses", transition.FromStatuses),
+					zap.Int32("to_status", transition.ToStatus),
+					zap.String("action_type", transition.ActionType),
+				)
 				return ErrPaymentStateConflict
 			}
+			logx.L(ctx).Error("load payment for transition failed",
+				zap.Error(err),
+				zap.Int64("payment_id", transition.PaymentID),
+				zap.Any("from_statuses", transition.FromStatuses),
+				zap.Int32("to_status", transition.ToStatus),
+			)
 			return err
 		}
 
@@ -180,9 +232,16 @@ func (r *MySQLPaymentRepository) TransitionStatus(ctx context.Context, transitio
 			updates["closed_at"] = transition.ClosedAt
 		}
 		if err := tx.Model(&dalmodel.Payment{}).Where("payment_id = ?", transition.PaymentID).Updates(updates).Error; err != nil {
+			logx.L(ctx).Error("update payment status failed",
+				zap.Error(err),
+				zap.Int64("payment_id", transition.PaymentID),
+				zap.Int32("from_status", payment.Status),
+				zap.Int32("to_status", transition.ToStatus),
+				zap.String("action_type", transition.ActionType),
+			)
 			return err
 		}
-		return tx.Create(&dalmodel.PaymentStatusLog{
+		if err := tx.Create(&dalmodel.PaymentStatusLog{
 			ID:          time.Now().UnixNano(),
 			PaymentID:   transition.PaymentID,
 			FromStatus:  payment.Status,
@@ -190,7 +249,17 @@ func (r *MySQLPaymentRepository) TransitionStatus(ctx context.Context, transitio
 			ActionType:  transition.ActionType,
 			Reason:      transition.Reason,
 			ExternalRef: transition.ExternalRef,
-		}).Error
+		}).Error; err != nil {
+			logx.L(ctx).Error("create payment status log failed",
+				zap.Error(err),
+				zap.Int64("payment_id", transition.PaymentID),
+				zap.Int32("from_status", payment.Status),
+				zap.Int32("to_status", transition.ToStatus),
+				zap.String("action_type", transition.ActionType),
+			)
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -207,6 +276,11 @@ func (r *MySQLPaymentRepository) GetActionRecord(ctx context.Context, actionType
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrActionRecordNotFound
 		}
+		logx.L(ctx).Error("get payment action record failed",
+			zap.Error(err),
+			zap.String("action_type", actionType),
+			zap.String("action_key", actionKey),
+		)
 		return nil, err
 	}
 	return &record, nil
@@ -221,8 +295,22 @@ func (r *MySQLPaymentRepository) CreateActionRecord(ctx context.Context, record 
 	}
 	if err := r.db.WithContext(ctx).Create(record).Error; err != nil {
 		if isUniqueConstraintError(err) {
+			logx.L(ctx).Warn("create payment action record duplicate key",
+				zap.Error(err),
+				zap.String("action_type", record.ActionType),
+				zap.String("action_key", record.ActionKey),
+				zap.Int64("payment_id", record.PaymentID),
+				zap.Int64("order_id", record.OrderID),
+			)
 			return ErrActionRecordExists
 		}
+		logx.L(ctx).Error("create payment action record failed",
+			zap.Error(err),
+			zap.String("action_type", record.ActionType),
+			zap.String("action_key", record.ActionKey),
+			zap.Int64("payment_id", record.PaymentID),
+			zap.Int64("order_id", record.OrderID),
+		)
 		return err
 	}
 	return nil
@@ -241,9 +329,22 @@ func (r *MySQLPaymentRepository) MarkActionRecordSucceeded(ctx context.Context, 
 			"error_message": "",
 		})
 	if result.Error != nil {
+		logx.L(ctx).Error("mark payment action record succeeded failed",
+			zap.Error(result.Error),
+			zap.String("action_type", actionType),
+			zap.String("action_key", actionKey),
+			zap.Int64("payment_id", paymentID),
+			zap.Int64("order_id", orderID),
+		)
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
+		logx.L(ctx).Warn("mark payment action record succeeded missed record",
+			zap.String("action_type", actionType),
+			zap.String("action_key", actionKey),
+			zap.Int64("payment_id", paymentID),
+			zap.Int64("order_id", orderID),
+		)
 		return ErrActionRecordNotFound
 	}
 	return nil
@@ -260,9 +361,20 @@ func (r *MySQLPaymentRepository) MarkActionRecordFailed(ctx context.Context, act
 			"error_message": truncateString(errorMessage, 255),
 		})
 	if result.Error != nil {
+		logx.L(ctx).Error("mark payment action record failed status failed",
+			zap.Error(result.Error),
+			zap.String("action_type", actionType),
+			zap.String("action_key", actionKey),
+			zap.String("error_message", truncateString(errorMessage, 255)),
+		)
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
+		logx.L(ctx).Warn("mark payment action record failed missed record",
+			zap.String("action_type", actionType),
+			zap.String("action_key", actionKey),
+			zap.String("error_message", truncateString(errorMessage, 255)),
+		)
 		return ErrActionRecordNotFound
 	}
 	return nil

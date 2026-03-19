@@ -52,9 +52,20 @@ func (l *CreateLogic) Create(userID int64, req *types.CreatePaymentRequest) (*ty
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("payment rpc create returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int64("order_id", req.OrderID),
+			zap.String("payment_method", rpcReq.GetPaymentMethod()),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
 	if resp.Payment == nil {
+		logx.L(ctx).Error("payment rpc create returned nil payment",
+			zap.Int64("user_id", userID),
+			zap.Int64("order_id", req.OrderID),
+		)
 		return nil, common.ErrInternalError
 	}
 

@@ -1,14 +1,27 @@
 package db
 
 import (
+	"log"
+	"os"
 	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 func NewMySQL(dsn string) (*gorm.DB, error) {
-	gdb, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	gdb, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
+		Logger: gormlogger.New(
+			log.New(os.Stdout, "\r\n", log.LstdFlags),
+			gormlogger.Config{
+				SlowThreshold:             200 * time.Millisecond,
+				LogLevel:                  gormlogger.Warn,
+				IgnoreRecordNotFoundError: true,
+				Colorful:                  false,
+			},
+		),
+	})
 	if err != nil {
 		return nil, err
 	}

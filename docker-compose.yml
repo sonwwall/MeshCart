@@ -1,4 +1,24 @@
 services:
+  mysql:
+    image: mysql:8.4
+    container_name: meshcart-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: 2FaJkFtkMkC3yeBK
+      MYSQL_DATABASE: meshcart_user
+      MYSQL_INITDB_SKIP_TZINFO: "1"
+    ports:
+      - "3306:3306"
+    command:
+      - --mysql-native-password=ON
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./deploy/docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - meshcart
+
   consul:
     image: hashicorp/consul:1.20
     container_name: meshcart-consul
@@ -128,6 +148,7 @@ services:
       - observability
 
 volumes:
+  mysql_data:
   consul_data:
   dtm_data:
   prometheus_data:

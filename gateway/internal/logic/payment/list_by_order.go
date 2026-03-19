@@ -42,10 +42,21 @@ func (l *ListByOrderLogic) ListByOrder(userID, orderID int64) (*types.PaymentLis
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("payment rpc list by order returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int64("order_id", orderID),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
 
 	span.SetAttributes(attribute.Bool("biz.success", true))
 	span.SetStatus(codes.Ok, "ok")
+	logx.L(ctx).Info("list payments by order succeeded",
+		zap.Int64("user_id", userID),
+		zap.Int64("order_id", orderID),
+		zap.Int("payment_count", len(resp.Payments)),
+	)
 	return toPaymentListData(resp.Payments), nil
 }

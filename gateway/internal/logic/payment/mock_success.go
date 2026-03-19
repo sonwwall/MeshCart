@@ -60,9 +60,19 @@ func (l *MockSuccessLogic) Confirm(userID, paymentID int64, req *types.ConfirmMo
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("payment rpc confirm success returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int64("payment_id", paymentID),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
 	if resp.Payment == nil {
+		logx.L(ctx).Error("payment rpc confirm success returned nil payment",
+			zap.Int64("user_id", userID),
+			zap.Int64("payment_id", paymentID),
+		)
 		return nil, common.ErrInternalError
 	}
 

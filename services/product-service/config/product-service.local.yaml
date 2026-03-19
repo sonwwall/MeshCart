@@ -1,5 +1,5 @@
 mysql:
-  address: "49.235.163.191:13306"
+  address: "127.0.0.1:3306"
   username: "root"
   password: "2FaJkFtkMkC3yeBK"
   database: "meshcart_product"
