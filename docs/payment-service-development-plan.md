@@ -204,6 +204,35 @@
 - `payment_status_logs`
   - 看支付单经历过哪些状态流转
 
+当前日志入口：
+
+- `gateway/internal/logic/payment/`
+  - `create`
+  - `get`
+  - `list_by_order`
+  - `mock_success`
+  - `close`
+- `services/payment-service/biz/service/`
+  - `create_payment`
+  - `confirm_payment_success`
+  - `get_payment`
+  - `list_payments`
+  - `close_payment`
+- `services/payment-service/biz/repository/repository.go`
+
+当前日志约定：
+
+- Gateway
+  - transport error 记 `Error`
+  - 下游业务错误记 `Warn`
+  - nil payment / nil response 记 `Error`
+- payment-service service
+  - 记录 `start / reject / completed`
+  - 明确记录“支付单过期”“支付状态不允许当前操作”“订单 RPC 业务拒绝”等原因
+- repository
+  - 记录原始 DB 错误
+  - 记录支付状态迁移冲突、动作记录失败、重复键冲突
+
 ## 5. 数据库设计
 
 ### 5.1 支付主表 `payments`

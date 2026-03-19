@@ -46,6 +46,12 @@ func (l *ListLogic) List(req *types.ListProductsRequest, identity *middleware.Au
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("product rpc list returned business error",
+			zap.Int32("page", rpcReq.GetPage()),
+			zap.Int32("page_size", rpcReq.GetPageSize()),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(resp.Code)), attribute.String("biz.message", resp.Message))
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
@@ -87,6 +93,12 @@ func (l *ListLogic) ListOwned(req *types.ListProductsRequest, identity *middlewa
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("product rpc owned list returned business error",
+			zap.Int32("page", rpcReq.GetPage()),
+			zap.Int32("page_size", rpcReq.GetPageSize()),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(resp.Code)), attribute.String("biz.message", resp.Message))
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}

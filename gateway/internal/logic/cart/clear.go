@@ -41,6 +41,11 @@ func (l *ClearLogic) Clear(userID int64) *common.BizError {
 		return logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("cart rpc clear returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		return common.NewBizError(resp.Code, resp.Message)
 	}
 	span.SetAttributes(attribute.Bool("biz.success", true))

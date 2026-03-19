@@ -44,6 +44,12 @@ func (l *UpdateLogic) Update(userID, itemID int64, req *types.UpdateCartItemRequ
 		return nil, logicutil.MapRPCError(err)
 	}
 	if getResp.Code != common.CodeOK {
+		logx.L(ctx).Warn("cart rpc get before update returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int64("item_id", itemID),
+			zap.Int32("code", getResp.Code),
+			zap.String("message", getResp.Message),
+		)
 		return nil, common.NewBizError(getResp.Code, getResp.Message)
 	}
 
@@ -59,6 +65,14 @@ func (l *UpdateLogic) Update(userID, itemID int64, req *types.UpdateCartItemRequ
 		return nil, logicutil.MapRPCError(err)
 	}
 	if detailResp.Code != common.CodeOK || detailResp.Product == nil {
+		logx.L(ctx).Warn("product rpc detail before update cart returned invalid result",
+			zap.Int64("user_id", userID),
+			zap.Int64("item_id", itemID),
+			zap.Int64("product_id", existing.GetProductId()),
+			zap.Int32("code", detailResp.Code),
+			zap.String("message", detailResp.Message),
+			zap.Bool("product_nil", detailResp.Product == nil),
+		)
 		return nil, common.NewBizError(detailResp.Code, detailResp.Message)
 	}
 	if detailResp.Product.GetStatus() != productStatusOnline {
@@ -80,6 +94,14 @@ func (l *UpdateLogic) Update(userID, itemID int64, req *types.UpdateCartItemRequ
 		return nil, logicutil.MapRPCError(err)
 	}
 	if stockResp.Code != common.CodeOK {
+		logx.L(ctx).Warn("inventory rpc check stock before update cart returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int64("item_id", itemID),
+			zap.Int64("sku_id", existing.GetSkuId()),
+			zap.Int32("quantity", req.Quantity),
+			zap.Int32("code", stockResp.Code),
+			zap.String("message", stockResp.Message),
+		)
 		return nil, common.NewBizError(stockResp.Code, stockResp.Message)
 	}
 	if !stockResp.Saleable {
@@ -98,9 +120,20 @@ func (l *UpdateLogic) Update(userID, itemID int64, req *types.UpdateCartItemRequ
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("cart rpc update returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int64("item_id", itemID),
+			zap.Int32("quantity", req.Quantity),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
 	if resp.Item == nil {
+		logx.L(ctx).Error("cart rpc update returned nil item",
+			zap.Int64("user_id", userID),
+			zap.Int64("item_id", itemID),
+		)
 		return nil, common.ErrInternalError
 	}
 

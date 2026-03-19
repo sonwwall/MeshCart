@@ -53,6 +53,12 @@ func (l *UpdateLogic) Update(productID int64, req *types.UpdateProductRequest, i
 		return logicutil.MapRPCError(err)
 	}
 	if detailResp.Code != common.CodeOK || detailResp.Product == nil {
+		logx.L(ctx).Warn("product rpc detail before update returned invalid result",
+			zap.Int64("product_id", productID),
+			zap.Int32("code", detailResp.Code),
+			zap.String("message", detailResp.Message),
+			zap.Bool("product_nil", detailResp.Product == nil),
+		)
 		return common.NewBizError(detailResp.Code, detailResp.Message)
 	}
 	role := roleOf(identity)
@@ -90,6 +96,12 @@ func (l *UpdateLogic) Update(productID int64, req *types.UpdateProductRequest, i
 		return logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("product rpc update returned business error",
+			zap.Int64("product_id", productID),
+			zap.Int64("user_id", identity.UserID),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(resp.Code)), attribute.String("biz.message", resp.Message))
 		return common.NewBizError(resp.Code, resp.Message)
 	}
@@ -122,6 +134,11 @@ func (l *UpdateLogic) syncStocksAfterProductUpdate(ctx context.Context, req *typ
 			return logicutil.MapRPCError(err)
 		}
 		if initResp.Code != common.CodeOK {
+			logx.L(ctx).Warn("inventory rpc init sku stocks after update returned business error",
+				zap.Int("request_sku_count", len(req.SKUs)),
+				zap.Int32("code", initResp.Code),
+				zap.String("message", initResp.Message),
+			)
 			return common.NewBizError(initResp.Code, initResp.Message)
 		}
 	}
@@ -137,6 +154,11 @@ func (l *UpdateLogic) syncStocksAfterProductUpdate(ctx context.Context, req *typ
 			return logicutil.MapRPCError(err)
 		}
 		if freezeResp.Code != common.CodeOK {
+			logx.L(ctx).Warn("inventory rpc freeze sku stocks after update returned business error",
+				zap.Int64s("sku_ids", deletedSKUIds),
+				zap.Int32("code", freezeResp.Code),
+				zap.String("message", freezeResp.Message),
+			)
 			return common.NewBizError(freezeResp.Code, freezeResp.Message)
 		}
 	}

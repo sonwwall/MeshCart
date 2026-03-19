@@ -45,6 +45,13 @@ func (l *AddLogic) Add(userID int64, req *types.AddCartItemRequest) (*types.Cart
 		return nil, logicutil.MapRPCError(err)
 	}
 	if detailResp.Code != common.CodeOK || detailResp.Product == nil {
+		logx.L(ctx).Warn("product rpc detail before add cart returned invalid result",
+			zap.Int64("user_id", userID),
+			zap.Int64("product_id", req.ProductID),
+			zap.Int32("code", detailResp.Code),
+			zap.String("message", detailResp.Message),
+			zap.Bool("product_nil", detailResp.Product == nil),
+		)
 		return nil, common.NewBizError(detailResp.Code, detailResp.Message)
 	}
 	if detailResp.Product.GetStatus() != productStatusOnline {
@@ -66,6 +73,13 @@ func (l *AddLogic) Add(userID int64, req *types.AddCartItemRequest) (*types.Cart
 		return nil, logicutil.MapRPCError(err)
 	}
 	if stockResp.Code != common.CodeOK {
+		logx.L(ctx).Warn("inventory rpc check stock before add cart returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int64("sku_id", req.SKUID),
+			zap.Int32("quantity", req.Quantity),
+			zap.Int32("code", stockResp.Code),
+			zap.String("message", stockResp.Message),
+		)
 		return nil, common.NewBizError(stockResp.Code, stockResp.Message)
 	}
 	if !stockResp.Saleable {
@@ -89,9 +103,22 @@ func (l *AddLogic) Add(userID int64, req *types.AddCartItemRequest) (*types.Cart
 		return nil, logicutil.MapRPCError(err)
 	}
 	if addResp.Code != common.CodeOK {
+		logx.L(ctx).Warn("cart rpc add returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int64("product_id", req.ProductID),
+			zap.Int64("sku_id", req.SKUID),
+			zap.Int32("quantity", req.Quantity),
+			zap.Int32("code", addResp.Code),
+			zap.String("message", addResp.Message),
+		)
 		return nil, common.NewBizError(addResp.Code, addResp.Message)
 	}
 	if addResp.Item == nil {
+		logx.L(ctx).Error("cart rpc add returned nil item",
+			zap.Int64("user_id", userID),
+			zap.Int64("product_id", req.ProductID),
+			zap.Int64("sku_id", req.SKUID),
+		)
 		return nil, common.ErrInternalError
 	}
 

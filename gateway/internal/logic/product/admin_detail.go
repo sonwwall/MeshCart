@@ -53,6 +53,11 @@ func (l *AdminDetailLogic) Get(productID int64, identity *middleware.AuthIdentit
 		return nil, logicutil.MapRPCError(err)
 	}
 	if productResp.Code != common.CodeOK {
+		logx.L(ctx).Warn("product rpc admin detail returned business error",
+			zap.Int64("product_id", productID),
+			zap.Int32("code", productResp.Code),
+			zap.String("message", productResp.Message),
+		)
 		return nil, common.NewBizError(productResp.Code, productResp.Message)
 	}
 	if productResp.Product == nil {
@@ -96,6 +101,11 @@ func (l *AdminDetailLogic) batchGetInventoryBySKUs(ctx context.Context, skus []*
 		return nil, logicutil.MapRPCError(err)
 	}
 	if stockResp.Code != common.CodeOK {
+		logx.L(ctx).Warn("inventory rpc batch get sku stock for admin detail returned business error",
+			zap.Int64s("sku_ids", skuIDs),
+			zap.Int32("code", stockResp.Code),
+			zap.String("message", stockResp.Message),
+		)
 		return nil, common.NewBizError(stockResp.Code, stockResp.Message)
 	}
 

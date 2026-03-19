@@ -546,6 +546,45 @@ services/inventory-service/
 - `INVENTORY_SERVICE_DRAIN_TIMEOUT_MS`
 - `INVENTORY_SERVICE_SHUTDOWN_TIMEOUT_MS`
 
+### 11.4 运行与排障
+
+当前库存链路日志已按统一规范收口，主要落点：
+
+- `gateway/internal/logic/inventory/`
+  - `get`
+  - `batch_get`
+  - `adjust`
+- `services/inventory-service/biz/service/`
+  - `get_sku_stock`
+  - `batch_get_sku_stock`
+  - `check_saleable_stock`
+  - `init_sku_stocks`
+  - `freeze_sku_stocks`
+  - `adjust_stock`
+  - `reservation`
+  - `saga`
+- `services/inventory-service/biz/repository/repository.go`
+
+当前日志特征：
+
+- 查询类接口
+  - 会记录库存不存在、库存冻结、库存不足等业务拒绝原因
+- 写接口
+  - 会记录 `start / reject / completed`
+  - 记录 `biz_type`、`biz_id`、`sku_id`、`quantity`
+- repository
+  - 会记录原始 DB 错误
+  - 会记录预占记录冲突、状态冲突、冻结/调整/回滚失败
+
+当前排障建议：
+
+1. 先看 `gateway` 库存入口日志
+   - 判断是 transport error 还是下游业务拒绝
+2. 再看 `inventory-service` service 日志
+   - 判断是参数拒绝、库存不足、库存冻结、预占状态冲突
+3. 最后看 repository 日志
+   - 判断是否是 DB 更新失败、唯一键冲突或事务分支落库失败
+
 ## 12. 已实现清单
 
 - `idl/inventory.thrift` 定义与生成代码

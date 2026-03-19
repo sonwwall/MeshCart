@@ -45,6 +45,12 @@ func (l *ChangeStatusLogic) Change(productID int64, status int32, identity *midd
 		return logicutil.MapRPCError(err)
 	}
 	if detailResp.Code != common.CodeOK || detailResp.Product == nil {
+		logx.L(ctx).Warn("product rpc detail before status change returned invalid result",
+			zap.Int64("product_id", productID),
+			zap.Int32("code", detailResp.Code),
+			zap.String("message", detailResp.Message),
+			zap.Bool("product_nil", detailResp.Product == nil),
+		)
 		return common.NewBizError(detailResp.Code, detailResp.Message)
 	}
 	role := roleOf(identity)
@@ -75,6 +81,13 @@ func (l *ChangeStatusLogic) Change(productID int64, status int32, identity *midd
 		return logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("product rpc change status returned business error",
+			zap.Int64("product_id", productID),
+			zap.Int32("target_status", status),
+			zap.Int64("operator_id", identity.UserID),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(resp.Code)), attribute.String("biz.message", resp.Message))
 		return common.NewBizError(resp.Code, resp.Message)
 	}

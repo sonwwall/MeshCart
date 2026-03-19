@@ -74,6 +74,13 @@ func (l *CreateLogic) Create(req *types.CreateProductRequest, identity *middlewa
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("product rpc create returned business error",
+			zap.Int64("user_id", identity.UserID),
+			zap.String("title", req.Title),
+			zap.Int("sku_count", len(req.SKUs)),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(resp.Code)), attribute.String("biz.message", resp.Message))
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
@@ -93,6 +100,11 @@ func (l *CreateLogic) Create(req *types.CreateProductRequest, identity *middlewa
 			return nil, logicutil.MapRPCError(statusErr)
 		}
 		if statusResp.Code != common.CodeOK {
+			logx.L(ctx).Warn("product rpc change status after create returned business error",
+				zap.Int64("product_id", resp.ProductID),
+				zap.Int32("code", statusResp.Code),
+				zap.String("message", statusResp.Message),
+			)
 			l.compensateInventoryAndProduct(ctx, txID, resp.ProductID, resp.Skus, identity.UserID)
 			return nil, common.NewBizError(statusResp.Code, statusResp.Message)
 		}
@@ -184,6 +196,11 @@ func (l *CreateLogic) initStocksAfterProductCreate(ctx context.Context, req *typ
 		return logicutil.MapRPCError(err)
 	}
 	if initResp.Code != common.CodeOK {
+		logx.L(ctx).Warn("inventory rpc init sku stocks after create returned business error",
+			zap.Int64("product_id", resp.ProductID),
+			zap.Int32("code", initResp.Code),
+			zap.String("message", initResp.Message),
+		)
 		l.compensateProductCreate(ctx, txID, resp.ProductID, operatorID)
 		return common.NewBizError(initResp.Code, initResp.Message)
 	}

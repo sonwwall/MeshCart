@@ -231,6 +231,43 @@ services/cart-service/
 - `CART_SERVICE_DRAIN_TIMEOUT_MS`
 - `CART_SERVICE_SHUTDOWN_TIMEOUT_MS`
 
+### 8.4 运行与排障
+
+当前购物车链路日志已经按统一规范做过一轮重构：
+
+- `gateway/internal/logic/cart/`
+  - `get`
+  - `add`
+  - `update`
+  - `remove`
+  - `clear`
+- `services/cart-service/biz/service/`
+  - `get_cart`
+  - `add_cart_item`
+  - `update_cart_item`
+  - `remove_cart_item`
+  - `clear_cart`
+- `services/cart-service/biz/repository/repository.go`
+
+当前日志口径：
+
+- Gateway
+  - 会区分商品详情失败、库存校验失败、购物车 RPC 失败
+  - 下游业务错误会记录 `code/message`
+  - nil item / nil result 会打 `Error`
+- cart-service service
+  - 会记录 `start / reject / completed`
+  - 重点字段为 `user_id`、`item_id`、`product_id`、`sku_id`、`quantity`
+- repository
+  - 会记录加购累加失败、购物车项更新失败、删除/清空失败等原始 DB 错误
+
+当前排障建议：
+
+1. 先看 `gateway/internal/logic/cart/`
+   - 判断是商品校验失败、库存校验失败，还是购物车服务本身失败
+2. 再看 `cart-service` service / repository
+   - 判断是参数拒绝、购物车项不存在，还是底层 DB 更新失败
+
 ## 9. 接口设计
 
 ### 9.1 HTTP 接口

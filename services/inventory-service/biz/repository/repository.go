@@ -7,8 +7,10 @@ import (
 	"strings"
 	"time"
 
+	logx "meshcart/app/log"
 	dalmodel "meshcart/services/inventory-service/dal/model"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -65,6 +67,10 @@ func (r *MySQLInventoryRepository) GetBySKUID(ctx context.Context, skuID int64) 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrStockNotFound
 		}
+		logx.L(ctx).Error("get inventory stock by sku_id failed",
+			zap.Error(err),
+			zap.Int64("sku_id", skuID),
+		)
 		return nil, err
 	}
 	return &stock, nil
@@ -82,6 +88,10 @@ func (r *MySQLInventoryRepository) ListBySKUIDs(ctx context.Context, skuIDs []in
 		Where("sku_id IN ?", skuIDs).
 		Order("sku_id ASC").
 		Find(&stocks).Error; err != nil {
+		logx.L(ctx).Error("list inventory stocks by sku_ids failed",
+			zap.Error(err),
+			zap.Int64s("sku_ids", skuIDs),
+		)
 		return nil, err
 	}
 	return stocks, nil
@@ -105,8 +115,18 @@ func (r *MySQLInventoryRepository) CreateBatch(ctx context.Context, stocks []*da
 			if err := tx.Create(stock).Error; err != nil {
 				lowerErr := strings.ToLower(err.Error())
 				if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(lowerErr, "duplicate") || strings.Contains(lowerErr, "unique constraint") {
+					logx.L(ctx).Warn("create inventory stock duplicate key",
+						zap.Error(err),
+						zap.Int64("sku_id", stock.SKUID),
+						zap.Int64("total_stock", stock.TotalStock),
+					)
 					return ErrStockExists
 				}
+				logx.L(ctx).Error("create inventory stock failed",
+					zap.Error(err),
+					zap.Int64("sku_id", stock.SKUID),
+					zap.Int64("total_stock", stock.TotalStock),
+				)
 				return err
 			}
 		}
@@ -136,8 +156,20 @@ func (r *MySQLInventoryRepository) CreateBatchWithTxBranch(ctx context.Context, 
 			if err := tx.Create(branch).Error; err != nil {
 				lowerErr := strings.ToLower(err.Error())
 				if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(lowerErr, "duplicate") || strings.Contains(lowerErr, "unique constraint") {
+					logx.L(ctx).Warn("create inventory tx branch duplicate key",
+						zap.Error(err),
+						zap.String("global_tx_id", branch.GlobalTxID),
+						zap.String("branch_id", branch.BranchID),
+						zap.String("action", branch.Action),
+					)
 					return ErrStockExists
 				}
+				logx.L(ctx).Error("create inventory tx branch failed",
+					zap.Error(err),
+					zap.String("global_tx_id", branch.GlobalTxID),
+					zap.String("branch_id", branch.BranchID),
+					zap.String("action", branch.Action),
+				)
 				return err
 			}
 		}
@@ -145,8 +177,20 @@ func (r *MySQLInventoryRepository) CreateBatchWithTxBranch(ctx context.Context, 
 			if err := tx.Create(stock).Error; err != nil {
 				lowerErr := strings.ToLower(err.Error())
 				if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(lowerErr, "duplicate") || strings.Contains(lowerErr, "unique constraint") {
+					logx.L(ctx).Warn("create inventory stock with tx branch duplicate key",
+						zap.Error(err),
+						zap.Int64("sku_id", stock.SKUID),
+						zap.String("global_tx_id", branch.GlobalTxID),
+						zap.String("branch_id", branch.BranchID),
+					)
 					return ErrStockExists
 				}
+				logx.L(ctx).Error("create inventory stock with tx branch failed",
+					zap.Error(err),
+					zap.Int64("sku_id", stock.SKUID),
+					zap.String("global_tx_id", branch.GlobalTxID),
+					zap.String("branch_id", branch.BranchID),
+				)
 				return err
 			}
 		}
@@ -158,6 +202,13 @@ func (r *MySQLInventoryRepository) CreateBatchWithTxBranch(ctx context.Context, 
 					"payload_snapshot": branch.PayloadSnapshot,
 					"error_message":    branch.ErrorMessage,
 				}).Error; err != nil {
+				logx.L(ctx).Error("update inventory tx branch after create failed",
+					zap.Error(err),
+					zap.String("global_tx_id", branch.GlobalTxID),
+					zap.String("branch_id", branch.BranchID),
+					zap.String("action", branch.Action),
+					zap.String("status", branch.Status),
+				)
 				return err
 			}
 		}
@@ -178,13 +229,29 @@ func (r *MySQLInventoryRepository) CompensateInitWithTxBranch(ctx context.Contex
 			if err := tx.Create(branch).Error; err != nil {
 				lowerErr := strings.ToLower(err.Error())
 				if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(lowerErr, "duplicate") || strings.Contains(lowerErr, "unique constraint") {
+					logx.L(ctx).Warn("create inventory compensate tx branch duplicate key",
+						zap.Error(err),
+						zap.String("global_tx_id", branch.GlobalTxID),
+						zap.String("branch_id", branch.BranchID),
+						zap.String("action", branch.Action),
+					)
 					return ErrStockExists
 				}
+				logx.L(ctx).Error("create inventory compensate tx branch failed",
+					zap.Error(err),
+					zap.String("global_tx_id", branch.GlobalTxID),
+					zap.String("branch_id", branch.BranchID),
+					zap.String("action", branch.Action),
+				)
 				return err
 			}
 		}
 		if len(skuIDs) > 0 {
 			if err := tx.Where("sku_id IN ?", skuIDs).Delete(&dalmodel.InventoryStock{}).Error; err != nil {
+				logx.L(ctx).Error("delete inventory stocks for compensation failed",
+					zap.Error(err),
+					zap.Int64s("sku_ids", skuIDs),
+				)
 				return err
 			}
 		}
@@ -196,6 +263,13 @@ func (r *MySQLInventoryRepository) CompensateInitWithTxBranch(ctx context.Contex
 					"payload_snapshot": branch.PayloadSnapshot,
 					"error_message":    branch.ErrorMessage,
 				}).Error; err != nil {
+				logx.L(ctx).Error("update inventory compensate tx branch failed",
+					zap.Error(err),
+					zap.String("global_tx_id", branch.GlobalTxID),
+					zap.String("branch_id", branch.BranchID),
+					zap.String("action", branch.Action),
+					zap.String("status", branch.Status),
+				)
 				return err
 			}
 		}
@@ -217,6 +291,11 @@ func (r *MySQLInventoryRepository) AdjustTotalStock(ctx context.Context, skuID i
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrStockNotFound
 			}
+			logx.L(ctx).Error("load inventory stock for adjust failed",
+				zap.Error(err),
+				zap.Int64("sku_id", skuID),
+				zap.Int64("target_total_stock", totalStock),
+			)
 			return err
 		}
 		if totalStock < stock.ReservedStock {
@@ -230,9 +309,22 @@ func (r *MySQLInventoryRepository) AdjustTotalStock(ctx context.Context, skuID i
 				"available_stock": available,
 				"version":         stock.Version + 1,
 			}).Error; err != nil {
+			logx.L(ctx).Error("adjust inventory stock failed",
+				zap.Error(err),
+				zap.Int64("sku_id", skuID),
+				zap.Int64("target_total_stock", totalStock),
+				zap.Int64("reserved_stock", stock.ReservedStock),
+			)
 			return err
 		}
-		return tx.Where("id = ?", stock.ID).Take(&stock).Error
+		if err := tx.Where("id = ?", stock.ID).Take(&stock).Error; err != nil {
+			logx.L(ctx).Error("reload inventory stock after adjust failed",
+				zap.Error(err),
+				zap.Int64("sku_id", skuID),
+			)
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -256,6 +348,10 @@ func (r *MySQLInventoryRepository) FreezeBySKUIDs(ctx context.Context, skuIDs []
 	var stocks []*dalmodel.InventoryStock
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("sku_id IN ?", skuIDs).Order("sku_id ASC").Find(&stocks).Error; err != nil {
+			logx.L(ctx).Error("load inventory stocks for freeze failed",
+				zap.Error(err),
+				zap.Int64s("sku_ids", skuIDs),
+			)
 			return err
 		}
 		if len(stocks) == 0 {
@@ -264,9 +360,20 @@ func (r *MySQLInventoryRepository) FreezeBySKUIDs(ctx context.Context, skuIDs []
 		if err := tx.Model(&dalmodel.InventoryStock{}).
 			Where("sku_id IN ?", skuIDs).
 			Updates(map[string]any{"status": 0}).Error; err != nil {
+			logx.L(ctx).Error("freeze inventory stocks update failed",
+				zap.Error(err),
+				zap.Int64s("sku_ids", skuIDs),
+			)
 			return err
 		}
-		return tx.Where("sku_id IN ?", skuIDs).Order("sku_id ASC").Find(&stocks).Error
+		if err := tx.Where("sku_id IN ?", skuIDs).Order("sku_id ASC").Find(&stocks).Error; err != nil {
+			logx.L(ctx).Error("reload inventory stocks after freeze failed",
+				zap.Error(err),
+				zap.Int64s("sku_ids", skuIDs),
+			)
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -293,6 +400,12 @@ func (r *MySQLInventoryRepository) GetTxBranch(ctx context.Context, globalTxID, 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
+		logx.L(ctx).Error("get inventory tx branch failed",
+			zap.Error(err),
+			zap.String("global_tx_id", globalTxID),
+			zap.String("branch_id", branchID),
+			zap.String("action", action),
+		)
 		return nil, err
 	}
 	return &branch, nil
@@ -322,11 +435,24 @@ func (r *MySQLInventoryRepository) Reserve(ctx context.Context, bizType, bizID s
 			reservation := existing[item.SKUID]
 			if reservation != nil {
 				if reservation.Quantity != item.Quantity {
+					logx.L(ctx).Warn("inventory reserve rejected by quantity mismatch",
+						zap.String("biz_type", bizType),
+						zap.String("biz_id", bizID),
+						zap.Int64("sku_id", item.SKUID),
+						zap.Int64("expected_quantity", reservation.Quantity),
+						zap.Int64("actual_quantity", item.Quantity),
+					)
 					return ErrReservationConflict
 				}
 				if reservation.Status == reservationStatusReserved {
 					continue
 				}
+				logx.L(ctx).Warn("inventory reserve rejected by reservation state",
+					zap.String("biz_type", bizType),
+					zap.String("biz_id", bizID),
+					zap.Int64("sku_id", item.SKUID),
+					zap.String("reservation_status", reservation.Status),
+				)
 				return ErrReservationStateConflict
 			}
 
@@ -338,6 +464,13 @@ func (r *MySQLInventoryRepository) Reserve(ctx context.Context, bizType, bizID s
 					"version":         gorm.Expr("version + 1"),
 				})
 			if result.Error != nil {
+				logx.L(ctx).Error("inventory reserve stock update failed",
+					zap.Error(result.Error),
+					zap.String("biz_type", bizType),
+					zap.String("biz_id", bizID),
+					zap.Int64("sku_id", item.SKUID),
+					zap.Int64("quantity", item.Quantity),
+				)
 				return result.Error
 			}
 			if result.RowsAffected == 0 {
@@ -354,6 +487,13 @@ func (r *MySQLInventoryRepository) Reserve(ctx context.Context, bizType, bizID s
 				Status:          reservationStatusReserved,
 				PayloadSnapshot: payload,
 			}).Error; err != nil {
+				logx.L(ctx).Error("create inventory reservation for reserve failed",
+					zap.Error(err),
+					zap.String("biz_type", bizType),
+					zap.String("biz_id", bizID),
+					zap.Int64("sku_id", item.SKUID),
+					zap.Int64("quantity", item.Quantity),
+				)
 				return normalizeDuplicateError(err)
 			}
 		}
@@ -392,17 +532,36 @@ func (r *MySQLInventoryRepository) Release(ctx context.Context, bizType, bizID s
 					Status:          reservationStatusReleased,
 					PayloadSnapshot: payload,
 				}).Error; err != nil {
+					logx.L(ctx).Error("create inventory release placeholder reservation failed",
+						zap.Error(err),
+						zap.String("biz_type", bizType),
+						zap.String("biz_id", bizID),
+						zap.Int64("sku_id", item.SKUID),
+						zap.Int64("quantity", item.Quantity),
+					)
 					return normalizeDuplicateError(err)
 				}
 				continue
 			}
 			if reservation.Quantity != item.Quantity {
+				logx.L(ctx).Warn("inventory release rejected by quantity mismatch",
+					zap.String("biz_type", bizType),
+					zap.String("biz_id", bizID),
+					zap.Int64("sku_id", item.SKUID),
+					zap.Int64("expected_quantity", reservation.Quantity),
+					zap.Int64("actual_quantity", item.Quantity),
+				)
 				return ErrReservationConflict
 			}
 			switch reservation.Status {
 			case reservationStatusReleased:
 				continue
 			case reservationStatusConfirmed:
+				logx.L(ctx).Warn("inventory release rejected by confirmed reservation",
+					zap.String("biz_type", bizType),
+					zap.String("biz_id", bizID),
+					zap.Int64("sku_id", item.SKUID),
+				)
 				return ErrReservationStateConflict
 			case reservationStatusReserved:
 				result := tx.Model(&dalmodel.InventoryStock{}).
@@ -413,6 +572,13 @@ func (r *MySQLInventoryRepository) Release(ctx context.Context, bizType, bizID s
 						"version":         gorm.Expr("version + 1"),
 					})
 				if result.Error != nil {
+					logx.L(ctx).Error("inventory release stock update failed",
+						zap.Error(result.Error),
+						zap.String("biz_type", bizType),
+						zap.String("biz_id", bizID),
+						zap.Int64("sku_id", item.SKUID),
+						zap.Int64("quantity", item.Quantity),
+					)
 					return result.Error
 				}
 				if result.RowsAffected == 0 {
@@ -424,6 +590,12 @@ func (r *MySQLInventoryRepository) Release(ctx context.Context, bizType, bizID s
 						"status":           reservationStatusReleased,
 						"payload_snapshot": buildReservationPayload(bizType, bizID, item),
 					}).Error; err != nil {
+					logx.L(ctx).Error("update inventory reservation to released failed",
+						zap.Error(err),
+						zap.String("biz_type", bizType),
+						zap.String("biz_id", bizID),
+						zap.Int64("sku_id", item.SKUID),
+					)
 					return err
 				}
 			default:
@@ -455,15 +627,32 @@ func (r *MySQLInventoryRepository) ConfirmDeduct(ctx context.Context, bizType, b
 		for _, item := range items {
 			reservation := existing[item.SKUID]
 			if reservation == nil {
+				logx.L(ctx).Warn("inventory confirm deduct rejected by missing reservation",
+					zap.String("biz_type", bizType),
+					zap.String("biz_id", bizID),
+					zap.Int64("sku_id", item.SKUID),
+				)
 				return ErrReservationNotFound
 			}
 			if reservation.Quantity != item.Quantity {
+				logx.L(ctx).Warn("inventory confirm deduct rejected by quantity mismatch",
+					zap.String("biz_type", bizType),
+					zap.String("biz_id", bizID),
+					zap.Int64("sku_id", item.SKUID),
+					zap.Int64("expected_quantity", reservation.Quantity),
+					zap.Int64("actual_quantity", item.Quantity),
+				)
 				return ErrReservationConflict
 			}
 			switch reservation.Status {
 			case reservationStatusConfirmed:
 				continue
 			case reservationStatusReleased:
+				logx.L(ctx).Warn("inventory confirm deduct rejected by released reservation",
+					zap.String("biz_type", bizType),
+					zap.String("biz_id", bizID),
+					zap.Int64("sku_id", item.SKUID),
+				)
 				return ErrReservationStateConflict
 			case reservationStatusReserved:
 				result := tx.Model(&dalmodel.InventoryStock{}).
@@ -474,6 +663,13 @@ func (r *MySQLInventoryRepository) ConfirmDeduct(ctx context.Context, bizType, b
 						"version":        gorm.Expr("version + 1"),
 					})
 				if result.Error != nil {
+					logx.L(ctx).Error("inventory confirm deduct stock update failed",
+						zap.Error(result.Error),
+						zap.String("biz_type", bizType),
+						zap.String("biz_id", bizID),
+						zap.Int64("sku_id", item.SKUID),
+						zap.Int64("quantity", item.Quantity),
+					)
 					return result.Error
 				}
 				if result.RowsAffected == 0 {
@@ -485,6 +681,12 @@ func (r *MySQLInventoryRepository) ConfirmDeduct(ctx context.Context, bizType, b
 						"status":           reservationStatusConfirmed,
 						"payload_snapshot": buildReservationPayload(bizType, bizID, item),
 					}).Error; err != nil {
+					logx.L(ctx).Error("update inventory reservation to confirmed failed",
+						zap.Error(err),
+						zap.String("biz_type", bizType),
+						zap.String("biz_id", bizID),
+						zap.Int64("sku_id", item.SKUID),
+					)
 					return err
 				}
 			default:

@@ -41,6 +41,12 @@ func (l *RemoveLogic) Remove(userID, itemID int64) *common.BizError {
 		return logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("cart rpc remove returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int64("item_id", itemID),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		return common.NewBizError(resp.Code, resp.Message)
 	}
 	span.SetAttributes(attribute.Bool("biz.success", true))

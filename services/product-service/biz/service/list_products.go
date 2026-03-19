@@ -4,9 +4,12 @@ import (
 	"context"
 
 	"meshcart/app/common"
+	logx "meshcart/app/log"
 	productpb "meshcart/kitex_gen/meshcart/product"
 	"meshcart/services/product-service/biz/repository"
 	dalmodel "meshcart/services/product-service/dal/model"
+
+	"go.uber.org/zap"
 )
 
 func (s *ProductService) ListProducts(ctx context.Context, req *productpb.ListProductsRequest) ([]*productpb.ProductListItem, int64, *common.BizError) {
@@ -30,6 +33,7 @@ func (s *ProductService) ListProducts(ctx context.Context, req *productpb.ListPr
 	if req.IsSetStatus() {
 		status := req.GetStatus()
 		if !isValidProductStatus(status) {
+			logx.L(ctx).Warn("list products rejected by invalid status", zap.Int32("status", status))
 			return nil, 0, common.ErrInvalidParam
 		}
 		filter.Status = &status
@@ -37,6 +41,7 @@ func (s *ProductService) ListProducts(ctx context.Context, req *productpb.ListPr
 	if req.IsSetCategoryId() {
 		categoryID := req.GetCategoryId()
 		if categoryID < 0 {
+			logx.L(ctx).Warn("list products rejected by invalid category_id", zap.Int64("category_id", categoryID))
 			return nil, 0, common.ErrInvalidParam
 		}
 		filter.CategoryID = &categoryID
@@ -44,6 +49,7 @@ func (s *ProductService) ListProducts(ctx context.Context, req *productpb.ListPr
 	if req.IsSetCreatorId() {
 		creatorID := req.GetCreatorId()
 		if creatorID <= 0 {
+			logx.L(ctx).Warn("list products rejected by invalid creator_id", zap.Int64("creator_id", creatorID))
 			return nil, 0, common.ErrInvalidParam
 		}
 		filter.CreatorID = &creatorID
@@ -51,6 +57,12 @@ func (s *ProductService) ListProducts(ctx context.Context, req *productpb.ListPr
 
 	products, total, err := s.repo.List(ctx, filter)
 	if err != nil {
+		logx.L(ctx).Error("list products repository list failed",
+			zap.Error(err),
+			zap.Int32("page", page),
+			zap.Int32("page_size", pageSize),
+			zap.String("keyword", req.GetKeyword()),
+		)
 		return nil, 0, common.ErrInternalError
 	}
 
@@ -60,6 +72,10 @@ func (s *ProductService) ListProducts(ctx context.Context, req *productpb.ListPr
 	}
 	skus, err := s.repo.ListSKUsByProductIDs(ctx, productIDs)
 	if err != nil {
+		logx.L(ctx).Error("list products repository list skus failed",
+			zap.Error(err),
+			zap.Int64s("product_ids", productIDs),
+		)
 		return nil, 0, common.ErrInternalError
 	}
 
@@ -72,5 +88,11 @@ func (s *ProductService) ListProducts(ctx context.Context, req *productpb.ListPr
 	for _, item := range products {
 		items = append(items, toRPCProductListItem(item, skuMap[item.ID]))
 	}
+	logx.L(ctx).Info("list products completed",
+		zap.Int32("page", page),
+		zap.Int32("page_size", pageSize),
+		zap.Int64("total", total),
+		zap.Int("item_count", len(items)),
+	)
 	return items, total, nil
 }

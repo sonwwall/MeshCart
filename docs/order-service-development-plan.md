@@ -224,6 +224,33 @@
 - `order_status_logs`
   - 看订单经历过哪些状态流转
 
+当前日志入口：
+
+- `gateway/internal/logic/order/`
+  - `create`
+  - `get`
+  - `list`
+  - `cancel`
+- `services/order-service/biz/service/`
+  - `create_order`
+  - `cancel_order`
+  - `confirm_order_paid`
+  - `close_expired_orders`
+- `services/order-service/biz/repository/repository.go`
+
+当前日志约定：
+
+- Gateway
+  - 下游 transport error 记 `Error`
+  - 下游业务错误记 `Warn`
+  - nil order / nil response 记 `Error`
+- order-service service
+  - 记录 `start / reject / completed`
+  - 会明确记录“库存预占失败”“订单已过期”“订单状态不允许支付”等原因
+- repository
+  - 记录原始 DB 错误
+  - 记录状态迁移冲突、动作记录更新失败
+
 ## 5. 数据库设计
 
 ### 5.1 订单主表 `orders`

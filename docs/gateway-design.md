@@ -258,6 +258,66 @@ gateway/
 - `rpc/inventory/client.go`
   - `GetSkuStock`
   - `BatchGetSkuStock`
+
+### 8.1 运行与排障
+
+当前 `gateway` 已按 [logging-spec.md](/Users/ruitong/GolandProjects/MeshCart/docs/logging-spec.md) 对核心业务入口做过一轮日志收口，重点覆盖：
+
+- `user`
+  - `login`
+  - `register`
+  - `update role`
+- `product`
+  - `create`
+  - `detail`
+  - `list`
+  - `admin detail`
+  - `update`
+  - `change status`
+- `inventory`
+  - `get`
+  - `batch get`
+  - `adjust`
+- `cart`
+  - `get`
+  - `add`
+  - `update`
+  - `remove`
+  - `clear`
+- `order`
+  - `create`
+  - `get`
+  - `list`
+  - `cancel`
+- `payment`
+  - `create`
+  - `get`
+  - `list by order`
+  - `mock_success`
+  - `close`
+
+当前日志约定：
+
+- transport error：
+  - 记录 `Error`
+  - 带 `user_id`、`order_id`、`payment_id`、`product_id`、`sku_id` 等关键业务键
+- 下游业务错误：
+  - 记录 `Warn`
+  - 记录下游 `code/message`
+  - 不只返回统一业务码
+- nil response / nil payload：
+  - 记录 `Error`
+  - 例如 RPC 成功返回但 `order/payment/stock/item` 为空
+
+排障时建议优先看：
+
+1. `gateway/internal/logic/<module>/`
+   - 判断是 transport error 还是下游业务拒绝
+2. `trace_id`
+   - 顺着同一个请求继续查对应 RPC 服务日志
+3. 关键业务键
+   - 例如 `order_id`、`payment_id`、`sku_id`
+   - 用来缩小到具体业务对象
   - `CheckSaleableStock`
 - `rpc/cart/client.go`
   - `GetCart`

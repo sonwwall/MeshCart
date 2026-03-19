@@ -40,6 +40,11 @@ func (l *GetLogic) Get(userID int64) (*types.CartData, *common.BizError) {
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("cart rpc get returned business error",
+			zap.Int64("user_id", userID),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		span.SetAttributes(attribute.Bool("biz.success", false), attribute.String("biz.type", "business"), attribute.Int("biz.code", int(resp.Code)), attribute.String("biz.message", resp.Message))
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}

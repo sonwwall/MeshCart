@@ -45,6 +45,11 @@ func (l *BatchGetLogic) BatchGet(req *types.InventoryBatchGetRequest, identity *
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(l.ctx).Warn("inventory rpc batch get sku stock returned business error",
+			zap.Int64s("sku_ids", req.SKUIDs),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		return nil, common.NewBizError(resp.Code, resp.Message)
 	}
 	return &types.InventoryBatchData{Stocks: toStocksData(resp.Stocks)}, nil

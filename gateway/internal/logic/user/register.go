@@ -60,6 +60,11 @@ func (l *RegisterLogic) Register(req *types.UserRegisterRequest) *common.BizErro
 		return logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("user rpc register returned business error",
+			zap.String("username", req.Username),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		span.SetAttributes(
 			attribute.Bool("biz.success", false),
 			attribute.String("biz.type", "business"),

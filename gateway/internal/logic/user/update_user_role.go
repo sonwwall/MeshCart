@@ -54,6 +54,12 @@ func (l *UpdateUserRoleLogic) Update(targetUserID int64, role string, identity *
 		return logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("user rpc update role returned business error",
+			zap.Int64("target_user_id", targetUserID),
+			zap.String("role", role),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		return common.NewBizError(resp.Code, resp.Message)
 	}
 

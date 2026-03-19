@@ -5,8 +5,10 @@ import (
 	"errors"
 	"time"
 
+	logx "meshcart/app/log"
 	dalmodel "meshcart/services/cart-service/dal/model"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -40,6 +42,10 @@ func (r *MySQLCartRepository) ListByUserID(ctx context.Context, userID int64) ([
 		Where("user_id = ?", userID).
 		Order("updated_at DESC, id DESC").
 		Find(&items).Error; err != nil {
+		logx.L(ctx).Error("list cart items by user_id failed",
+			zap.Error(err),
+			zap.Int64("user_id", userID),
+		)
 		return nil, err
 	}
 	return items, nil
@@ -71,16 +77,41 @@ func (r *MySQLCartRepository) AddOrAccumulate(ctx context.Context, item *dalmode
 				"cover_url_snapshot":  item.CoverURLSnapshot,
 			}
 			if err := tx.Model(&dalmodel.CartItem{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
+				logx.L(ctx).Error("accumulate cart item failed",
+					zap.Error(err),
+					zap.Int64("user_id", item.UserID),
+					zap.Int64("item_id", existing.ID),
+					zap.Int64("sku_id", item.SKUID),
+				)
 				return err
 			}
-			return tx.Where("id = ?", existing.ID).Take(&result).Error
+			if err := tx.Where("id = ?", existing.ID).Take(&result).Error; err != nil {
+				logx.L(ctx).Error("reload accumulated cart item failed",
+					zap.Error(err),
+					zap.Int64("user_id", item.UserID),
+					zap.Int64("item_id", existing.ID),
+				)
+				return err
+			}
+			return nil
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			if err := tx.Create(item).Error; err != nil {
+				logx.L(ctx).Error("create cart item failed",
+					zap.Error(err),
+					zap.Int64("user_id", item.UserID),
+					zap.Int64("item_id", item.ID),
+					zap.Int64("sku_id", item.SKUID),
+				)
 				return err
 			}
 			result = *item
 			return nil
 		default:
+			logx.L(ctx).Error("load existing cart item before add failed",
+				zap.Error(err),
+				zap.Int64("user_id", item.UserID),
+				zap.Int64("sku_id", item.SKUID),
+			)
 			return err
 		}
 	})
@@ -100,6 +131,11 @@ func (r *MySQLCartRepository) UpdateByID(ctx context.Context, userID, itemID int
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrCartItemNotFound
 			}
+			logx.L(ctx).Error("load cart item for update failed",
+				zap.Error(err),
+				zap.Int64("user_id", userID),
+				zap.Int64("item_id", itemID),
+			)
 			return err
 		}
 
@@ -110,9 +146,23 @@ func (r *MySQLCartRepository) UpdateByID(ctx context.Context, userID, itemID int
 			updates["checked"] = *checked
 		}
 		if err := tx.Model(&dalmodel.CartItem{}).Where("id = ?", itemID).Updates(updates).Error; err != nil {
+			logx.L(ctx).Error("update cart item failed",
+				zap.Error(err),
+				zap.Int64("user_id", userID),
+				zap.Int64("item_id", itemID),
+				zap.Int32("quantity", quantity),
+			)
 			return err
 		}
-		return tx.Where("id = ?", itemID).Take(&item).Error
+		if err := tx.Where("id = ?", itemID).Take(&item).Error; err != nil {
+			logx.L(ctx).Error("reload cart item after update failed",
+				zap.Error(err),
+				zap.Int64("user_id", userID),
+				zap.Int64("item_id", itemID),
+			)
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -126,9 +176,18 @@ func (r *MySQLCartRepository) DeleteByID(ctx context.Context, userID, itemID int
 
 	result := r.db.WithContext(ctx).Where("id = ? AND user_id = ?", itemID, userID).Delete(&dalmodel.CartItem{})
 	if result.Error != nil {
+		logx.L(ctx).Error("delete cart item failed",
+			zap.Error(result.Error),
+			zap.Int64("user_id", userID),
+			zap.Int64("item_id", itemID),
+		)
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
+		logx.L(ctx).Warn("delete cart item missed item",
+			zap.Int64("user_id", userID),
+			zap.Int64("item_id", itemID),
+		)
 		return ErrCartItemNotFound
 	}
 	return nil
@@ -138,7 +197,14 @@ func (r *MySQLCartRepository) ClearByUserID(ctx context.Context, userID int64) e
 	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
 	defer cancel()
 
-	return r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&dalmodel.CartItem{}).Error
+	if err := r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&dalmodel.CartItem{}).Error; err != nil {
+		logx.L(ctx).Error("clear cart by user_id failed",
+			zap.Error(err),
+			zap.Int64("user_id", userID),
+		)
+		return err
+	}
+	return nil
 }
 
 func withQueryTimeout(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

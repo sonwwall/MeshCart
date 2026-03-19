@@ -63,6 +63,11 @@ func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *
 		return nil, logicutil.MapRPCError(err)
 	}
 	if resp.Code != common.CodeOK {
+		logx.L(ctx).Warn("user rpc login returned business error",
+			zap.String("username", req.Username),
+			zap.Int32("code", resp.Code),
+			zap.String("message", resp.Message),
+		)
 		span.SetAttributes(
 			attribute.Bool("biz.success", false),
 			attribute.String("biz.type", "business"),
@@ -70,6 +75,12 @@ func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *
 			attribute.String("biz.message", resp.Message),
 		)
 		return nil, common.NewBizError(resp.Code, resp.Message)
+	}
+	if resp.Username == "" {
+		logx.L(ctx).Warn("user rpc login returned empty username",
+			zap.String("username", req.Username),
+			zap.Int64("user_id", resp.UserID),
+		)
 	}
 	span.SetAttributes(attribute.Bool("biz.success", true))
 	span.SetStatus(codes.Ok, "ok")

@@ -757,6 +757,49 @@ gateway/
 当前实现直接复用项目已有模式：
 
 - 日志：`app/log`
+
+### 14.1 运行与排障
+
+当前商品链路已经按日志规范做过一轮重构，日志重点分布在：
+
+- `gateway/internal/logic/product/`
+  - `create`
+  - `detail`
+  - `admin_detail`
+  - `list`
+  - `update`
+  - `change_status`
+- `services/product-service/biz/service/`
+  - `create_product`
+  - `update_product`
+  - `change_product_status`
+  - `get_product_detail`
+  - `list_products`
+- `gateway/internal/tx/product_create.go`
+  - DTM workflow 和补偿链路
+
+当前日志口径：
+
+- Gateway
+  - transport error 打 `Error`
+  - 下游业务错误打 `Warn`
+  - 记录 `product_id`、`user_id`、`sku_ids`、`code/message`
+- product-service service
+  - 记录 `start / reject / completed`
+  - 写操作会记录 `product_id`、`operator_id/creator_id`、`sku_count`
+  - repository 映射失败时会记录原始 `err` 和映射后的业务码
+- DTM workflow
+  - 记录每个分支的开始、成功、失败、补偿
+  - 记录 `gid`、`branch_id`、`product_id`、`sku_ids`
+
+当前排障建议：
+
+1. 普通商品接口先看 `gateway/internal/logic/product/`
+   - 判断是下游 RPC 失败，还是权限/业务拒绝
+2. 商品创建事务再看 `gateway/internal/tx/product_create.go`
+   - 判断失败发生在商品创建分支、库存初始化分支还是发布分支
+3. 再下钻 `product-service` 与 `inventory-service`
+   - 用 `trace_id`、`gid`、`product_id`、`sku_id` 串联
 - trace：`app/trace`
 - metrics：`app/metrics`
 

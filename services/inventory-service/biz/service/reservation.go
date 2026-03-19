@@ -15,57 +15,117 @@ import (
 func (s *InventoryService) ReserveSkuStocks(ctx context.Context, req *inventorypb.ReserveSkuStocksRequest) ([]*inventorypb.SkuStock, *common.BizError) {
 	items, bizErr := parseReservationItems(req.GetBizType(), req.GetBizId(), req.GetItems())
 	if bizErr != nil {
+		logx.L(ctx).Warn("inventory reserve rejected by invalid request",
+			zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+			zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+			zap.Int("item_count", len(req.GetItems())),
+			zap.Int32("code", bizErr.Code),
+			zap.String("message", bizErr.Msg),
+		)
 		return nil, bizErr
 	}
+	logx.L(ctx).Info("inventory reserve start",
+		zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+		zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+		zap.Int("item_count", len(items)),
+	)
 
 	stocks, err := s.repo.Reserve(ctx, strings.TrimSpace(req.GetBizType()), strings.TrimSpace(req.GetBizId()), items)
 	if err != nil {
+		mapped := mapRepositoryError(err)
 		logx.L(ctx).Error("inventory reserve repository failed",
 			zap.Error(err),
 			zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
 			zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
 			zap.Int("item_count", len(items)),
+			zap.Int32("mapped_code", mapped.Code),
+			zap.String("mapped_message", mapped.Msg),
 		)
-		return nil, mapRepositoryError(err)
+		return nil, mapped
 	}
+	logx.L(ctx).Info("inventory reserve completed",
+		zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+		zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+		zap.Int("stock_count", len(stocks)),
+	)
 	return toRPCSkuStocks(stocks), nil
 }
 
 func (s *InventoryService) ReleaseReservedSkuStocks(ctx context.Context, req *inventorypb.ReleaseReservedSkuStocksRequest) ([]*inventorypb.SkuStock, *common.BizError) {
 	items, bizErr := parseReservationItems(req.GetBizType(), req.GetBizId(), req.GetItems())
 	if bizErr != nil {
+		logx.L(ctx).Warn("inventory release rejected by invalid request",
+			zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+			zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+			zap.Int("item_count", len(req.GetItems())),
+			zap.Int32("code", bizErr.Code),
+			zap.String("message", bizErr.Msg),
+		)
 		return nil, bizErr
 	}
+	logx.L(ctx).Info("inventory release start",
+		zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+		zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+		zap.Int("item_count", len(items)),
+	)
 
 	stocks, err := s.repo.Release(ctx, strings.TrimSpace(req.GetBizType()), strings.TrimSpace(req.GetBizId()), items)
 	if err != nil {
+		mapped := mapRepositoryError(err)
 		logx.L(ctx).Error("inventory release repository failed",
 			zap.Error(err),
 			zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
 			zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
 			zap.Int("item_count", len(items)),
+			zap.Int32("mapped_code", mapped.Code),
+			zap.String("mapped_message", mapped.Msg),
 		)
-		return nil, mapRepositoryError(err)
+		return nil, mapped
 	}
+	logx.L(ctx).Info("inventory release completed",
+		zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+		zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+		zap.Int("stock_count", len(stocks)),
+	)
 	return toRPCSkuStocks(stocks), nil
 }
 
 func (s *InventoryService) ConfirmDeductReservedSkuStocks(ctx context.Context, req *inventorypb.ConfirmDeductReservedSkuStocksRequest) ([]*inventorypb.SkuStock, *common.BizError) {
 	items, bizErr := parseReservationItems(req.GetBizType(), req.GetBizId(), req.GetItems())
 	if bizErr != nil {
+		logx.L(ctx).Warn("inventory confirm deduct rejected by invalid request",
+			zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+			zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+			zap.Int("item_count", len(req.GetItems())),
+			zap.Int32("code", bizErr.Code),
+			zap.String("message", bizErr.Msg),
+		)
 		return nil, bizErr
 	}
+	logx.L(ctx).Info("inventory confirm deduct start",
+		zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+		zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+		zap.Int("item_count", len(items)),
+	)
 
 	stocks, err := s.repo.ConfirmDeduct(ctx, strings.TrimSpace(req.GetBizType()), strings.TrimSpace(req.GetBizId()), items)
 	if err != nil {
+		mapped := mapRepositoryError(err)
 		logx.L(ctx).Error("inventory confirm deduct repository failed",
 			zap.Error(err),
 			zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
 			zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
 			zap.Int("item_count", len(items)),
+			zap.Int32("mapped_code", mapped.Code),
+			zap.String("mapped_message", mapped.Msg),
 		)
-		return nil, mapRepositoryError(err)
+		return nil, mapped
 	}
+	logx.L(ctx).Info("inventory confirm deduct completed",
+		zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+		zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+		zap.Int("stock_count", len(stocks)),
+	)
 	return toRPCSkuStocks(stocks), nil
 }
 

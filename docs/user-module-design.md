@@ -130,6 +130,32 @@
 - 业务失败不标红，只记录业务属性
 - `user-service` 业务层会记录底层技术错误，例如密码哈希失败、查库失败、写库失败，RPC 对外仍返回统一业务错误码
 
+当前日志已经进一步细化到“可排障”级别：
+
+- `gateway/internal/logic/user/`
+  - `login`
+  - `register`
+  - `update_user_role`
+  - 会区分 transport error 和下游业务错误
+  - 业务拒绝时会记录 RPC `code/message`
+- `services/user-service/biz/service/`
+  - `login`
+  - `register`
+  - `get_user`
+  - `update_user_role`
+  - 会记录 `start / reject / completed`
+  - 会明确记录“用户不存在”“密码错误”“最后一个 superadmin 不允许降级”等业务拒绝原因
+- `services/user-service/biz/repository/`
+  - 会记录查库失败、建用户失败、角色更新失败、唯一键冲突等原始 DB 错误
+
+当前排障建议：
+
+1. 先看 `gateway` 日志
+   - 判断是 RPC 调用失败，还是 `user-service` 业务拒绝
+2. 再看 `user-service` service/repository 日志
+   - 判断是业务校验拒绝，还是底层 DB/密码哈希错误
+3. 用 `trace_id` + `username/user_id` 交叉定位
+
 ## 8. 超时治理
 
 当前 `user-service` 已补齐数据库查询超时配置：

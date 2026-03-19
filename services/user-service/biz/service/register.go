@@ -11,19 +11,22 @@ import (
 	"meshcart/services/user-service/biz/repository"
 	dalmodel "meshcart/services/user-service/dal/model"
 
-	"golang.org/x/crypto/bcrypt"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func (s *UserService) Register(ctx context.Context, username, password string) *common.BizError {
 	username = strings.TrimSpace(username)
 	password = strings.TrimSpace(password)
 	if username == "" || password == "" {
+		logx.L(ctx).Warn("register rejected by empty username or password", zap.String("username", username))
 		return common.ErrInvalidParam
 	}
 	if len(password) < 6 {
+		logx.L(ctx).Warn("register rejected by short password", zap.String("username", username))
 		return errno.ErrPasswordIllegal
 	}
+	logx.L(ctx).Info("register start", zap.String("username", username))
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -47,6 +50,7 @@ func (s *UserService) Register(ctx context.Context, username, password string) *
 	}
 	if err := s.repo.Create(ctx, newUser); err != nil {
 		if err == repository.ErrUserAlreadyExists {
+			logx.L(ctx).Warn("register rejected by existing user", zap.String("username", username))
 			return errno.ErrUserExists
 		}
 		logx.L(ctx).Error("create user failed",
@@ -56,6 +60,11 @@ func (s *UserService) Register(ctx context.Context, username, password string) *
 		)
 		return common.ErrInternalError
 	}
+	logx.L(ctx).Info("register completed",
+		zap.String("username", username),
+		zap.Int64("user_id", newUser.ID),
+		zap.String("role", newUser.Role),
+	)
 
 	return nil
 }
