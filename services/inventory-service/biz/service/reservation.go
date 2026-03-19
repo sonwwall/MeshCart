@@ -5,8 +5,11 @@ import (
 	"strings"
 
 	"meshcart/app/common"
+	logx "meshcart/app/log"
 	inventorypb "meshcart/kitex_gen/meshcart/inventory"
 	"meshcart/services/inventory-service/biz/repository"
+
+	"go.uber.org/zap"
 )
 
 func (s *InventoryService) ReserveSkuStocks(ctx context.Context, req *inventorypb.ReserveSkuStocksRequest) ([]*inventorypb.SkuStock, *common.BizError) {
@@ -17,6 +20,12 @@ func (s *InventoryService) ReserveSkuStocks(ctx context.Context, req *inventoryp
 
 	stocks, err := s.repo.Reserve(ctx, strings.TrimSpace(req.GetBizType()), strings.TrimSpace(req.GetBizId()), items)
 	if err != nil {
+		logx.L(ctx).Error("inventory reserve repository failed",
+			zap.Error(err),
+			zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+			zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+			zap.Int("item_count", len(items)),
+		)
 		return nil, mapRepositoryError(err)
 	}
 	return toRPCSkuStocks(stocks), nil
@@ -30,6 +39,12 @@ func (s *InventoryService) ReleaseReservedSkuStocks(ctx context.Context, req *in
 
 	stocks, err := s.repo.Release(ctx, strings.TrimSpace(req.GetBizType()), strings.TrimSpace(req.GetBizId()), items)
 	if err != nil {
+		logx.L(ctx).Error("inventory release repository failed",
+			zap.Error(err),
+			zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+			zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+			zap.Int("item_count", len(items)),
+		)
 		return nil, mapRepositoryError(err)
 	}
 	return toRPCSkuStocks(stocks), nil
@@ -43,6 +58,12 @@ func (s *InventoryService) ConfirmDeductReservedSkuStocks(ctx context.Context, r
 
 	stocks, err := s.repo.ConfirmDeduct(ctx, strings.TrimSpace(req.GetBizType()), strings.TrimSpace(req.GetBizId()), items)
 	if err != nil {
+		logx.L(ctx).Error("inventory confirm deduct repository failed",
+			zap.Error(err),
+			zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+			zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+			zap.Int("item_count", len(items)),
+		)
 		return nil, mapRepositoryError(err)
 	}
 	return toRPCSkuStocks(stocks), nil

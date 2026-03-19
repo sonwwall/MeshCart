@@ -38,11 +38,29 @@ func toOrderData(order *orderpb.Order) *types.OrderData {
 }
 
 func toOrderListData(orders []*orderpb.Order, total int64) *types.OrderListData {
-	items := make([]types.OrderData, 0, len(orders))
+	items := make([]types.OrderSummaryData, 0, len(orders))
 	for _, order := range orders {
-		if data := toOrderData(order); data != nil {
+		if data := toOrderSummaryData(order); data != nil {
 			items = append(items, *data)
 		}
 	}
 	return &types.OrderListData{Orders: items, Total: total}
+}
+
+func toOrderSummaryData(order *orderpb.Order) *types.OrderSummaryData {
+	if order == nil {
+		return nil
+	}
+	return &types.OrderSummaryData{
+		OrderID:      order.GetOrderId(),
+		UserID:       order.GetUserId(),
+		Status:       order.GetStatus(),
+		TotalAmount:  order.GetTotalAmount(),
+		PayAmount:    order.GetPayAmount(),
+		ExpireAt:     order.GetExpireAt(),
+		CancelReason: order.GetCancelReason(),
+		PaymentID:    order.GetPaymentId(),
+		PaidAt:       order.GetPaidAt(),
+		ItemCount:    int32(len(order.GetItems())),
+	}
 }

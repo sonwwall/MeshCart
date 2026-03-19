@@ -1,15 +1,15 @@
 mysql:
-  address: 127.0.0.1:3306
-  username: root
-  password: root
-  database: meshcart_order
-  charset: utf8mb4
+  address: "49.235.163.191:13306"
+  username: "root"
+  password: "2FaJkFtkMkC3yeBK"
+  database: "meshcart_order"
+  charset: "utf8mb4"
   parse_time: true
-  loc: Local
+  loc: "Local"
 
 migration:
   enabled: true
-  source: file://services/order-service/migrations
+  source: "file://services/order-service/migrations"
 
 snowflake:
   node: 5

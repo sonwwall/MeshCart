@@ -45,10 +45,15 @@ type InventoryRepository interface {
 type MySQLInventoryRepository struct {
 	db           *gorm.DB
 	queryTimeout time.Duration
+	nextID       func() int64
 }
 
-func NewMySQLInventoryRepository(db *gorm.DB, queryTimeout time.Duration) *MySQLInventoryRepository {
-	return &MySQLInventoryRepository{db: db, queryTimeout: queryTimeout}
+func NewMySQLInventoryRepository(db *gorm.DB, queryTimeout time.Duration, idGenerator ...func() int64) *MySQLInventoryRepository {
+	nextID := defaultInventoryRecordID
+	if len(idGenerator) > 0 && idGenerator[0] != nil {
+		nextID = idGenerator[0]
+	}
+	return &MySQLInventoryRepository{db: db, queryTimeout: queryTimeout, nextID: nextID}
 }
 
 func (r *MySQLInventoryRepository) GetBySKUID(ctx context.Context, skuID int64) (*dalmodel.InventoryStock, error) {
@@ -341,6 +346,7 @@ func (r *MySQLInventoryRepository) Reserve(ctx context.Context, bizType, bizID s
 
 			payload := buildReservationPayload(bizType, bizID, item)
 			if err := tx.Create(&dalmodel.InventoryReservation{
+				ID:              r.nextID(),
 				BizType:         bizType,
 				BizID:           bizID,
 				SKUID:           item.SKUID,
@@ -378,6 +384,7 @@ func (r *MySQLInventoryRepository) Release(ctx context.Context, bizType, bizID s
 			if reservation == nil {
 				payload := buildReservationPayload(bizType, bizID, item)
 				if err := tx.Create(&dalmodel.InventoryReservation{
+					ID:              r.nextID(),
 					BizType:         bizType,
 					BizID:           bizID,
 					SKUID:           item.SKUID,
@@ -560,4 +567,8 @@ func buildReservationPayload(bizType, bizID string, item ReservationItem) string
 
 func int64ToString(value int64) string {
 	return strconv.FormatInt(value, 10)
+}
+
+func defaultInventoryRecordID() int64 {
+	return time.Now().UnixNano()
 }

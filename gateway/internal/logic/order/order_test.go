@@ -142,9 +142,17 @@ func TestListLogic_DefaultPagination(t *testing.T) {
 				t.Fatalf("unexpected list orders req: %+v", req)
 			}
 			return &orderrpc.ListOrdersResponse{
-				Code:   common.CodeOK,
-				Orders: []*orderpb.Order{{OrderId: 1, UserId: 101}},
-				Total:  1,
+				Code: common.CodeOK,
+				Orders: []*orderpb.Order{{
+					OrderId:     1,
+					UserId:      101,
+					Status:      2,
+					TotalAmount: 3998,
+					Items: []*orderpb.OrderItem{
+						{ItemId: 11, OrderId: 1, ProductId: 2001, SkuId: 3001, Quantity: 2},
+					},
+				}},
+				Total: 1,
 			}, nil
 		},
 	}))
@@ -155,6 +163,9 @@ func TestListLogic_DefaultPagination(t *testing.T) {
 	}
 	if data == nil || data.Total != 1 || len(data.Orders) != 1 {
 		t.Fatalf("unexpected list data: %+v", data)
+	}
+	if data.Orders[0].OrderID != 1 || data.Orders[0].ItemCount != 1 {
+		t.Fatalf("unexpected order summary: %+v", data.Orders[0])
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bwmarrin/snowflake"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/server"
 	consulapi "github.com/hashicorp/consul/api"
@@ -142,7 +143,13 @@ func initMySQL(cfg config.Config) *gorm.DB {
 }
 
 func initService(mysqlDB *gorm.DB, cfg config.Config) *bizservice.InventoryService {
-	repo := repository.NewMySQLInventoryRepository(mysqlDB, time.Duration(cfg.Timeout.DBQueryMS)*time.Millisecond)
+	node, err := snowflake.NewNode(cfg.Snowflake.Node)
+	if err != nil {
+		logx.L(nil).Fatal("init snowflake node failed", zap.Error(err), zap.Int64("node", cfg.Snowflake.Node))
+	}
+	repo := repository.NewMySQLInventoryRepository(mysqlDB, time.Duration(cfg.Timeout.DBQueryMS)*time.Millisecond, func() int64 {
+		return node.Generate().Int64()
+	})
 	return bizservice.NewInventoryService(repo)
 }
 

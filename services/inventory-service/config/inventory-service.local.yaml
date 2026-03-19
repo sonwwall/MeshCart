@@ -11,5 +11,8 @@ migration:
   enabled: true
   source: "file://services/inventory-service/migrations"
 
+snowflake:
+  node: 4
+
 timeout:
   db_query_ms: 1500

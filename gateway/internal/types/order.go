@@ -22,8 +22,8 @@ type ListOrdersRequest struct {
 }
 
 type OrderListData struct {
-	Orders []OrderData `json:"orders"`
-	Total  int64       `json:"total"`
+	Orders []OrderSummaryData `json:"orders"`
+	Total  int64              `json:"total"`
 }
 
 type OrderData struct {
@@ -37,6 +37,19 @@ type OrderData struct {
 	PaymentID    string          `json:"payment_id"`
 	PaidAt       int64           `json:"paid_at"`
 	Items        []OrderItemData `json:"items"`
+}
+
+type OrderSummaryData struct {
+	OrderID      int64  `json:"order_id"`
+	UserID       int64  `json:"user_id"`
+	Status       int32  `json:"status"`
+	TotalAmount  int64  `json:"total_amount"`
+	PayAmount    int64  `json:"pay_amount"`
+	ExpireAt     int64  `json:"expire_at"`
+	CancelReason string `json:"cancel_reason"`
+	PaymentID    string `json:"payment_id"`
+	PaidAt       int64  `json:"paid_at"`
+	ItemCount    int32  `json:"item_count"`
 }
 
 type OrderItemData struct {
