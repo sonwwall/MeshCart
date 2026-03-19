@@ -390,6 +390,63 @@ MeshCart 目前已经具备以下基础：
 
 后续可考虑：
 
+- 服务入口自保护限流
+  - 当前所有限流都在 `gateway`，还没有在 `user-service`、`product-service`、`inventory-service`、`order-service` 自己的入口做第二层保护
+  - 下一阶段建议优先给关键写方法补服务侧限流，而不是一开始全方法统一限流
+  - 推荐优先级：
+    - `inventory-service`
+      - 库存调整
+      - 库存预占
+      - 库存释放
+      - 确认扣减
+    - `order-service`
+      - 创建订单
+      - 取消订单
+      - 支付确认
+    - `product-service`
+      - 商品写接口
+  - 建议做法：
+    - 按 `service + method` 维度建立 limiter
+    - 第一版继续沿用令牌桶
+    - 第一版继续使用单机内存实现，不先引入分布式协调
+    - 命中限流时直接返回统一“服务繁忙，请稍后重试”
+  - 这样做的目的：
+    - 让服务在被内部调用或绕过网关访问时仍具备自保护能力
+    - 避免把所有保护压力都压在 `gateway`
+- 数据库资源保护
+  - 当前还没有独立的 DB 资源限流或并发保护层，主要依赖 timeout 和连接池默认行为
+  - 下一阶段更值得优先推进的不是“SQL 每秒限流”，而是控制并发占用和慢请求堆积
+  - 推荐做法：
+    - 显式收口连接池参数：
+      - `max_open_conns`
+      - `max_idle_conns`
+      - `conn_max_lifetime`
+    - 给关键写链路补局部并发保护：
+      - 订单创建
+      - 库存预占
+      - 库存确认扣减
+      - 商品事务分支写入
+    - 继续保持现有 DB query timeout
+    - 增加连接池占满、慢 SQL、等待时长相关指标
+  - 设计重点：
+    - DB 最怕的是连接池被慢请求占满，而不是单纯某个接口 QPS 偏高
+    - 连接池治理 + timeout + 关键写路径并发上限，通常比简单 SQL 限流更有效
+- Redis 资源保护
+  - 当前 Redis 还没有进入主交易链路，因此也没有专门的 Redis 资源限流
+  - 后续如果 Redis 用于：
+    - 分布式限流
+    - 热点库存缓存
+    - 幂等键或异步任务辅助
+    - 会话或热点读缓存
+    就需要补 Redis 连接池和热点操作保护
+  - 推荐做法：
+    - 显式配置 Redis client 连接池和超时
+    - 给热点 key 操作增加局部并发控制
+    - 增加 Redis timeout、错误率、池耗尽指标
+    - 区分“弱依赖 Redis”和“主链路 Redis”
+  - 设计重点：
+    - 如果 Redis 只是缓存增强层，应该允许失败降级
+    - 如果 Redis 进入库存或限流主链路，再考虑更严格的熔断和快速失败
 - 分布式限流
   - 当 `gateway` 进入多实例部署后，把当前内存 store 替换为 Redis 等共享存储
   - 目标是让同一个 IP / 用户在不同网关实例之间共享同一份配额
@@ -408,6 +465,13 @@ MeshCart 目前已经具备以下基础：
 - 观测与告警
   - 后续应补“限流命中次数、命中接口、命中 key 类型”的 metrics 和日志口径
   - 让限流从“只能拦请求”变成“可观测、可调参”
+
+建议推进顺序：
+
+1. 先做服务入口自保护限流
+2. 再做 DB 连接池与关键写链路并发保护
+3. Redis 真正进入主链路后，再做 Redis 资源保护
+4. 多实例 `gateway` 出现后，再做分布式限流
 
 当前不急着做这些能力的原因：
 
@@ -713,7 +777,239 @@ MeshCart 目前已经具备以下基础：
 - 已经有较稳定的 timeout 和指标口径
 - 已经知道哪些接口属于关键路径
 
-### 6.2 服务隔离
+当前建议方案：
+
+- 熔断主能力优先使用 Kitex client 侧 `WithCircuitBreaker(...)`
+- 不引入额外第三方熔断框架作为第一版主方案
+- 现有读链路有限重试继续保留，熔断和重试分别承担不同职责
+
+为什么优先用 Kitex 自带熔断：
+
+- 当前最需要熔断保护的位置，本来就集中在 `gateway -> 下游服务` 的 Kitex RPC client
+- 和现有的 timeout、retry、服务发现、tracing 链路贴得最近
+- 接入点清晰，不需要在业务逻辑外面再包一层独立 breaker
+- 便于统一日志、metrics 和错误分类口径
+
+第一阶段接入点：
+
+- `gateway -> inventory-service`
+  - `gateway/rpc/inventory/client.go`
+- `gateway -> order-service`
+  - `gateway/rpc/order/client.go`
+- `gateway -> product-service`
+  - `gateway/rpc/product/client.go`
+- `gateway -> user-service`
+  - `gateway/rpc/user/client.go`
+
+推荐优先级：
+
+1. `inventory-service`
+2. `order-service`
+3. `product-service`
+4. `user-service`
+
+原因：
+
+- `inventory-service` 和 `order-service` 会逐步成为主交易链路的核心依赖
+- `product-service` 是高频读依赖，但对交易主链路的直接影响略低于库存和订单
+- `user-service` 也重要，但当前阶段故障影响面通常小于前两者
+
+与当前重试策略的关系：
+
+- 现有读链路有限重试由 `client.WithFailureRetry(...)` 承担
+- 现有共享策略位于：
+  - `app/common/rpc_retry.go`
+- 熔断和重试的职责边界：
+  - 重试：吸收偶发性的瞬时 transport error
+  - 熔断：在一段时间内持续失败时快速失败，避免继续打挂下游
+- 当前不建议把重试里的 `FailurePolicy.CBPolicy` 当作主熔断治理能力
+- 真正的熔断治理优先使用 `client.WithCircuitBreaker(circuitbreak.CBSuite)`
+
+错误分类原则：
+
+- 计入熔断统计的错误：
+  - connect timeout
+  - rpc timeout
+  - connection reset
+  - transport error
+  - unavailable
+  - 下游不可达
+- 不计入熔断统计的错误：
+  - 参数错误
+  - 鉴权失败
+  - 商品不存在
+  - 商品下架
+  - 库存不足
+  - 订单状态冲突
+  - 其他预期业务失败
+
+设计重点：
+
+- 业务错误不能触发 breaker，否则会把正常业务失败误判成服务故障
+- 熔断只针对“技术失败”，不针对“业务失败”
+
+第一阶段推荐模式：
+
+- 先按“服务级熔断”接入，而不是一开始就按每个方法细粒度建 breaker
+- 每个下游服务一个 `CBSuite`
+- 后续如果发现同一服务内不同方法故障特征差异明显，再细化到方法维度
+
+第一阶段推荐参数口径：
+
+- `enable = true`
+- `err_rate = 0.5`
+- `min_sample = 20`
+
+含义：
+
+- 最近统计窗口里最少有 20 个样本
+- 技术失败率达到 50% 以上
+- 才允许 breaker 打开
+
+这样做的原因：
+
+- 避免在样本过少时被偶发抖动误触发
+- 避免第一版配置过于敏感，影响正常联调
+
+fallback 的建议边界：
+
+- 第一阶段先不做复杂 fallback
+- `gateway` 继续把 timeout 和 circuit break 映射成统一对外错误
+- 只有后续少量读接口确实有合理降级结果时，再考虑叠加 `client.WithFallback(...)`
+- 写接口通常不适合做业务降级 fallback
+
+为什么第一阶段不急着做 fallback：
+
+- 当前项目更需要的是“快速失败 + 清晰观测”
+- 复杂 fallback 容易掩盖下游真实故障
+- 写链路几乎没有安全的默认降级结果
+
+第二阶段可再考虑的扩展：
+
+- `order-service -> inventory-service`
+- `order-service -> product-service`
+
+这一阶段适合在：
+
+- 订单链路流量明显上来之后
+- 已经有更多真实故障样本之后
+- gateway 侧 breaker 参数基本稳定之后
+
+实施顺序建议：
+
+1. 先在 `gateway -> inventory-service` 接 Kitex `CBSuite`
+2. 再在 `gateway -> order-service`
+3. 再在 `gateway -> product-service`
+4. 最后在 `gateway -> user-service`
+5. 观测稳定后，再考虑 `order-service -> inventory-service/product-service`
+
+实施注意点：
+
+- 熔断和当前读重试必须一起看，不要同时把 retry 次数和 breaker 敏感度都调高
+- 观测上要区分：
+  - 下游真实技术错误
+  - breaker 主动拒绝
+  - retry 后成功
+- 如果 breaker 长期频繁打开，优先排查下游稳定性和 timeout 预算，不要先粗暴放宽阈值
+
+### 6.2 降级与 fallback
+
+当某个依赖不稳定时，降级的目标不是“伪造成功”，而是主动退到一个更简单但仍可接受的模式，优先保住核心可用性。
+
+当前建议原则：
+
+- 先做“快速失败型降级”，后做“结果降级型 fallback”
+- 读接口更适合降级，写接口原则上不做假成功式降级
+- 降级必须和 timeout、retry、熔断一起设计
+
+为什么当前项目不能随便做降级：
+
+- 当前已经进入订单、库存、补偿链路建设阶段
+- 很多接口属于强一致写操作
+- 如果对写接口做假成功降级，很容易直接制造脏数据和状态错乱
+
+当前更适合的第一阶段降级方式：
+
+- 不返回伪造业务成功
+- 在 timeout、熔断或下游不可用时快速返回统一错误
+- 让 `gateway` 继续维持“服务繁忙，请稍后重试”这类统一对外文案
+
+这类快速失败型降级优先适用于：
+
+- `gateway -> product-service`
+- `gateway -> inventory-service`
+- `gateway -> order-service`
+- `gateway -> user-service`
+
+第一阶段不建议做结果降级的接口：
+
+- 登录
+- 注册
+- 创建商品
+- 更新商品
+- 修改商品状态
+- 购物车写操作
+- 创建订单
+- 库存预占
+- 库存释放
+- 确认扣减
+- 支付确认
+
+原因：
+
+- 这些接口一旦降级成“看起来成功”，会直接破坏业务一致性
+- 对这类接口，更合理的是快速失败，而不是伪造兜底结果
+
+后续更适合做 fallback 的方向：
+
+- 商品列表
+- 商品详情中的非关键附加信息
+- 后台查询类接口
+- 将来可能新增的推荐、活动、统计类读接口
+
+推荐的 fallback 方式：
+
+- 返回短期缓存结果
+- 返回简化版响应
+- 关闭非核心字段或非核心模块
+- 返回空集合而不是错误，前提是业务语义允许
+
+在当前项目里的具体建议：
+
+- 第一阶段先不在主交易写链路做 fallback
+- 如果后续要做结果降级，优先只从 `gateway -> product-service` 的读接口开始：
+  - `ListProducts`
+  - `GetProductDetail`
+- `gateway -> order-service.GetOrder` 暂不建议降级成缓存成功结果，因为订单状态对一致性要求更高
+- `gateway -> inventory-service.CheckSaleableStock` 也不建议做结果降级，避免误导交易判断
+
+为什么商品读接口最适合先做：
+
+- 它们是读链路
+- 即使返回短期缓存，也通常不会直接破坏主交易状态
+- 比订单、库存、支付等链路更适合先试点
+
+接入方式建议：
+
+- 优先复用 Kitex 的 `client.WithFallback(...)`
+- 与 timeout / circuit breaker 配合使用
+- 第一阶段只对少量读接口开启，不要全 client 一起打开
+
+如果后续真的做 fallback，需要补的配套能力：
+
+- 缓存 TTL
+- fallback 命中指标
+- 正常响应与降级响应的区分口径
+- 降级结果来源说明
+
+实施顺序建议：
+
+1. 先把 timeout、重试、熔断打稳
+2. 再从商品读接口试点快速失败以外的结果降级
+3. 观测 fallback 命中率和用户影响
+4. 最后再考虑扩到其他非核心读接口
+
+### 6.3 服务隔离
 
 后续如果引入订单、库存、支付等服务，隔离的重要性会明显上升。
 
@@ -724,7 +1020,7 @@ MeshCart 目前已经具备以下基础：
 - 后台任务与在线流量隔离
 - 核心链路与非核心链路隔离
 
-### 6.3 更细粒度的限流
+### 6.4 更细粒度的限流
 
 当前先做网关入口限流即可，后续再考虑：
 
@@ -733,7 +1029,7 @@ MeshCart 目前已经具备以下基础：
 - 下游服务自保护限流
 - 按租户、角色、业务动作维度限流
 
-### 6.4 路由与发布治理
+### 6.5 路由与发布治理
 
 当服务实例数增多、版本并存需求出现时，再推进：
 
