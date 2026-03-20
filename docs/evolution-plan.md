@@ -131,7 +131,7 @@
 当前认证能力已经比旧规划更完整：
 
 - 登录由 `gateway` 签发 JWT
-- 已支持 `GET /api/v1/user/refresh_token`
+- 已支持 `POST /api/v1/user/refresh_token`
 - JWT 中已包含 `user_id`、`username`、`role` 等身份快照
 
 但当前仍然属于单 token 演进方案，存在以下边界：

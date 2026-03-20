@@ -17,13 +17,15 @@ const (
 	ClaimUserID   = "user_id"
 	ClaimUsername = "username"
 	ClaimRole     = "role"
+	ClaimSession  = "session_id"
 	ClaimIssuer   = "iss"
 )
 
 type AuthIdentity struct {
-	UserID   int64  `json:"user_id"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
+	SessionID string `json:"session_id"`
+	UserID    int64  `json:"user_id"`
+	Username  string `json:"username"`
+	Role      string `json:"role"`
 }
 
 func NewJWT(cfg config.JWTConfig) (*jwtmw.HertzJWTMiddleware, error) {
@@ -45,6 +47,7 @@ func NewJWT(cfg config.JWTConfig) (*jwtmw.HertzJWTMiddleware, error) {
 				ClaimUserID:   identity.UserID,
 				ClaimUsername: identity.Username,
 				ClaimRole:     identity.Role,
+				ClaimSession:  identity.SessionID,
 				ClaimIssuer:   cfg.Issuer,
 			}
 		},
@@ -93,9 +96,10 @@ func IdentityFromRequest(ctx context.Context, c *app.RequestContext) (*AuthIdent
 		return nil, false
 	}
 	return &AuthIdentity{
-		UserID:   claimInt64(claims[ClaimUserID]),
-		Username: username,
-		Role:     claimString(claims[ClaimRole]),
+		SessionID: claimString(claims[ClaimSession]),
+		UserID:    claimInt64(claims[ClaimUserID]),
+		Username:  username,
+		Role:      claimString(claims[ClaimRole]),
 	}, true
 }
 

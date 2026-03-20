@@ -51,14 +51,22 @@
 
 成功返回 `data` 字段：
 
+- `session_id`
 - `user_id`
 - `username`
 - `role`
-- `token`
+- `session_id`
+- `token_type`
+- `access_token`
+- `access_expire_at`
+- `refresh_token`
+- `refresh_expire_at`
 
 说明：
 
-- `role` 会写入 JWT claims
+- `role` 会写入 access token claims
+- `session_id` 会写入 access token claims
+- `refresh_token` 当前已经切换为服务端 Redis 会话白名单模式
 
 ### 2.3 当前用户信息
 
@@ -74,14 +82,43 @@
 
 ### 2.4 刷新访问令牌
 
-- 方法：`GET`
+- 方法：`POST`
 - 路径：`/api/v1/user/refresh_token`
-- 鉴权：需要登录
+- Content-Type：`application/json`、`application/x-www-form-urlencoded`、`multipart/form-data`
+
+请求字段：
+
+- `refresh_token`
 
 成功返回 `data` 字段：
 
-- `token`
-- `expire_at`
+- `session_id`
+- `token_type`
+- `access_token`
+- `access_expire_at`
+- `refresh_token`
+- `refresh_expire_at`
+
+说明：
+
+- 成功刷新后会执行 rotation，旧 `refresh_token` 立即失效
+- 刷新时会重新读取用户最新角色并写入新的 access token claims
+
+### 2.5 登出
+
+- 方法：`POST`
+- 路径：`/api/v1/user/logout`
+- Content-Type：`application/json`、`application/x-www-form-urlencoded`、`multipart/form-data`
+- 鉴权：需要登录
+
+请求字段：
+
+- `session_id`（可选；如传入则必须与当前 access token 中的 session 一致）
+
+说明：
+
+- 当前为单端登出，只会吊销当前 session 对应的 refresh token
+- 已签发的 access token 不会被立即拉黑，会在过期后自然失效
 
 ## 3. Superadmin 接口
 

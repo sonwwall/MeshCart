@@ -378,6 +378,8 @@ JWT 相关实现分布在以下位置：
 
 - `user_id`
 - `username`
+- `role`
+- `session_id`
 - `iss`
 
 除此之外，JWT 中间件会自动写入标准时间相关字段：
@@ -387,7 +389,8 @@ JWT 相关实现分布在以下位置：
 
 字段来源：
 
-- `user_id`、`username`：登录成功后由 `gateway/internal/logic/user/login.go` 从登录结果中组装
+- `user_id`、`username`、`role`：登录成功后由 `gateway/internal/logic/user/login.go` 从登录结果中组装
+- `session_id`：由网关在签发 access token 前生成并写入 claims
 - `iss`：来自 `JWT_ISSUER`
 - `exp`、`orig_iat`：由 `hertz-contrib/jwt` 根据配置自动生成
 
@@ -411,7 +414,7 @@ Authorization: Bearer <jwt-token>
 
 当前默认配置：
 
-- 访问令牌过期时间：`120` 分钟
+- 访问令牌过期时间：`30` 分钟
 - 最大刷新窗口：`720` 分钟
 
 对应环境变量：
@@ -445,10 +448,11 @@ Authorization: Bearer <jwt-token>
 当前已经接入 JWT 鉴权的接口：
 
 - `GET /api/v1/user/me`
+- `POST /api/v1/user/logout`
 
 当前已接入 token 刷新能力的接口：
 
-- `GET /api/v1/user/refresh_token`
+- `POST /api/v1/user/refresh_token`
 
 ### 9.9 默认行为说明
 
@@ -457,34 +461,102 @@ Authorization: Bearer <jwt-token>
 - 受保护接口通过 `Authorization` Header 解析 token
 - token 解析失败、缺失或过期时，统一返回 `1000002`，即“未登录或登录已过期”
 
-### 9.10 未来升级方案：双 Token
+### 9.10 当前双 Token 方案
 
-当前实现是单 token 方案，适合项目现阶段：
+当前网关已经切到双 token 方案：
 
-- 实现简单
-- 网关无状态
-- 接入和调试成本低
+- 登录成功后会同时签发 `access_token` 和 `refresh_token`
+- `refresh_token` 以 hash 形式写入 Redis 会话白名单
+- `POST /api/v1/user/refresh_token` 已支持 rotation
+- `POST /api/v1/user/logout` 已支持当前 session 吊销
 
-如果后续出现以下需求，建议升级为双 token 方案：
-
-- 需要真正的登出即失效
-- 需要多端登录管理
-- 需要踢人下线或强制会话失效
-- 需要缩短 access token 有效期，同时保留较长登录态
-- 需要降低 token 泄漏后的风险窗口
-
-升级后的目标方案：
+当前已落地的方案：
 
 - `access_token`
   - 使用 JWT
-  - 有效期较短，建议 `15` 到 `30` 分钟
-  - 只承载最小身份信息
+  - 默认有效期 `30` 分钟
+  - 承载 `user_id`、`username`、`role`、`session_id`
 - `refresh_token`
-  - 使用高熵随机串，推荐不要复用 access token 的 JWT
-  - 有效期较长，建议 `7` 到 `30` 天
-  - 服务端维护白名单或会话表
+  - 使用高熵随机串，不复用 JWT
+  - 默认有效期 `30` 天
+  - 服务端使用 Redis 维护白名单和 session 映射
 
-推荐的 claims / 会话字段设计：
+### 9.10.1 Redis 存储设计
+
+当前 refresh token 白名单不是只存一份 token 集合，而是使用两类 Redis key：
+
+- `auth:session:<session_id>`
+  - value 为完整 session JSON
+- `auth:session:refresh:<refresh_token_hash>`
+  - value 为对应的 `session_id`
+
+这样设计的目的：
+
+- 按 `session_id` 可以直接拿到完整会话详情
+- 按 `refresh_token_hash` 可以快速反查到 `session_id`
+- refresh rotation 时可以同时维护主记录和索引，避免全表扫描
+
+当前 session JSON 中保存的字段包括：
+
+- `session_id`
+- `user_id`
+- `username`
+- `role`
+- `refresh_token_hash`
+- `expires_at`
+- `device_id`
+- `user_agent`
+- `ip`
+- `created_at`
+- `updated_at`
+
+说明：
+
+- `refresh_token` 明文不会落 Redis
+- Redis 中只保存 `refresh_token_hash`
+- `device_id`、`user_agent`、`ip` 当前属于预留字段，第一版还没有完整采集链路
+
+### 9.10.2 白名单查询机制
+
+当前 refresh token 校验走的是“服务端白名单”机制，而不是 JWT 自校验。
+
+登录时：
+
+1. 生成 `session_id`
+2. 生成 `access_token`
+3. 生成明文 `refresh_token`
+4. 对 `refresh_token` 做 hash
+5. 写入 Redis：
+   - `auth:session:<session_id>` -> session JSON
+   - `auth:session:refresh:<refresh_token_hash>` -> `session_id`
+
+刷新时：
+
+1. 客户端提交明文 `refresh_token`
+2. 服务端先计算 `refresh_token_hash`
+3. 通过 `auth:session:refresh:<refresh_token_hash>` 查到 `session_id`
+4. 再通过 `auth:session:<session_id>` 读取完整 session
+5. 校验 session 是否存在、是否过期
+6. 读取用户最新信息，重新签发新的 `access_token`
+7. 生成新的 `refresh_token`，执行 rotation：
+   - 删除旧的 `auth:session:refresh:<old_hash>`
+   - 更新 `auth:session:<session_id>` 中的 `refresh_token_hash`
+   - 写入新的 `auth:session:refresh:<new_hash>`
+
+登出时：
+
+1. 根据 access token 中的 `session_id` 找到 session
+2. 删除 `auth:session:<session_id>`
+3. 同时删除对应的 `auth:session:refresh:<refresh_token_hash>`
+
+这套机制的含义是：
+
+- Redis 里还能查到的 refresh token，才算在白名单里
+- logout 后 refresh token 会立即失效
+- refresh 成功后旧 refresh token 会立即失效
+- access token 本身不查 Redis，仍然只依赖 JWT 验签和过期时间
+
+当前 claims / 会话字段设计：
 
 - `access_token` 中保留：
   - `user_id`
@@ -493,20 +565,15 @@ Authorization: Bearer <jwt-token>
   - `iss`
   - `exp`
 - `refresh_token` 服务端存储中保留：
-  - `token_id`
   - `user_id`
   - `session_id`
-  - `device_id` 或客户端标识
+  - `refresh_token_hash`
   - `expire_at`
-  - `status`
+  - `device_id`
+  - `user_agent`
+  - `ip`
 
-推荐的服务端存储设计：
-
-- 优先使用 Redis 维护 refresh token 白名单
-- key 可设计为：`auth:refresh:<token_id>`
-- value 存储用户、会话、设备、过期时间和状态
-
-推荐的刷新流程：
+当前刷新流程：
 
 1. 登录成功后同时签发 `access_token` 和 `refresh_token`
 2. `refresh_token` 写入 Redis 白名单
@@ -517,18 +584,7 @@ Authorization: Bearer <jwt-token>
    - 生成新的 `refresh_token`
    - 旧 `refresh_token` 立即作废
 
-推荐新增接口：
-
-- `POST /api/v1/user/login`
-  - 返回 `access_token` 和 `refresh_token`
-- `POST /api/v1/user/refresh_token`
-  - 使用 `refresh_token` 换新 token
-- `POST /api/v1/user/logout`
-  - 主动作废当前 session
-- `POST /api/v1/user/logout_all`
-  - 作废用户全部 session
-
-升级后的职责拆分建议：
+当前职责拆分：
 
 - `gateway`
   - 继续负责 access token 的签发与校验
@@ -538,6 +594,12 @@ Authorization: Bearer <jwt-token>
   - 负责 refresh rotation
   - 负责会话吊销
 
+当前仍未覆盖：
+
+- `POST /api/v1/user/logout_all`
+- access token 服务端逐个吊销
+- 设备画像和风控规则
+
 为了便于未来平滑升级，当前阶段建议遵守以下约束：
 
 - 不把过多业务数据塞进 access token
@@ -545,11 +607,6 @@ Authorization: Bearer <jwt-token>
 - 受保护接口只依赖统一鉴权中间件，不在业务代码里手写 token 解析
 - 刷新接口的语义保持独立，避免把 access token 刷新逻辑散落到业务接口中
 
-当前不立即切到双 token 的原因：
-
-- 当前项目还处于基础能力建设阶段
-- 现阶段没有 Redis 会话白名单和登出/踢下线需求
-- 单 token 方案能先满足大多数接口联调和登录态验证需求
 
 ## 10. 模块扩展规范
 

@@ -52,6 +52,18 @@ services:
     networks:
       - meshcart
 
+  redis:
+    image: redis:7.4-alpine
+    container_name: meshcart-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - meshcart
+
   prometheus:
     image: prom/prometheus:v3.2.1
     container_name: meshcart-prometheus
@@ -151,6 +163,7 @@ volumes:
   mysql_data:
   consul_data:
   dtm_data:
+  redis_data:
   prometheus_data:
   grafana_data:
   loki_data:

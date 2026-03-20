@@ -8,11 +8,13 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"meshcart/app/common"
 	"meshcart/gateway/config"
+	"meshcart/gateway/internal/auth"
 	"meshcart/gateway/internal/authz"
 	"meshcart/gateway/internal/handler"
 	"meshcart/gateway/internal/middleware"
@@ -88,10 +90,13 @@ func TestGatewayAcceptance_LoginFlow(t *testing.T) {
 	}
 
 	var data struct {
-		UserID   int64  `json:"user_id"`
-		Username string `json:"username"`
-		Role     string `json:"role"`
-		Token    string `json:"token"`
+		UserID       int64  `json:"user_id"`
+		Username     string `json:"username"`
+		Role         string `json:"role"`
+		SessionID    string `json:"session_id"`
+		TokenType    string `json:"token_type"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
 	}
 	decodeData(t, resp.Data, &data)
 
@@ -104,8 +109,188 @@ func TestGatewayAcceptance_LoginFlow(t *testing.T) {
 	if data.Role != authz.RoleUser {
 		t.Fatalf("expected role %q, got %q", authz.RoleUser, data.Role)
 	}
-	if !strings.HasPrefix(data.Token, "Bearer ") {
-		t.Fatalf("expected bearer token, got %q", data.Token)
+	if data.SessionID == "" {
+		t.Fatal("expected session_id")
+	}
+	if data.TokenType != "Bearer" {
+		t.Fatalf("expected token type Bearer, got %q", data.TokenType)
+	}
+	if !strings.HasPrefix(data.AccessToken, "Bearer ") {
+		t.Fatalf("expected bearer access token, got %q", data.AccessToken)
+	}
+	if data.RefreshToken == "" {
+		t.Fatal("expected refresh token")
+	}
+}
+
+func TestGatewayAcceptance_RefreshTokenFlow(t *testing.T) {
+	svcCtx := newTestServiceContext(t, permissiveRateLimitConfig())
+	var currentRole atomic.Value
+	currentRole.Store(authz.RoleUser)
+
+	svcCtx.UserClient = &stubUserClient{
+		loginFn: func(_ context.Context, req *userrpc.LoginRequest) (*userrpc.LoginResponse, error) {
+			return &userrpc.LoginResponse{
+				Code:     common.CodeOK,
+				Message:  "成功",
+				UserID:   201,
+				Username: req.Username,
+				Role:     authz.RoleUser,
+			}, nil
+		},
+		getUserFn: func(_ context.Context, req *userrpc.GetUserRequest) (*userrpc.GetUserResponse, error) {
+			return &userrpc.GetUserResponse{
+				Code:     common.CodeOK,
+				Message:  "成功",
+				UserID:   req.UserID,
+				Username: "tester",
+				Role:     currentRole.Load().(string),
+			}, nil
+		},
+	}
+
+	addr := startGatewayTestServer(t, svcCtx)
+	authData := loginAndGetAuthData(t, addr, "tester", "123456")
+	currentRole.Store(authz.RoleAdmin)
+
+	refreshResp := doRequest(t, http.MethodPost, "http://"+addr+"/api/v1/user/refresh_token", strings.NewReader(`{"refresh_token":"`+authData.RefreshToken+`"}`), map[string]string{
+		"Content-Type": "application/json",
+	})
+	if refreshResp.Code != common.CodeOK {
+		t.Fatalf("expected refresh success, got code=%d message=%q", refreshResp.Code, refreshResp.Message)
+	}
+
+	var refreshed struct {
+		SessionID    string `json:"session_id"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	decodeData(t, refreshResp.Data, &refreshed)
+	if refreshed.SessionID != authData.SessionID {
+		t.Fatalf("expected same session id, got %q", refreshed.SessionID)
+	}
+	if refreshed.RefreshToken == authData.RefreshToken {
+		t.Fatal("expected refresh token rotated")
+	}
+
+	meResp := doRequest(t, http.MethodGet, "http://"+addr+"/api/v1/user/me", nil, map[string]string{
+		"Authorization": refreshed.AccessToken,
+	})
+	if meResp.Code != common.CodeOK {
+		t.Fatalf("expected me success after refresh, got code=%d message=%q", meResp.Code, meResp.Message)
+	}
+	var me struct {
+		Role string `json:"role"`
+	}
+	decodeData(t, meResp.Data, &me)
+	if me.Role != authz.RoleAdmin {
+		t.Fatalf("expected refreshed role %q, got %q", authz.RoleAdmin, me.Role)
+	}
+
+	oldRefreshResp := doRequest(t, http.MethodPost, "http://"+addr+"/api/v1/user/refresh_token", strings.NewReader(`{"refresh_token":"`+authData.RefreshToken+`"}`), map[string]string{
+		"Content-Type": "application/json",
+	})
+	if oldRefreshResp.Code != common.CodeUnauthorized {
+		t.Fatalf("expected old refresh token unauthorized, got code=%d message=%q", oldRefreshResp.Code, oldRefreshResp.Message)
+	}
+}
+
+func TestGatewayAcceptance_LogoutInvalidatesRefreshToken(t *testing.T) {
+	svcCtx := newTestServiceContext(t, permissiveRateLimitConfig())
+	svcCtx.UserClient = &stubUserClient{
+		loginFn: func(_ context.Context, req *userrpc.LoginRequest) (*userrpc.LoginResponse, error) {
+			return &userrpc.LoginResponse{
+				Code:     common.CodeOK,
+				Message:  "成功",
+				UserID:   301,
+				Username: req.Username,
+				Role:     authz.RoleUser,
+			}, nil
+		},
+		getUserFn: func(_ context.Context, req *userrpc.GetUserRequest) (*userrpc.GetUserResponse, error) {
+			return &userrpc.GetUserResponse{
+				Code:     common.CodeOK,
+				Message:  "成功",
+				UserID:   req.UserID,
+				Username: "tester",
+				Role:     authz.RoleUser,
+			}, nil
+		},
+	}
+
+	addr := startGatewayTestServer(t, svcCtx)
+	authData := loginAndGetAuthData(t, addr, "tester", "123456")
+
+	logoutResp := doRequest(t, http.MethodPost, "http://"+addr+"/api/v1/user/logout", strings.NewReader(`{}`), map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": authData.AccessToken,
+	})
+	if logoutResp.Code != common.CodeOK {
+		t.Fatalf("expected logout success, got code=%d message=%q", logoutResp.Code, logoutResp.Message)
+	}
+
+	refreshResp := doRequest(t, http.MethodPost, "http://"+addr+"/api/v1/user/refresh_token", strings.NewReader(`{"refresh_token":"`+authData.RefreshToken+`"}`), map[string]string{
+		"Content-Type": "application/json",
+	})
+	if refreshResp.Code != common.CodeUnauthorized {
+		t.Fatalf("expected refresh unauthorized after logout, got code=%d message=%q", refreshResp.Code, refreshResp.Message)
+	}
+}
+
+func TestGatewayAcceptance_RefreshTokenConcurrentOnlyOneSucceeds(t *testing.T) {
+	svcCtx := newTestServiceContext(t, permissiveRateLimitConfig())
+	svcCtx.UserClient = &stubUserClient{
+		loginFn: func(_ context.Context, req *userrpc.LoginRequest) (*userrpc.LoginResponse, error) {
+			return &userrpc.LoginResponse{
+				Code:     common.CodeOK,
+				Message:  "成功",
+				UserID:   401,
+				Username: req.Username,
+				Role:     authz.RoleUser,
+			}, nil
+		},
+		getUserFn: func(_ context.Context, req *userrpc.GetUserRequest) (*userrpc.GetUserResponse, error) {
+			return &userrpc.GetUserResponse{
+				Code:     common.CodeOK,
+				Message:  "成功",
+				UserID:   req.UserID,
+				Username: "tester",
+				Role:     authz.RoleUser,
+			}, nil
+		},
+	}
+
+	addr := startGatewayTestServer(t, svcCtx)
+	authData := loginAndGetAuthData(t, addr, "tester", "123456")
+
+	type result struct {
+		code int32
+	}
+	results := make(chan result, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			resp := doRequest(t, http.MethodPost, "http://"+addr+"/api/v1/user/refresh_token", strings.NewReader(`{"refresh_token":"`+authData.RefreshToken+`"}`), map[string]string{
+				"Content-Type": "application/json",
+			})
+			results <- result{code: resp.Code}
+		}()
+	}
+
+	successCount := 0
+	unauthorizedCount := 0
+	for i := 0; i < 2; i++ {
+		resp := <-results
+		switch resp.code {
+		case common.CodeOK:
+			successCount++
+		case common.CodeUnauthorized:
+			unauthorizedCount++
+		default:
+			t.Fatalf("unexpected refresh code %d", resp.code)
+		}
+	}
+	if successCount != 1 || unauthorizedCount != 1 {
+		t.Fatalf("expected 1 success and 1 unauthorized, got success=%d unauthorized=%d", successCount, unauthorizedCount)
 	}
 }
 
@@ -313,14 +498,14 @@ func TestGatewayAcceptance_TradeFlow(t *testing.T) {
 	svcCtx := newTestServiceContext(t, permissiveRateLimitConfig())
 
 	var (
-		productCreated      bool
-		productOnline       bool
+		productCreated       bool
+		productOnline        bool
 		inventoryInitialized bool
-		cartAdded           bool
-		orderCreated        bool
-		paymentCreated      bool
-		orderPaid           bool
-		inventoryDeducted   bool
+		cartAdded            bool
+		orderCreated         bool
+		paymentCreated       bool
+		orderPaid            bool
+		inventoryDeducted    bool
 	)
 
 	const (
@@ -1094,6 +1279,12 @@ func newTestServiceContext(t *testing.T, rl config.RateLimitConfig) *svc.Service
 	return &svc.ServiceContext{
 		Config: config.Config{
 			App: config.AppConfig{Name: "gateway", Env: "test"},
+			AuthSession: config.AuthSessionConfig{
+				KeyPrefix:         "auth:session",
+				RefreshTokenTTL:   24 * time.Hour,
+				StoreTimeout:      time.Second,
+				AccessTokenLeeway: 30 * time.Second,
+			},
 			JWT: config.JWTConfig{
 				Secret:            "integration-secret",
 				Issuer:            "meshcart.gateway",
@@ -1110,6 +1301,7 @@ func newTestServiceContext(t *testing.T, rl config.RateLimitConfig) *svc.Service
 		InventoryClient: &stubInventoryClient{},
 		AccessControl:   ac,
 		JWT:             jwtMiddleware,
+		SessionStore:    auth.NewMemorySessionStore(),
 		RateLimiter:     middleware.NewRateLimitStore(rl),
 	}
 }
@@ -1206,7 +1398,13 @@ func decodeData(t *testing.T, src interface{}, dst interface{}) {
 	}
 }
 
-func loginAndGetToken(t *testing.T, addr, username, password string) string {
+type loginAuthData struct {
+	SessionID    string
+	AccessToken  string
+	RefreshToken string
+}
+
+func loginAndGetAuthData(t *testing.T, addr, username, password string) loginAuthData {
 	t.Helper()
 
 	resp := doRequest(t, http.MethodPost, "http://"+addr+"/api/v1/user/login", strings.NewReader(`{"username":"`+username+`","password":"`+password+`"}`), map[string]string{
@@ -1216,13 +1414,27 @@ func loginAndGetToken(t *testing.T, addr, username, password string) string {
 		t.Fatalf("expected login success for %s, got code=%d message=%q", username, resp.Code, resp.Message)
 	}
 	var data struct {
-		Token string `json:"token"`
+		SessionID    string `json:"session_id"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
 	}
 	decodeData(t, resp.Data, &data)
-	if !strings.HasPrefix(data.Token, "Bearer ") {
-		t.Fatalf("expected bearer token for %s, got %q", username, data.Token)
+	if !strings.HasPrefix(data.AccessToken, "Bearer ") {
+		t.Fatalf("expected bearer token for %s, got %q", username, data.AccessToken)
 	}
-	return data.Token
+	if data.RefreshToken == "" {
+		t.Fatalf("expected refresh token for %s", username)
+	}
+	return loginAuthData{
+		SessionID:    data.SessionID,
+		AccessToken:  data.AccessToken,
+		RefreshToken: data.RefreshToken,
+	}
+}
+
+func loginAndGetToken(t *testing.T, addr, username, password string) string {
+	t.Helper()
+	return loginAndGetAuthData(t, addr, username, password).AccessToken
 }
 
 func reserveTCPAddr(t *testing.T) string {

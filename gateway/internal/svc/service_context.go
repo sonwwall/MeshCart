@@ -1,7 +1,9 @@
 package svc
 
 import (
+	"context"
 	"meshcart/gateway/config"
+	"meshcart/gateway/internal/auth"
 	"meshcart/gateway/internal/authz"
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/tx"
@@ -14,6 +16,7 @@ import (
 	"sync/atomic"
 
 	jwtmw "github.com/hertz-contrib/jwt"
+	"github.com/redis/go-redis/v9"
 )
 
 type ServiceContext struct {
@@ -27,6 +30,7 @@ type ServiceContext struct {
 	ProductCreateCoordinator tx.ProductCreateCoordinator
 	AccessControl            *authz.AccessController
 	JWT                      *jwtmw.HertzJWTMiddleware
+	SessionStore             auth.SessionStore
 	RateLimiter              *middleware.RateLimitStore
 	Draining                 *atomic.Bool
 }
@@ -109,6 +113,23 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		panic(err)
 	}
 
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:         cfg.Redis.Addr,
+		Password:     cfg.Redis.Password,
+		DB:           cfg.Redis.DB,
+		DialTimeout:  cfg.Redis.DialTimeout,
+		ReadTimeout:  cfg.Redis.ReadTimeout,
+		WriteTimeout: cfg.Redis.WriteTimeout,
+		PoolSize:     cfg.Redis.PoolSize,
+	})
+	pingCtx, cancel := context.WithTimeout(context.Background(), cfg.AuthSession.StoreTimeout)
+	defer cancel()
+	if err := redisClient.Ping(pingCtx).Err(); err != nil {
+		panic(err)
+	}
+
+	sessionStore := auth.NewRedisSessionStore(redisClient, cfg.AuthSession)
+
 	accessController, err := authz.NewAccessController()
 	if err != nil {
 		panic(err)
@@ -125,6 +146,7 @@ func NewServiceContext(cfg config.Config) *ServiceContext {
 		ProductCreateCoordinator: tx.NewProductCreateCoordinator(cfg.DTM, productClient, inventoryClient),
 		AccessControl:            accessController,
 		JWT:                      jwtMiddleware,
+		SessionStore:             sessionStore,
 		RateLimiter:              middleware.NewRateLimitStore(cfg.RateLimit),
 		Draining:                 &atomic.Bool{},
 	}

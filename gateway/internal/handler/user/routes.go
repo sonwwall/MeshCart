@@ -19,11 +19,12 @@ func RegisterRoutes(api *route.RouterGroup, svcCtx *svc.ServiceContext) {
 		middleware.RateLimit(svcCtx.RateLimiter, middleware.NewRule(svcCtx.Config.RateLimit.RegisterIP), middleware.IPRouteKey),
 		Register(svcCtx),
 	)
-	userGroup.GET("/refresh_token", svcCtx.JWT.RefreshHandler)
+	userGroup.POST("/refresh_token", RefreshToken(svcCtx))
 
 	authGroup := userGroup.Group("")
 	authGroup.Use(svcCtx.JWT.MiddlewareFunc())
 	authGroup.GET("/me", Me(svcCtx))
+	authGroup.POST("/logout", Logout(svcCtx))
 
 	adminGroup := api.Group("/admin/users")
 	adminGroup.Use(svcCtx.JWT.MiddlewareFunc())

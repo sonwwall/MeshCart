@@ -5,9 +5,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"meshcart/app/common"
 	"meshcart/gateway/config"
+	"meshcart/gateway/internal/auth"
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
 	"meshcart/gateway/internal/types"
@@ -49,8 +51,23 @@ func newTestServiceContext(t *testing.T, client userrpc.Client) *svc.ServiceCont
 		t.Fatalf("init jwt middleware: %v", err)
 	}
 	return &svc.ServiceContext{
-		UserClient: client,
-		JWT:        jwtMiddleware,
+		Config: config.Config{
+			JWT: config.JWTConfig{
+				Secret:            "test-secret",
+				Issuer:            "test-issuer",
+				TimeoutMinutes:    30,
+				MaxRefreshMinutes: 60,
+			},
+			AuthSession: config.AuthSessionConfig{
+				KeyPrefix:         "auth:session",
+				RefreshTokenTTL:   24 * time.Hour,
+				StoreTimeout:      time.Second,
+				AccessTokenLeeway: 30 * time.Second,
+			},
+		},
+		UserClient:   client,
+		JWT:          jwtMiddleware,
+		SessionStore: auth.NewMemorySessionStore(),
 	}
 }
 
@@ -159,7 +176,19 @@ func TestLogin_Success(t *testing.T) {
 	if data.Role != "superadmin" {
 		t.Fatalf("expected role superadmin, got %s", data.Role)
 	}
-	if !strings.HasPrefix(data.Token, "Bearer ") {
-		t.Fatalf("expected bearer token, got %s", data.Token)
+	if data.SessionID == "" {
+		t.Fatal("expected session id")
+	}
+	if data.TokenType != "Bearer" {
+		t.Fatalf("expected bearer token type, got %s", data.TokenType)
+	}
+	if !strings.HasPrefix(data.AccessToken, "Bearer ") {
+		t.Fatalf("expected bearer access token, got %s", data.AccessToken)
+	}
+	if data.RefreshToken == "" {
+		t.Fatal("expected refresh token")
+	}
+	if data.AccessExpireAt == "" || data.RefreshExpireAt == "" {
+		t.Fatalf("expected token expire timestamps, got %+v", data)
 	}
 }

@@ -8,6 +8,7 @@
 - `register`
 - `me`
 - `refresh_token`
+- `logout`
 - `update user role`
 
 模块拆分遵循现有项目分层：
@@ -348,13 +349,25 @@
 
 - 该接口由网关 JWT 中间件保护
 - 返回值来自当前 token 中的 claims 解析结果
-- 当前返回字段包含 `user_id`、`username`、`role`
+- 当前返回字段包含 `session_id`、`user_id`、`username`、`role`
 
 ### 9.3.2 刷新访问令牌
 
-- 方法：`GET`
+- 方法：`POST`
 - 路径：`/api/v1/user/refresh_token`
-- 鉴权：需要在 Header 中携带 `Authorization: Bearer <token>`
+- Content-Type：`application/json`、`application/x-www-form-urlencoded`、`multipart/form-data`
+
+请求体：
+
+```json
+{
+  "refresh_token": "0nD6xjF8rD3xX0cYB1x8A0fN6p8q3mL2G2oS8u9Qv7w"
+}
+```
+
+请求字段：
+
+- `refresh_token`：登录或上次刷新返回的 refresh token，必填
 
 成功响应：
 
@@ -363,8 +376,12 @@
   "code": 0,
   "message": "成功",
   "data": {
-    "token": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expire_at": "2026-03-09T18:00:00Z"
+    "session_id": "18d6b63d-87f2-4f1d-89b0-0fd68f4f662e",
+    "token_type": "Bearer",
+    "access_token": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "access_expire_at": "2026-03-20T18:00:00Z",
+    "refresh_token": "eJ6vL3jzQmX8sY2cT7rB6dN1pK4uH9fA0qW5mC8xR2t",
+    "refresh_expire_at": "2026-04-19T18:00:00Z"
   },
   "trace_id": "8f2d3f..."
 }
@@ -382,8 +399,55 @@
 
 说明：
 
-- 该接口用于基于当前有效 token 刷新访问令牌
-- 返回的 `token` 已带 `Bearer ` 前缀，可直接写回 `Authorization` 头
+- 该接口用于基于当前有效 `refresh_token` 刷新双 token
+- 刷新成功后会执行 rotation，旧 `refresh_token` 立即失效
+- 刷新时会重新读取用户当前角色，并写入新的 access token claims
+- 返回的 `access_token` 已带 `Bearer ` 前缀，可直接写回 `Authorization` 头
+
+### 9.3.3 退出当前登录会话
+
+- 方法：`POST`
+- 路径：`/api/v1/user/logout`
+- Content-Type：`application/json`、`application/x-www-form-urlencoded`、`multipart/form-data`
+- 鉴权：需要在 Header 中携带 `Authorization: Bearer <access_token>`
+
+请求体：
+
+```json
+{
+  "session_id": "18d6b63d-87f2-4f1d-89b0-0fd68f4f662e"
+}
+```
+
+请求字段：
+
+- `session_id`：可选；如传入则必须与当前 access token 中的 `session_id` 一致
+
+成功响应：
+
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "trace_id": "8f2d3f..."
+}
+```
+
+失败响应示例：
+
+```json
+{
+  "code": 1000002,
+  "message": "未登录或登录已过期",
+  "trace_id": "8f2d3f..."
+}
+```
+
+说明：
+
+- 该接口用于单端登出，只吊销当前 session 对应的 refresh token
+- 已签发的 access token 不会被立即拉黑，会在过期后自然失效
+- 登出成功后，再使用该 session 的 `refresh_token` 刷新会返回未登录
 
 ## 10.4 Superadmin 角色管理接口
 

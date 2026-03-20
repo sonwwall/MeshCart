@@ -311,16 +311,31 @@ curl http://127.0.0.1:8080/api/v1/user/me \
 
 ```bash
 curl http://127.0.0.1:8080/api/v1/user/refresh_token \
-  -H 'Authorization: Bearer <token>'
+  -H 'Content-Type: application/json' \
+  -d '{"refresh_token":"<refresh_token>"}'
 ```
 
-### 7.5 商品列表
+### 7.5 登出当前 session
+
+```bash
+curl http://127.0.0.1:8080/api/v1/user/logout \
+  -H 'Authorization: Bearer <access_token>' \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+说明：
+
+- 刷新成功后旧 `refresh_token` 立即失效
+- 登出后当前 session 的 `refresh_token` 会立即失效
+
+### 7.6 商品列表
 
 ```bash
 curl 'http://127.0.0.1:8080/api/v1/products?page=1&page_size=10'
 ```
 
-### 7.6 商品详情
+### 7.7 商品详情
 
 ```bash
 curl http://127.0.0.1:8080/api/v1/products/detail/<product_id>
@@ -331,7 +346,7 @@ curl http://127.0.0.1:8080/api/v1/products/detail/<product_id>
 - 如果列表和详情都能走通，说明 `gateway -> product-service` 基础链路正常
 - 如果注册、登录、`me` 能走通，说明 `gateway -> user-service` 基础链路正常
 
-### 7.7 生命周期探针检查
+### 7.8 生命周期探针检查
 
 ```bash
 curl http://127.0.0.1:8080/healthz

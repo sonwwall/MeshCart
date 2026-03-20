@@ -3,10 +3,12 @@ package user
 import (
 	"context"
 	"strings"
+	"time"
 
 	"meshcart/app/common"
 	logx "meshcart/app/log"
 	tracex "meshcart/app/trace"
+	"meshcart/gateway/internal/auth"
 	"meshcart/gateway/internal/logic/logicutil"
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
@@ -85,10 +87,12 @@ func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *
 	span.SetAttributes(attribute.Bool("biz.success", true))
 	span.SetStatus(codes.Ok, "ok")
 
-	token, _, err := l.svcCtx.JWT.TokenGenerator(&middleware.AuthIdentity{
-		UserID:   resp.UserID,
-		Username: req.Username,
-		Role:     resp.Role,
+	sessionID := auth.NewSessionID()
+	accessToken, accessExpire, err := l.svcCtx.JWT.TokenGenerator(&middleware.AuthIdentity{
+		SessionID: sessionID,
+		UserID:    resp.UserID,
+		Username:  resp.Username,
+		Role:      resp.Role,
 	})
 	if err != nil {
 		span.RecordError(err)
@@ -101,10 +105,56 @@ func (l *LoginLogic) Login(req *types.UserLoginRequest) (*types.UserLoginData, *
 		return nil, common.ErrInternalError
 	}
 
+	refreshToken, err := auth.NewRefreshToken()
+	if err != nil {
+		span.RecordError(err)
+		span.SetAttributes(
+			attribute.Bool("biz.success", false),
+			attribute.String("biz.type", "technical"),
+		)
+		span.SetStatus(codes.Error, "refresh token generate failed")
+		logx.L(ctx).Error("refresh token generate failed", zap.Error(err))
+		return nil, common.ErrInternalError
+	}
+
+	if l.svcCtx.SessionStore == nil {
+		logx.L(ctx).Error("session store missing")
+		return nil, common.ErrInternalError
+	}
+
+	now := time.Now()
+	refreshExpireAt := now.Add(l.svcCtx.Config.AuthSession.RefreshTokenTTL)
+	storeCtx, cancel := context.WithTimeout(ctx, l.svcCtx.Config.AuthSession.StoreTimeout)
+	defer cancel()
+	if err := l.svcCtx.SessionStore.Save(storeCtx, &auth.Session{
+		SessionID:        sessionID,
+		UserID:           resp.UserID,
+		Username:         resp.Username,
+		Role:             resp.Role,
+		RefreshTokenHash: auth.HashRefreshToken(refreshToken),
+		ExpiresAt:        refreshExpireAt,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}); err != nil {
+		span.RecordError(err)
+		span.SetAttributes(
+			attribute.Bool("biz.success", false),
+			attribute.String("biz.type", "technical"),
+		)
+		span.SetStatus(codes.Error, "auth session save failed")
+		logx.L(ctx).Error("auth session save failed", zap.Error(err))
+		return nil, common.ErrInternalError
+	}
+
 	return &types.UserLoginData{
-		UserID:   resp.UserID,
-		Token:    middleware.FormatBearerToken(token),
-		Username: resp.Username,
-		Role:     resp.Role,
+		UserID:          resp.UserID,
+		Username:        resp.Username,
+		Role:            resp.Role,
+		SessionID:       sessionID,
+		TokenType:       "Bearer",
+		AccessToken:     middleware.FormatBearerToken(accessToken),
+		AccessExpireAt:  accessExpire.Format(time.RFC3339),
+		RefreshToken:    refreshToken,
+		RefreshExpireAt: refreshExpireAt.Format(time.RFC3339),
 	}, nil
 }

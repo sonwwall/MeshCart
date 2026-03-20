@@ -13,6 +13,7 @@ type Config struct {
 	Metrics      MetricsConfig
 	Server       ServerConfig
 	DTM          DTMConfig
+	Redis        RedisConfig
 	RateLimit    RateLimitConfig
 	UserRPC      UserRPCConfig
 	CartRPC      CartRPCConfig
@@ -21,6 +22,7 @@ type Config struct {
 	ProductRPC   ProductRPCConfig
 	InventoryRPC InventoryRPCConfig
 	JWT          JWTConfig
+	AuthSession  AuthSessionConfig
 }
 
 type AppConfig struct {
@@ -57,6 +59,16 @@ type ServerConfig struct {
 type DTMConfig struct {
 	Server              string
 	WorkflowCallbackURL string
+}
+
+type RedisConfig struct {
+	Addr         string
+	Password     string
+	DB           int
+	DialTimeout  time.Duration
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	PoolSize     int
 }
 
 type RateLimitConfig struct {
@@ -136,6 +148,13 @@ type JWTConfig struct {
 	MaxRefreshMinutes int
 }
 
+type AuthSessionConfig struct {
+	KeyPrefix         string
+	RefreshTokenTTL   time.Duration
+	StoreTimeout      time.Duration
+	AccessTokenLeeway time.Duration
+}
+
 func Load() Config {
 	return Config{
 		App: AppConfig{
@@ -167,6 +186,15 @@ func Load() Config {
 		DTM: DTMConfig{
 			Server:              getEnv("DTM_SERVER", "http://127.0.0.1:36789/api/dtmsvr"),
 			WorkflowCallbackURL: getEnv("DTM_WORKFLOW_CALLBACK_URL", "http://127.0.0.1:8080/api/internal/dtm/workflow"),
+		},
+		Redis: RedisConfig{
+			Addr:         getEnv("REDIS_ADDR", "127.0.0.1:6379"),
+			Password:     getEnv("REDIS_PASSWORD", ""),
+			DB:           getEnvAsInt("REDIS_DB", 0),
+			DialTimeout:  getEnvAsDuration("REDIS_DIAL_TIMEOUT_MS", 500*time.Millisecond),
+			ReadTimeout:  getEnvAsDuration("REDIS_READ_TIMEOUT_MS", 500*time.Millisecond),
+			WriteTimeout: getEnvAsDuration("REDIS_WRITE_TIMEOUT_MS", 500*time.Millisecond),
+			PoolSize:     getEnvAsInt("REDIS_POOL_SIZE", 10),
 		},
 		RateLimit: RateLimitConfig{
 			Enabled:         getEnvAsBool("GATEWAY_RATE_LIMIT_ENABLED", true),
@@ -244,8 +272,14 @@ func Load() Config {
 		JWT: JWTConfig{
 			Secret:            getEnv("JWT_SECRET", "meshcart-dev-secret-change-me"),
 			Issuer:            getEnv("JWT_ISSUER", "meshcart.gateway"),
-			TimeoutMinutes:    getEnvAsInt("JWT_TIMEOUT_MINUTES", 120),
+			TimeoutMinutes:    getEnvAsInt("JWT_TIMEOUT_MINUTES", 30),
 			MaxRefreshMinutes: getEnvAsInt("JWT_MAX_REFRESH_MINUTES", 720),
+		},
+		AuthSession: AuthSessionConfig{
+			KeyPrefix:         getEnv("AUTH_SESSION_KEY_PREFIX", "auth:session"),
+			RefreshTokenTTL:   getEnvAsDuration("AUTH_REFRESH_TOKEN_TTL_MS", 30*24*time.Hour),
+			StoreTimeout:      getEnvAsDuration("AUTH_SESSION_STORE_TIMEOUT_MS", 500*time.Millisecond),
+			AccessTokenLeeway: getEnvAsDuration("AUTH_ACCESS_TOKEN_LEEWAY_MS", 30*time.Second),
 		},
 	}
 }
