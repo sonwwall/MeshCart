@@ -17,10 +17,16 @@ import (
 	"meshcart/gateway/internal/handler"
 	"meshcart/gateway/internal/middleware"
 	"meshcart/gateway/internal/svc"
+	cartrpc "meshcart/gateway/rpc/cart"
 	inventoryrpc "meshcart/gateway/rpc/inventory"
+	orderrpc "meshcart/gateway/rpc/order"
+	paymentrpc "meshcart/gateway/rpc/payment"
 	productrpc "meshcart/gateway/rpc/product"
 	userrpc "meshcart/gateway/rpc/user"
+	cartpb "meshcart/kitex_gen/meshcart/cart"
 	inventorypb "meshcart/kitex_gen/meshcart/inventory"
+	orderpb "meshcart/kitex_gen/meshcart/order"
+	paymentpb "meshcart/kitex_gen/meshcart/payment"
 	productpb "meshcart/kitex_gen/meshcart/product"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -303,6 +309,456 @@ func TestGatewayAcceptance_LoginUnavailableResponse(t *testing.T) {
 	}
 }
 
+func TestGatewayAcceptance_TradeFlow(t *testing.T) {
+	svcCtx := newTestServiceContext(t, permissiveRateLimitConfig())
+
+	var (
+		productCreated      bool
+		productOnline       bool
+		inventoryInitialized bool
+		cartAdded           bool
+		orderCreated        bool
+		paymentCreated      bool
+		orderPaid           bool
+		inventoryDeducted   bool
+	)
+
+	const (
+		adminUserID = int64(9001)
+		buyerUserID = int64(101)
+		productID   = int64(2001)
+		skuID       = int64(3001)
+		orderID     = int64(4001)
+		paymentID   = int64(5001)
+	)
+
+	svcCtx.UserClient = &stubUserClient{
+		loginFn: func(_ context.Context, req *userrpc.LoginRequest) (*userrpc.LoginResponse, error) {
+			switch req.Username {
+			case "admin":
+				return &userrpc.LoginResponse{
+					Code:     common.CodeOK,
+					Message:  "成功",
+					UserID:   adminUserID,
+					Username: "admin",
+					Role:     authz.RoleAdmin,
+				}, nil
+			case "buyer":
+				return &userrpc.LoginResponse{
+					Code:     common.CodeOK,
+					Message:  "成功",
+					UserID:   buyerUserID,
+					Username: "buyer",
+					Role:     authz.RoleUser,
+				}, nil
+			default:
+				return &userrpc.LoginResponse{Code: 2010002, Message: "用户名或密码错误"}, nil
+			}
+		},
+	}
+	svcCtx.ProductClient = &stubProductClient{
+		createProductSagaFn: func(_ context.Context, req *productpb.CreateProductSagaRequest) (*productrpc.CreateProductResponse, error) {
+			if req.GetCreatorId() != adminUserID || req.GetTargetStatus() != 2 || len(req.GetSkus()) != 1 {
+				t.Fatalf("unexpected create product saga req: %+v", req)
+			}
+			productCreated = true
+			return &productrpc.CreateProductResponse{
+				Code:      common.CodeOK,
+				Message:   "成功",
+				ProductID: productID,
+				Skus: []*productpb.ProductSku{
+					{Id: skuID, SpuId: productID, SkuCode: "meshcart-tee-blue-m", Title: "Blue M", SalePrice: 1999, Status: 1, CoverUrl: "https://example.test/tee-blue-m.png"},
+				},
+			}, nil
+		},
+		changeStatusFn: func(_ context.Context, req *productpb.ChangeProductStatusRequest) (*productrpc.ChangeProductStatusResponse, error) {
+			if req.GetProductId() != productID || req.GetStatus() != 2 || !productCreated || !inventoryInitialized {
+				t.Fatalf("unexpected change status req: %+v created=%v inventoryInitialized=%v", req, productCreated, inventoryInitialized)
+			}
+			productOnline = true
+			return &productrpc.ChangeProductStatusResponse{Code: common.CodeOK, Message: "成功"}, nil
+		},
+		getProductDetailFn: func(_ context.Context, req *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+			if req.GetProductId() != productID {
+				t.Fatalf("unexpected product detail req: %+v", req)
+			}
+			status := int32(1)
+			if productOnline {
+				status = 2
+			}
+			return &productrpc.GetProductDetailResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Product: &productpb.Product{
+					Id:         productID,
+					Title:      "MeshCart Tee",
+					Status:     status,
+					CategoryId: 12,
+					Skus: []*productpb.ProductSku{
+						{Id: skuID, SpuId: productID, SkuCode: "meshcart-tee-blue-m", Title: "Blue M", SalePrice: 1999, Status: 1, CoverUrl: "https://example.test/tee-blue-m.png"},
+					},
+				},
+			}, nil
+		},
+	}
+	svcCtx.InventoryClient = &stubInventoryClient{
+		initSkuStocksSagaFn: func(_ context.Context, req *inventorypb.InitSkuStocksSagaRequest) (*inventoryrpc.InitSkuStocksResponse, error) {
+			if !productCreated || len(req.GetStocks()) != 1 || req.GetStocks()[0].GetSkuId() != skuID || req.GetStocks()[0].GetTotalStock() != 10 {
+				t.Fatalf("unexpected init sku stocks saga req: %+v created=%v", req, productCreated)
+			}
+			inventoryInitialized = true
+			return &inventoryrpc.InitSkuStocksResponse{Code: common.CodeOK, Message: "成功"}, nil
+		},
+		checkSaleableStockFn: func(_ context.Context, req *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error) {
+			if !inventoryInitialized || !productOnline || req.GetSkuId() != skuID || req.GetQuantity() != 2 {
+				t.Fatalf("unexpected check stock req: %+v inventoryInitialized=%v productOnline=%v", req, inventoryInitialized, productOnline)
+			}
+			return &inventoryrpc.CheckSaleableStockResponse{Code: common.CodeOK, Message: "成功", Saleable: true, AvailableStock: 10}, nil
+		},
+	}
+	svcCtx.CartClient = &stubCartClient{
+		addCartItemFn: func(_ context.Context, req *cartpb.AddCartItemRequest) (*cartrpc.AddCartItemResponse, error) {
+			if !productOnline || req.GetUserId() != buyerUserID || req.GetProductId() != productID || req.GetSkuId() != skuID || req.GetQuantity() != 2 {
+				t.Fatalf("unexpected add cart req: %+v productOnline=%v", req, productOnline)
+			}
+			cartAdded = true
+			return &cartrpc.AddCartItemResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Item: &cartpb.CartItem{
+					Id:                6001,
+					UserId:            buyerUserID,
+					ProductId:         productID,
+					SkuId:             skuID,
+					Quantity:          2,
+					Checked:           true,
+					TitleSnapshot:     "MeshCart Tee",
+					SkuTitleSnapshot:  "Blue M",
+					SalePriceSnapshot: 1999,
+					CoverUrlSnapshot:  "https://example.test/tee-blue-m.png",
+				},
+			}, nil
+		},
+	}
+	svcCtx.OrderClient = &stubOrderClient{
+		createOrderFn: func(_ context.Context, req *orderpb.CreateOrderRequest) (*orderrpc.CreateOrderResponse, error) {
+			if !cartAdded || req.GetUserId() != buyerUserID || req.GetRequestId() != "order-req-1" || len(req.GetItems()) != 1 {
+				t.Fatalf("unexpected create order req: %+v cartAdded=%v", req, cartAdded)
+			}
+			orderCreated = true
+			return &orderrpc.CreateOrderResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Order: &orderpb.Order{
+					OrderId:     orderID,
+					UserId:      buyerUserID,
+					Status:      2,
+					TotalAmount: 3998,
+					PayAmount:   3998,
+					ExpireAt:    time.Now().Add(30 * time.Minute).Unix(),
+					Items: []*orderpb.OrderItem{
+						{
+							ItemId:               7001,
+							OrderId:              orderID,
+							ProductId:            productID,
+							SkuId:                skuID,
+							ProductTitleSnapshot: "MeshCart Tee",
+							SkuTitleSnapshot:     "Blue M",
+							SalePriceSnapshot:    1999,
+							Quantity:             2,
+							SubtotalAmount:       3998,
+						},
+					},
+				},
+			}, nil
+		},
+		getOrderFn: func(_ context.Context, req *orderpb.GetOrderRequest) (*orderrpc.GetOrderResponse, error) {
+			if req.GetUserId() != buyerUserID || req.GetOrderId() != orderID {
+				t.Fatalf("unexpected get order req: %+v", req)
+			}
+			status := int32(2)
+			paymentIDText := ""
+			paymentMethod := ""
+			paymentTradeNo := ""
+			paidAt := int64(0)
+			if orderPaid {
+				status = 3
+				paymentIDText = "5001"
+				paymentMethod = "mock"
+				paymentTradeNo = "trade-5001"
+				paidAt = time.Now().Unix()
+			}
+			return &orderrpc.GetOrderResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Order: &orderpb.Order{
+					OrderId:        orderID,
+					UserId:         buyerUserID,
+					Status:         status,
+					TotalAmount:    3998,
+					PayAmount:      3998,
+					ExpireAt:       time.Now().Add(30 * time.Minute).Unix(),
+					PaymentId:      paymentIDText,
+					PaymentMethod:  paymentMethod,
+					PaymentTradeNo: paymentTradeNo,
+					PaidAt:         paidAt,
+					Items: []*orderpb.OrderItem{
+						{
+							ItemId:               7001,
+							OrderId:              orderID,
+							ProductId:            productID,
+							SkuId:                skuID,
+							ProductTitleSnapshot: "MeshCart Tee",
+							SkuTitleSnapshot:     "Blue M",
+							SalePriceSnapshot:    1999,
+							Quantity:             2,
+							SubtotalAmount:       3998,
+						},
+					},
+				},
+			}, nil
+		},
+	}
+	svcCtx.PaymentClient = &stubPaymentClient{
+		createPaymentFn: func(_ context.Context, req *paymentpb.CreatePaymentRequest) (*paymentrpc.CreatePaymentResponse, error) {
+			if !orderCreated || req.GetUserId() != buyerUserID || req.GetOrderId() != orderID || req.GetPaymentMethod() != "mock" || req.GetRequestId() != "pay-req-1" {
+				t.Fatalf("unexpected create payment req: %+v orderCreated=%v", req, orderCreated)
+			}
+			paymentCreated = true
+			return &paymentrpc.CreatePaymentResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Payment: &paymentpb.Payment{
+					PaymentId:     paymentID,
+					OrderId:       orderID,
+					UserId:        buyerUserID,
+					Status:        1,
+					PaymentMethod: "mock",
+					Amount:        3998,
+					Currency:      "CNY",
+					ExpireAt:      time.Now().Add(15 * time.Minute).Unix(),
+				},
+			}, nil
+		},
+		confirmPaymentSuccessFn: func(_ context.Context, req *paymentpb.ConfirmPaymentSuccessRequest) (*paymentrpc.ConfirmPaymentSuccessResponse, error) {
+			if !paymentCreated || req.GetPaymentId() != paymentID || req.GetPaymentMethod() != "mock" || req.GetRequestId() != "pay-confirm-1" || req.GetPaymentTradeNo() != "trade-5001" {
+				t.Fatalf("unexpected confirm payment success req: %+v paymentCreated=%v", req, paymentCreated)
+			}
+			orderPaid = true
+			inventoryDeducted = true
+			return &paymentrpc.ConfirmPaymentSuccessResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Payment: &paymentpb.Payment{
+					PaymentId:      paymentID,
+					OrderId:        orderID,
+					UserId:         buyerUserID,
+					Status:         2,
+					PaymentMethod:  "mock",
+					Amount:         3998,
+					Currency:       "CNY",
+					PaymentTradeNo: "trade-5001",
+					ExpireAt:       time.Now().Add(15 * time.Minute).Unix(),
+					SucceededAt:    time.Now().Unix(),
+				},
+			}, nil
+		},
+		getPaymentFn: func(_ context.Context, req *paymentpb.GetPaymentRequest) (*paymentrpc.GetPaymentResponse, error) {
+			if req.GetUserId() != buyerUserID || req.GetPaymentId() != paymentID {
+				t.Fatalf("unexpected get payment req: %+v", req)
+			}
+			status := int32(1)
+			tradeNo := ""
+			succeededAt := int64(0)
+			if orderPaid {
+				status = 2
+				tradeNo = "trade-5001"
+				succeededAt = time.Now().Unix()
+			}
+			return &paymentrpc.GetPaymentResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Payment: &paymentpb.Payment{
+					PaymentId:      paymentID,
+					OrderId:        orderID,
+					UserId:         buyerUserID,
+					Status:         status,
+					PaymentMethod:  "mock",
+					Amount:         3998,
+					Currency:       "CNY",
+					PaymentTradeNo: tradeNo,
+					ExpireAt:       time.Now().Add(15 * time.Minute).Unix(),
+					SucceededAt:    succeededAt,
+				},
+			}, nil
+		},
+	}
+
+	addr := startGatewayTestServer(t, svcCtx)
+
+	adminToken := loginAndGetToken(t, addr, "admin", "123456")
+	userToken := loginAndGetToken(t, addr, "buyer", "123456")
+
+	createProductResp := doRequest(t, http.MethodPost, "http://"+addr+"/api/v1/admin/products", strings.NewReader(`{"title":"MeshCart Tee","category_id":12,"brand":"MeshCart","description":"Basic tee","status":2,"skus":[{"sku_code":"meshcart-tee-blue-m","title":"Blue M","sale_price":1999,"market_price":2599,"status":1,"cover_url":"https://example.test/tee-blue-m.png","initial_stock":10}]}`), map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": adminToken,
+	})
+	if createProductResp.Code != common.CodeOK {
+		t.Fatalf("expected create product success, got code=%d message=%q", createProductResp.Code, createProductResp.Message)
+	}
+
+	addCartResp := doRequest(t, http.MethodPost, "http://"+addr+"/api/v1/cart/items", strings.NewReader(`{"product_id":2001,"sku_id":3001,"quantity":2,"checked":true}`), map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": userToken,
+	})
+	if addCartResp.Code != common.CodeOK {
+		t.Fatalf("expected add cart success, got code=%d message=%q", addCartResp.Code, addCartResp.Message)
+	}
+
+	createOrderResp := doRequest(t, http.MethodPost, "http://"+addr+"/api/v1/orders", strings.NewReader(`{"request_id":"order-req-1","items":[{"product_id":2001,"sku_id":3001,"quantity":2}]}`), map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": userToken,
+	})
+	if createOrderResp.Code != common.CodeOK {
+		t.Fatalf("expected create order success, got code=%d message=%q", createOrderResp.Code, createOrderResp.Message)
+	}
+
+	createPaymentResp := doRequest(t, http.MethodPost, "http://"+addr+"/api/v1/payments", strings.NewReader(`{"order_id":4001,"payment_method":"mock","request_id":"pay-req-1"}`), map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": userToken,
+	})
+	if createPaymentResp.Code != common.CodeOK {
+		t.Fatalf("expected create payment success, got code=%d message=%q", createPaymentResp.Code, createPaymentResp.Message)
+	}
+
+	mockPayResp := doRequest(t, http.MethodPost, "http://"+addr+"/api/v1/payments/5001/mock_success", strings.NewReader(`{"request_id":"pay-confirm-1","payment_trade_no":"trade-5001"}`), map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": userToken,
+	})
+	if mockPayResp.Code != common.CodeOK {
+		t.Fatalf("expected mock pay success, got code=%d message=%q", mockPayResp.Code, mockPayResp.Message)
+	}
+
+	getOrderResp := doRequest(t, http.MethodGet, "http://"+addr+"/api/v1/orders/4001", nil, map[string]string{
+		"Authorization": userToken,
+	})
+	if getOrderResp.Code != common.CodeOK {
+		t.Fatalf("expected get order success, got code=%d message=%q", getOrderResp.Code, getOrderResp.Message)
+	}
+	var orderData struct {
+		OrderID        int64  `json:"order_id"`
+		Status         int32  `json:"status"`
+		PaymentID      string `json:"payment_id"`
+		PaymentMethod  string `json:"payment_method"`
+		PaymentTradeNo string `json:"payment_trade_no"`
+	}
+	decodeData(t, getOrderResp.Data, &orderData)
+	if orderData.OrderID != orderID || orderData.Status != 3 || orderData.PaymentID != "5001" || orderData.PaymentMethod != "mock" || orderData.PaymentTradeNo != "trade-5001" {
+		t.Fatalf("unexpected paid order payload: %+v", orderData)
+	}
+
+	getPaymentResp := doRequest(t, http.MethodGet, "http://"+addr+"/api/v1/payments/5001", nil, map[string]string{
+		"Authorization": userToken,
+	})
+	if getPaymentResp.Code != common.CodeOK {
+		t.Fatalf("expected get payment success, got code=%d message=%q", getPaymentResp.Code, getPaymentResp.Message)
+	}
+	var paymentData struct {
+		PaymentID      int64  `json:"payment_id"`
+		Status         int32  `json:"status"`
+		PaymentMethod  string `json:"payment_method"`
+		PaymentTradeNo string `json:"payment_trade_no"`
+	}
+	decodeData(t, getPaymentResp.Data, &paymentData)
+	if paymentData.PaymentID != paymentID || paymentData.Status != 2 || paymentData.PaymentMethod != "mock" || paymentData.PaymentTradeNo != "trade-5001" {
+		t.Fatalf("unexpected succeeded payment payload: %+v", paymentData)
+	}
+
+	if !productCreated || !productOnline || !inventoryInitialized || !cartAdded || !orderCreated || !paymentCreated || !orderPaid || !inventoryDeducted {
+		t.Fatalf("unexpected flow flags productCreated=%v productOnline=%v inventoryInitialized=%v cartAdded=%v orderCreated=%v paymentCreated=%v orderPaid=%v inventoryDeducted=%v",
+			productCreated, productOnline, inventoryInitialized, cartAdded, orderCreated, paymentCreated, orderPaid, inventoryDeducted)
+	}
+}
+
+func TestGatewayAcceptance_CartUpdateBlockedByInsufficientStock(t *testing.T) {
+	svcCtx := newTestServiceContext(t, permissiveRateLimitConfig())
+
+	updateCalled := false
+	svcCtx.UserClient = &stubUserClient{
+		loginFn: func(_ context.Context, req *userrpc.LoginRequest) (*userrpc.LoginResponse, error) {
+			if req.Username != "buyer" {
+				t.Fatalf("unexpected login request: %+v", req)
+			}
+			return &userrpc.LoginResponse{
+				Code:     common.CodeOK,
+				Message:  "成功",
+				UserID:   101,
+				Username: "buyer",
+				Role:     authz.RoleUser,
+			}, nil
+		},
+	}
+	svcCtx.CartClient = &stubCartClient{
+		getCartFn: func(_ context.Context, req *cartpb.GetCartRequest) (*cartrpc.GetCartResponse, error) {
+			if req.GetUserId() != 101 {
+				t.Fatalf("unexpected get cart req: %+v", req)
+			}
+			return &cartrpc.GetCartResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Items: []*cartpb.CartItem{
+					{Id: 11, UserId: 101, ProductId: 2001, SkuId: 3001, Quantity: 1, Checked: true},
+				},
+			}, nil
+		},
+		updateCartItemFn: func(_ context.Context, req *cartpb.UpdateCartItemRequest) (*cartrpc.UpdateCartItemResponse, error) {
+			updateCalled = true
+			return &cartrpc.UpdateCartItemResponse{Code: common.CodeOK, Message: "成功", Item: &cartpb.CartItem{Id: req.GetItemId(), UserId: req.GetUserId(), Quantity: req.GetQuantity()}}, nil
+		},
+	}
+	svcCtx.ProductClient = &stubProductClient{
+		getProductDetailFn: func(_ context.Context, req *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
+			if req.GetProductId() != 2001 {
+				t.Fatalf("unexpected product detail req: %+v", req)
+			}
+			return &productrpc.GetProductDetailResponse{
+				Code:    common.CodeOK,
+				Message: "成功",
+				Product: &productpb.Product{
+					Id:     2001,
+					Title:  "MeshCart Tee",
+					Status: 2,
+					Skus: []*productpb.ProductSku{
+						{Id: 3001, Status: 1, Title: "Blue M"},
+					},
+				},
+			}, nil
+		},
+	}
+	svcCtx.InventoryClient = &stubInventoryClient{
+		checkSaleableStockFn: func(_ context.Context, req *inventorypb.CheckSaleableStockRequest) (*inventoryrpc.CheckSaleableStockResponse, error) {
+			if req.GetSkuId() != 3001 || req.GetQuantity() != 5 {
+				t.Fatalf("unexpected stock check req: %+v", req)
+			}
+			return &inventoryrpc.CheckSaleableStockResponse{Code: 2050002, Message: "库存不足", Saleable: false, AvailableStock: 1}, nil
+		},
+	}
+
+	addr := startGatewayTestServer(t, svcCtx)
+	userToken := loginAndGetToken(t, addr, "buyer", "123456")
+
+	resp := doRequest(t, http.MethodPut, "http://"+addr+"/api/v1/cart/items/11", strings.NewReader(`{"quantity":5}`), map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": userToken,
+	})
+	if resp.Code != 2050002 {
+		t.Fatalf("expected insufficient stock code, got code=%d message=%q", resp.Code, resp.Message)
+	}
+	if updateCalled {
+		t.Fatal("expected cart update not to be called when stock check fails")
+	}
+}
+
 type stubUserClient struct {
 	loginFn      func(context.Context, *userrpc.LoginRequest) (*userrpc.LoginResponse, error)
 	registerFn   func(context.Context, *userrpc.RegisterRequest) (*userrpc.RegisterResponse, error)
@@ -496,6 +952,127 @@ func (s *stubInventoryClient) ConfirmDeductReservedSkuStocks(ctx context.Context
 	return s.confirmDeductReservedFn(ctx, req)
 }
 
+type stubCartClient struct {
+	getCartFn        func(context.Context, *cartpb.GetCartRequest) (*cartrpc.GetCartResponse, error)
+	addCartItemFn    func(context.Context, *cartpb.AddCartItemRequest) (*cartrpc.AddCartItemResponse, error)
+	updateCartItemFn func(context.Context, *cartpb.UpdateCartItemRequest) (*cartrpc.UpdateCartItemResponse, error)
+	removeCartItemFn func(context.Context, *cartpb.RemoveCartItemRequest) (*cartrpc.RemoveCartItemResponse, error)
+	clearCartFn      func(context.Context, *cartpb.ClearCartRequest) (*cartrpc.ClearCartResponse, error)
+}
+
+func (s *stubCartClient) GetCart(ctx context.Context, req *cartpb.GetCartRequest) (*cartrpc.GetCartResponse, error) {
+	if s.getCartFn == nil {
+		return &cartrpc.GetCartResponse{Code: common.CodeOK, Message: "成功", Items: []*cartpb.CartItem{}}, nil
+	}
+	return s.getCartFn(ctx, req)
+}
+
+func (s *stubCartClient) AddCartItem(ctx context.Context, req *cartpb.AddCartItemRequest) (*cartrpc.AddCartItemResponse, error) {
+	if s.addCartItemFn == nil {
+		return &cartrpc.AddCartItemResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.addCartItemFn(ctx, req)
+}
+
+func (s *stubCartClient) UpdateCartItem(ctx context.Context, req *cartpb.UpdateCartItemRequest) (*cartrpc.UpdateCartItemResponse, error) {
+	if s.updateCartItemFn == nil {
+		return &cartrpc.UpdateCartItemResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.updateCartItemFn(ctx, req)
+}
+
+func (s *stubCartClient) RemoveCartItem(ctx context.Context, req *cartpb.RemoveCartItemRequest) (*cartrpc.RemoveCartItemResponse, error) {
+	if s.removeCartItemFn == nil {
+		return &cartrpc.RemoveCartItemResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.removeCartItemFn(ctx, req)
+}
+
+func (s *stubCartClient) ClearCart(ctx context.Context, req *cartpb.ClearCartRequest) (*cartrpc.ClearCartResponse, error) {
+	if s.clearCartFn == nil {
+		return &cartrpc.ClearCartResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.clearCartFn(ctx, req)
+}
+
+type stubOrderClient struct {
+	createOrderFn func(context.Context, *orderpb.CreateOrderRequest) (*orderrpc.CreateOrderResponse, error)
+	getOrderFn    func(context.Context, *orderpb.GetOrderRequest) (*orderrpc.GetOrderResponse, error)
+	listOrdersFn  func(context.Context, *orderpb.ListOrdersRequest) (*orderrpc.ListOrdersResponse, error)
+	cancelOrderFn func(context.Context, *orderpb.CancelOrderRequest) (*orderrpc.CancelOrderResponse, error)
+}
+
+func (s *stubOrderClient) CreateOrder(ctx context.Context, req *orderpb.CreateOrderRequest) (*orderrpc.CreateOrderResponse, error) {
+	if s.createOrderFn == nil {
+		return &orderrpc.CreateOrderResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.createOrderFn(ctx, req)
+}
+
+func (s *stubOrderClient) GetOrder(ctx context.Context, req *orderpb.GetOrderRequest) (*orderrpc.GetOrderResponse, error) {
+	if s.getOrderFn == nil {
+		return &orderrpc.GetOrderResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.getOrderFn(ctx, req)
+}
+
+func (s *stubOrderClient) ListOrders(ctx context.Context, req *orderpb.ListOrdersRequest) (*orderrpc.ListOrdersResponse, error) {
+	if s.listOrdersFn == nil {
+		return &orderrpc.ListOrdersResponse{Code: common.CodeOK, Message: "成功", Orders: []*orderpb.Order{}, Total: 0}, nil
+	}
+	return s.listOrdersFn(ctx, req)
+}
+
+func (s *stubOrderClient) CancelOrder(ctx context.Context, req *orderpb.CancelOrderRequest) (*orderrpc.CancelOrderResponse, error) {
+	if s.cancelOrderFn == nil {
+		return &orderrpc.CancelOrderResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.cancelOrderFn(ctx, req)
+}
+
+type stubPaymentClient struct {
+	createPaymentFn         func(context.Context, *paymentpb.CreatePaymentRequest) (*paymentrpc.CreatePaymentResponse, error)
+	getPaymentFn            func(context.Context, *paymentpb.GetPaymentRequest) (*paymentrpc.GetPaymentResponse, error)
+	listPaymentsByOrderFn   func(context.Context, *paymentpb.ListPaymentsByOrderRequest) (*paymentrpc.ListPaymentsByOrderResponse, error)
+	confirmPaymentSuccessFn func(context.Context, *paymentpb.ConfirmPaymentSuccessRequest) (*paymentrpc.ConfirmPaymentSuccessResponse, error)
+	closePaymentFn          func(context.Context, *paymentpb.ClosePaymentRequest) (*paymentrpc.ClosePaymentResponse, error)
+}
+
+func (s *stubPaymentClient) CreatePayment(ctx context.Context, req *paymentpb.CreatePaymentRequest) (*paymentrpc.CreatePaymentResponse, error) {
+	if s.createPaymentFn == nil {
+		return &paymentrpc.CreatePaymentResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.createPaymentFn(ctx, req)
+}
+
+func (s *stubPaymentClient) GetPayment(ctx context.Context, req *paymentpb.GetPaymentRequest) (*paymentrpc.GetPaymentResponse, error) {
+	if s.getPaymentFn == nil {
+		return &paymentrpc.GetPaymentResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.getPaymentFn(ctx, req)
+}
+
+func (s *stubPaymentClient) ListPaymentsByOrder(ctx context.Context, req *paymentpb.ListPaymentsByOrderRequest) (*paymentrpc.ListPaymentsByOrderResponse, error) {
+	if s.listPaymentsByOrderFn == nil {
+		return &paymentrpc.ListPaymentsByOrderResponse{Code: common.CodeOK, Message: "成功", Payments: []*paymentpb.Payment{}}, nil
+	}
+	return s.listPaymentsByOrderFn(ctx, req)
+}
+
+func (s *stubPaymentClient) ConfirmPaymentSuccess(ctx context.Context, req *paymentpb.ConfirmPaymentSuccessRequest) (*paymentrpc.ConfirmPaymentSuccessResponse, error) {
+	if s.confirmPaymentSuccessFn == nil {
+		return &paymentrpc.ConfirmPaymentSuccessResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.confirmPaymentSuccessFn(ctx, req)
+}
+
+func (s *stubPaymentClient) ClosePayment(ctx context.Context, req *paymentpb.ClosePaymentRequest) (*paymentrpc.ClosePaymentResponse, error) {
+	if s.closePaymentFn == nil {
+		return &paymentrpc.ClosePaymentResponse{Code: common.CodeOK, Message: "成功"}, nil
+	}
+	return s.closePaymentFn(ctx, req)
+}
+
 func newTestServiceContext(t *testing.T, rl config.RateLimitConfig) *svc.ServiceContext {
 	t.Helper()
 
@@ -526,6 +1103,9 @@ func newTestServiceContext(t *testing.T, rl config.RateLimitConfig) *svc.Service
 			RateLimit: rl,
 		},
 		UserClient:      &stubUserClient{},
+		CartClient:      &stubCartClient{},
+		OrderClient:     &stubOrderClient{},
+		PaymentClient:   &stubPaymentClient{},
 		ProductClient:   &stubProductClient{},
 		InventoryClient: &stubInventoryClient{},
 		AccessControl:   ac,
@@ -624,6 +1204,25 @@ func decodeData(t *testing.T, src interface{}, dst interface{}) {
 	if err := json.Unmarshal(payload, dst); err != nil {
 		t.Fatalf("unmarshal response data: %v", err)
 	}
+}
+
+func loginAndGetToken(t *testing.T, addr, username, password string) string {
+	t.Helper()
+
+	resp := doRequest(t, http.MethodPost, "http://"+addr+"/api/v1/user/login", strings.NewReader(`{"username":"`+username+`","password":"`+password+`"}`), map[string]string{
+		"Content-Type": "application/json",
+	})
+	if resp.Code != common.CodeOK {
+		t.Fatalf("expected login success for %s, got code=%d message=%q", username, resp.Code, resp.Message)
+	}
+	var data struct {
+		Token string `json:"token"`
+	}
+	decodeData(t, resp.Data, &data)
+	if !strings.HasPrefix(data.Token, "Bearer ") {
+		t.Fatalf("expected bearer token for %s, got %q", username, data.Token)
+	}
+	return data.Token
 }
 
 func reserveTCPAddr(t *testing.T) string {

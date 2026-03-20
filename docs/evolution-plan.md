@@ -11,13 +11,14 @@
 截至当前代码状态，项目已经完成的基础能力包括：
 
 - 架构基线
-  - `gateway + user-service + product-service + cart-service` 已形成下一阶段业务主链路
-  - `order-service`、`inventory-service`、`payment-service` 已有目录骨架，但仍未进入完整联调阶段
+  - `gateway + user-service + product-service + cart-service + inventory-service + order-service + payment-service` 已形成交易主链路基线
+  - `inventory-service` 已覆盖库存初始化、可售校验、预占、释放、确认扣减
+  - `order-service` 已覆盖下单、取消、超时关闭、支付确认
+  - `payment-service` 已覆盖创建支付单、查询、关闭、mock 支付成功确认
+  - 当前主要缺口已不再是“服务骨架未落地”，而是“跨服务联调回归和治理收口”
 - 服务发现
-  - `gateway -> user-service`
-  - `gateway -> cart-service`
-  - `gateway -> product-service`
-  - 已支持 `Consul` 发现与 `direct` 直连回退
+  - `gateway` 已接入 `user-service / cart-service / product-service / inventory-service / order-service / payment-service`
+  - 服务侧已支持 `Consul` 注册发现与 `direct` 直连回退
   - 已补充最小 Consul 验收测试
 - 认证与授权
   - 网关已接入 JWT 登录态
@@ -32,8 +33,8 @@
   - RPC 客户端已显式配置 timeout，并在测试中约束默认不盲目重试
 - 服务生命周期
   - `gateway` 已提供 `/healthz`、`/readyz`
-  - `user-service`、`product-service` 已在 admin 端口暴露 `/metrics`、`/healthz`、`/readyz`
-  - `gateway`、`user-service`、`product-service` 已接入信号驱动的优雅停机
+  - 多个服务已在 admin 端口暴露 `/metrics`、`/healthz`、`/readyz`
+  - 多个服务已接入信号驱动的优雅停机
   - 已补远程依赖场景下的启动前 TCP 连通性自检
   - 已补 draining 窗口与停机前 `readyz` 摘流顺序
   - 已补 Consul 停机后实例摘注册验收验证
@@ -48,10 +49,10 @@
   - 已补齐网关、用户、商品、Consul、可观测性等专题设计文档
 - 测试
   - 已有 gateway 逻辑单测
-  - 已有 user-service / product-service 仓储与服务层单测
-  - 已补 cart-service service 层与 gateway cart logic 单测
+  - 已有 user-service / product-service / cart-service / inventory-service / order-service / payment-service 的 service 或 repository 单测
   - 已有 gateway 验收测试
   - 已有 Consul 服务发现验收测试
+  - 当前整仓 `go test ./...` 已可通过
 
 结论：
 
@@ -71,57 +72,57 @@
 
 建议按以下顺序推进：
 
-1. 服务生命周期治理继续收口
+1. 交易主链路端到端联调与验收测试
 2. 认证体系从单 JWT 刷新升级为服务端会话制
 3. 稳定性治理第二阶段
 4. 测试体系与 CI 能力
 5. 配置、安全与发布治理
-6. 新业务服务实装与统一治理复用
+6. 服务生命周期与治理模板继续收口
 7. 项目基本完成后，再推进业务服务容器化与 Compose 化
 
 补充判断：
 
-- `cart-service` 已经可以作为“治理模板复用”的第一条业务线继续完善
-- 下一条更合适的业务线仍然是 `inventory-service`，而不是直接进入 `order-service / payment-service`
+- 当前不建议再把重心放在“继续铺新业务服务”
+- 更应该把已完成的 `inventory -> order -> payment` 链路做成稳定可回归的交易闭环
 
-## 5. P0：服务生命周期治理收口
+## 5. P0：交易主链路联调收口
 
 ### 5.1 当前状态
 
-当前第一阶段已经落地：
+当前已经落地：
 
-- `gateway` 主端口提供 `/healthz`、`/readyz`
-- `user-service` / `product-service` 在 admin 端口统一暴露 `/metrics`、`/healthz`、`/readyz`
-- 三个主服务都支持信号驱动的优雅停机
-- 宿主机启动脚本已统一补充 shutdown timeout 和探针入口提示
-- `gateway`、`user-service`、`product-service` 已补 preflight timeout 与远程依赖 TCP 连通性自检
+- 商品创建已通过 `DTM workflow` 串起商品和库存初始化 Saga
+- 下单链路已接入商品校验、库存预占、订单落库与失败补偿
+- 支付链路已接入支付单创建、mock 支付成功确认、订单支付确认、库存确认扣减
+- 订单关闭和支付关闭都已有基础状态机和幂等控制
+- 各服务已有一定单测和 RPC/网关层测试基线
 
 但还没有完全收口的部分包括：
 
-- 新服务复用同一套生命周期模板
-- 更细的 readiness 判定标准
-- Redis 接入主链路后的 preflight 收口
+- 交易主链路缺少稳定的端到端验收入口
+- 订单、支付、库存交界处还缺少更完整的回归矩阵
+- 部分文档仍停留在“服务骨架”阶段，和代码现状不一致
 
 ### 5.2 下一步建议
 
 优先补齐：
 
-- 宿主机启动契约的继续统一
-- 远程依赖检查与排障闭环的继续细化
-- 服务停机流程的 runbook 固化
-- 新服务复用同一套健康检查与 shutdown 模板
+- 商品创建/上架 -> 加购 -> 下单 -> 创建支付单 -> mock 支付成功 -> 订单已支付 -> 库存确认扣减的验收链路
+- 订单超时关闭、支付单过期、重复支付确认、库存释放等异常分支回归
+- runbook 中针对交易主链路的联调和排障步骤
+- 对过时设计文档的同步更新
 
 建议目标：
 
-- 保持宿主机直跑服务的调试体验
-- 让新服务默认按同一套生命周期契约接入
-- 让“启动成功、可接流、停止接流、优雅退出”都有统一判断口径
+- 让交易主链路不仅“代码存在”，而且“可以稳定回归”
+- 让跨服务失败场景有统一的验证口径
+- 让文档、测试和实现保持一致
 
 ### 5.3 完成标准
 
-- 启动、健康、就绪、停机入口在三个主服务上保持一致
-- runbook 能覆盖远程依赖、探针、优雅停机的排障步骤
-- 后续新服务不再各自实现一套生命周期逻辑
+- 至少有一条覆盖交易主链路的验收测试可以稳定执行
+- 关键异常分支有明确回归用例
+- 文档中不再把 `inventory-service / order-service / payment-service` 描述为“仅骨架”
 
 ## 6. P1：认证体系升级
 
@@ -239,9 +240,9 @@
 
 - JWT / 刷新 / 角色快照相关链路
 - Casbin 授权回归
-- 商品管理写链路
+- 商品管理写链路与 Saga 补偿链路
 - migration 回归
-- 多服务联调回归
+- 交易主链路多服务联调回归
 
 ### 8.2 下一步建议
 
@@ -256,7 +257,7 @@
    - JWT 登录、刷新、角色变更
    - 商品创建、更新、上下架、权限拦截
 3. 验收测试
-   - `gateway + user-service + product-service + consul`
+   - `gateway + user-service + product-service + inventory-service + order-service + payment-service + consul`
 
 ### 8.3 CI 建议
 
@@ -300,25 +301,26 @@
 
 这部分优先级低于会话治理、容器化和测试体系。
 
-## 10. P2：新业务服务实装
+## 10. P2：服务治理复用与运行环境完善
 
 ### 10.1 当前状态
 
-仓库已经存在：
+仓库已经存在并已完成基础实现：
 
 - `order-service`
 - `inventory-service`
 - `payment-service`
 - `cart-service`
 
-但当前真正完成可联调、可治理复用的仍主要是：
+当前更值得继续推进的是：
 
-- `user-service`
-- `product-service`
+- 统一这些服务的联调入口
+- 统一运行环境和启动契约
+- 统一文档、测试和治理复用
 
 ### 10.2 下一步建议
 
-后续继续扩业务服务时，不建议再走“先把接口写出来再补治理”的路线，而应复用现有基线：
+后续不建议再走“先把接口写出来再补治理”的路线，而应复用现有基线：
 
 - 统一服务名规范
 - 统一启动脚本与配置约定
@@ -328,25 +330,20 @@
 
 推荐优先级：
 
-1. `cart-service`
-2. `inventory-service`
-3. `order-service`
-4. `payment-service`
-
-原因：
-
-- 购物车和库存更容易复用现有商品与用户链路
-- 订单与支付对事务性、幂等性和状态机要求更高，应放在治理能力更成熟后推进
+1. 交易主链路 Compose 化与默认联调脚本
+2. 服务生命周期和 admin 端口契约统一
+3. 多服务验收测试与 CI 接入
+4. 再视需要继续扩展更复杂能力
 
 ## 11. 当前建议汇总
 
 短期建议先做：
 
-- 补齐业务服务与 MySQL 的 Compose 化
-- 统一本地默认启动方式
+- 补齐交易主链路的验收测试
+- 统一本地默认启动方式和 Compose 联调环境
 - 设计并落地 Redis 会话白名单
 - 把 JWT 从单 token 刷新窗口升级到双 token
-- 补齐角色治理、商品管理相关回归测试
+- 补齐角色治理、商品管理、订单支付相关回归测试
 
 中期按需推进：
 
@@ -354,7 +351,7 @@
 - 分布式限流
 - 配置与密钥治理
 - CI 门禁
-- 新业务服务接入同一套治理基线
+- 多服务联调环境和治理模板复用
 
 长期再考虑：
 
@@ -369,5 +366,5 @@
 - 是否把 MySQL 纳入默认 `docker compose` 开发环境
 - 是否优先引入 Redis，为双 token 与分布式限流做准备
 - JWT 默认有效期是否从 `120` 分钟下调
-- 下一阶段首先实装哪个业务服务
+- 下一阶段是否优先把交易主链路纳入默认联调环境
 - 是否需要把 CI 门禁纳入当前迭代目标

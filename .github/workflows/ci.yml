@@ -25,8 +25,11 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Run application and service tests
+        run: go test ./app/... ./services/...
+
       - name: Run gateway tests
         run: go test ./gateway/...
 
-      - name: Run user-service tests
-        run: go test ./services/user-service/...
+      - name: Run integration tests
+        run: go test ./gateway/integration/... ./test/integration/...
