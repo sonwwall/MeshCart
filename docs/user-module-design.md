@@ -119,6 +119,93 @@
 - 日志：统一使用 `log.L(ctx)`
 - 链路：gateway logic 补 internal span，HTTP/RPC span 由框架插件自动生成
 - 业务属性：
+
+## 8. Gateway 会话设计
+
+当前双 token 的会话状态不放在 `user-service`，而是放在 `gateway`。
+
+职责拆分：
+
+- `user-service`
+  - 负责用户名密码校验
+  - 负责返回 `user_id`、`username`、`role`
+  - 刷新时按 `user_id` 返回最新用户信息
+- `gateway`
+  - 负责签发 `access_token`
+  - 负责生成 `refresh_token`
+  - 负责 Redis 会话白名单
+  - 负责 refresh rotation
+  - 负责 logout 吊销 session
+
+这样设计的原因：
+
+- 避免在双 token 第一版就把会话状态下沉到 `user-service`
+- 保持 `user-service` 仍专注于用户身份数据
+- 让 Gateway 统一管理 HTTP 登录态和 token 生命周期
+
+### 8.1 Redis 白名单设计
+
+当前 Redis 中维护两类 key：
+
+- `auth:session:<session_id>`
+  - value 为完整 session JSON
+- `auth:session:refresh:<refresh_token_hash>`
+  - value 为对应的 `session_id`
+
+`auth:session:<session_id>` 中保存的主要字段：
+
+- `session_id`
+- `user_id`
+- `username`
+- `role`
+- `refresh_token_hash`
+- `expires_at`
+- `device_id`
+- `user_agent`
+- `ip`
+- `created_at`
+- `updated_at`
+
+说明：
+
+- Redis 中不会明文保存 `refresh_token`
+- 服务端只保存 `refresh_token_hash`
+- 第二类 key 本质上是索引，用于按 refresh token 快速反查 session
+
+### 8.2 登录、刷新、登出时的 Redis 读写
+
+登录时：
+
+1. `user-service` 校验用户名密码
+2. `gateway` 生成 `session_id`
+3. `gateway` 签发 `access_token`
+4. `gateway` 生成明文 `refresh_token`
+5. `gateway` 计算 `refresh_token_hash`
+6. `gateway` 写入 Redis：
+   - `auth:session:<session_id>`
+   - `auth:session:refresh:<refresh_token_hash>`
+
+刷新时：
+
+1. 客户端提交明文 `refresh_token`
+2. `gateway` 先计算 hash
+3. 用 `auth:session:refresh:<refresh_token_hash>` 找到 `session_id`
+4. 用 `auth:session:<session_id>` 读完整 session
+5. 校验通过后生成新的 `access_token` 和 `refresh_token`
+6. 删除旧 hash 索引并写入新 hash 索引
+
+登出时：
+
+1. 根据 access token 中的 `session_id` 找到当前 session
+2. 删除 `auth:session:<session_id>`
+3. 同时删除对应的 `auth:session:refresh:<refresh_token_hash>`
+
+这套机制的含义是：
+
+- Redis 里还能查到的 refresh token，才算在白名单里
+- logout 后 refresh token 会立即失效
+- refresh 成功后旧 refresh token 会立即失效
+- access token 本身不查 Redis，仍只依赖 JWT 验签和过期时间
   - `biz.module=user`
   - `biz.action=login/register/update_role`
   - `biz.success`
@@ -279,9 +366,14 @@
   "message": "成功",
   "data": {
     "user_id": 123456789012345678,
-    "token": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
     "username": "test_user",
-    "role": "user"
+    "role": "user",
+    "session_id": "18d6b63d-87f2-4f1d-89b0-0fd68f4f662e",
+    "token_type": "Bearer",
+    "access_token": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "access_expire_at": "2026-03-20T18:27:25+08:00",
+    "refresh_token": "7rCO59FrRBVl71N2ewFGf4MgXV3n1rV9-iRCAWl5XQE",
+    "refresh_expire_at": "2026-04-19T16:27:25+08:00"
   },
   "trace_id": "8f2d3f..."
 }
@@ -289,10 +381,12 @@
 
 说明：
 
-- 登录成功后由 `gateway` 使用 Hertz JWT 中间件签发访问令牌
+- 登录成功后由 `gateway` 签发双 token，而不是由 `user-service` 返回 token
 - `user_id` 由 `user-service` 登录成功后返回真实用户 ID
-- `role` 来自 `user-service` 返回结果，并写入 JWT claims
-- 后续受保护接口通过 `Authorization: Bearer <token>` 携带登录态
+- `role` 来自 `user-service` 返回结果，并写入 access token claims
+- `session_id` 由 `gateway` 生成，并写入 access token claims
+- `access_token` 已带 `Bearer ` 前缀，可直接写入 `Authorization` 头
+- `refresh_token` 会在 Redis 中以 hash 形式进入服务端白名单
 
 失败响应示例：
 
@@ -327,6 +421,7 @@
   "code": 0,
   "message": "成功",
   "data": {
+    "session_id": "18d6b63d-87f2-4f1d-89b0-0fd68f4f662e",
     "user_id": 123456789012345678,
     "username": "test_user",
     "role": "user"
