@@ -236,6 +236,8 @@
 - 取消订单必须带 `request_id`
 - 创建支付必须带 `request_id`
 - 支付确认必须带 `request_id`
+- gateway 参数校验缺失 `request_id` 直接拒绝
+- order-service / payment-service 内部入口仍继续校验 `request_id`
 - 接口文档和验收测试同步更新
 
 ## 7. 当前建议

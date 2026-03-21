@@ -80,7 +80,7 @@ func newPaymentTestServiceContext(t *testing.T, paymentClient paymentrpc.Client)
 func TestCreateLogic_Success(t *testing.T) {
 	logic := NewCreateLogic(context.Background(), newPaymentTestServiceContext(t, &stubPaymentClient{
 		createPaymentFn: func(_ context.Context, req *paymentpb.CreatePaymentRequest) (*paymentrpc.CreatePaymentResponse, error) {
-			if req.GetUserId() != 101 || req.GetOrderId() != 10 || req.GetPaymentMethod() != "mock" {
+			if req.GetUserId() != 101 || req.GetOrderId() != 10 || req.GetPaymentMethod() != "mock" || req.GetRequestId() != "pay-req-1" {
 				t.Fatalf("unexpected create payment req: %+v", req)
 			}
 			return &paymentrpc.CreatePaymentResponse{Code: common.CodeOK, Payment: &paymentpb.Payment{PaymentId: 1, OrderId: 10, UserId: 101, Status: 1, PaymentMethod: "mock", Amount: 1999, Currency: "CNY", ExpireAt: 1710000900}}, nil
@@ -96,6 +96,23 @@ func TestCreateLogic_Success(t *testing.T) {
 	}
 	if data.ExpireAt != 1710000900 {
 		t.Fatalf("unexpected expire_at: %+v", data)
+	}
+}
+
+func TestCreateLogic_RejectsMissingRequestID(t *testing.T) {
+	logic := NewCreateLogic(context.Background(), newPaymentTestServiceContext(t, &stubPaymentClient{
+		createPaymentFn: func(_ context.Context, req *paymentpb.CreatePaymentRequest) (*paymentrpc.CreatePaymentResponse, error) {
+			t.Fatalf("create payment rpc should not be called: %+v", req)
+			return nil, nil
+		},
+	}))
+
+	data, bizErr := logic.Create(101, &types.CreatePaymentRequest{OrderID: 10, PaymentMethod: "mock"})
+	if data != nil {
+		t.Fatalf("expected nil data, got %+v", data)
+	}
+	if bizErr != common.ErrInvalidParam {
+		t.Fatalf("expected invalid param, got %+v", bizErr)
 	}
 }
 
@@ -140,19 +157,36 @@ func TestListByOrderLogic_Success(t *testing.T) {
 func TestMockSuccessLogic_Success(t *testing.T) {
 	logic := NewMockSuccessLogic(context.Background(), newPaymentTestServiceContext(t, &stubPaymentClient{
 		confirmPaymentSuccessFn: func(_ context.Context, req *paymentpb.ConfirmPaymentSuccessRequest) (*paymentrpc.ConfirmPaymentSuccessResponse, error) {
-			if req.GetPaymentId() != 1 || req.GetPaymentMethod() != "mock" || req.GetPaymentTradeNo() != "trade-1" {
+			if req.GetPaymentId() != 1 || req.GetPaymentMethod() != "mock" || req.GetPaymentTradeNo() != "trade-1" || req.GetRequestId() != "pay-confirm-1" {
 				t.Fatalf("unexpected confirm payment req: %+v", req)
 			}
 			return &paymentrpc.ConfirmPaymentSuccessResponse{Code: common.CodeOK, Payment: &paymentpb.Payment{PaymentId: 1, Status: 2, PaymentMethod: "mock", PaymentTradeNo: "trade-1"}}, nil
 		},
 	}))
 
-	data, bizErr := logic.Confirm(101, 1, &types.ConfirmMockPaymentRequest{PaymentTradeNo: "trade-1"})
+	data, bizErr := logic.Confirm(101, 1, &types.ConfirmMockPaymentRequest{RequestID: "pay-confirm-1", PaymentTradeNo: "trade-1"})
 	if bizErr != nil {
 		t.Fatalf("expected nil error, got %+v", bizErr)
 	}
 	if data == nil || data.Status != 2 || data.PaymentTradeNo != "trade-1" {
 		t.Fatalf("unexpected payment data: %+v", data)
+	}
+}
+
+func TestMockSuccessLogic_RejectsMissingRequestID(t *testing.T) {
+	logic := NewMockSuccessLogic(context.Background(), newPaymentTestServiceContext(t, &stubPaymentClient{
+		confirmPaymentSuccessFn: func(_ context.Context, req *paymentpb.ConfirmPaymentSuccessRequest) (*paymentrpc.ConfirmPaymentSuccessResponse, error) {
+			t.Fatalf("confirm payment success rpc should not be called: %+v", req)
+			return nil, nil
+		},
+	}))
+
+	data, bizErr := logic.Confirm(101, 1, &types.ConfirmMockPaymentRequest{PaymentTradeNo: "trade-1"})
+	if data != nil {
+		t.Fatalf("expected nil data, got %+v", data)
+	}
+	if bizErr != common.ErrInvalidParam {
+		t.Fatalf("expected invalid param, got %+v", bizErr)
 	}
 }
 

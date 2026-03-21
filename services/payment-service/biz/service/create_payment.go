@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strings"
 
 	"meshcart/app/common"
 	logx "meshcart/app/log"
@@ -39,52 +38,58 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req *paymentpb.Creat
 		return nil, bizErr
 	}
 
-	requestID := strings.TrimSpace(req.GetRequestId())
+	requestID, bizErr := requireRequestID(req.GetRequestId())
+	if bizErr != nil {
+		logx.L(ctx).Warn("create payment rejected by missing request_id",
+			zap.Int64("order_id", req.GetOrderId()),
+			zap.Int64("user_id", req.GetUserId()),
+			zap.String("payment_method", method),
+		)
+		return nil, bizErr
+	}
 	logx.L(ctx).Info("create payment start",
 		zap.Int64("order_id", req.GetOrderId()),
 		zap.Int64("user_id", req.GetUserId()),
 		zap.String("payment_method", method),
 		zap.String("request_id", requestID),
 	)
-	if requestID != "" {
-		existing, bizErr := s.findActionRecord(ctx, actionTypeCreate, requestID)
-		if bizErr != nil {
-			return nil, bizErr
-		}
-		if existing != nil {
-			switch existing.Status {
-			case "succeeded":
-				logx.L(ctx).Info("create payment hit succeeded action record",
-					zap.String("request_id", requestID),
-					zap.Int64("payment_id", existing.PaymentID),
-					zap.Int64("order_id", existing.OrderID),
-				)
-				return s.loadPaymentByActionRecord(ctx, existing)
-			case actionStatusPending:
-				logx.L(ctx).Warn("create payment blocked by pending action record",
-					zap.String("request_id", requestID),
-					zap.Int64("order_id", req.GetOrderId()),
-				)
-				return nil, errno.ErrPaymentIdempotencyBusy
-			default:
-				logx.L(ctx).Warn("create payment rejected by failed action record",
-					zap.String("request_id", requestID),
-					zap.Int64("order_id", req.GetOrderId()),
-					zap.String("status", existing.Status),
-				)
-				return nil, errno.ErrPaymentStateConflict
-			}
-		}
-		record, bizErr := s.createPendingActionRecord(ctx, actionTypeCreate, requestID, 0, req.GetOrderId())
-		if bizErr != nil {
-			return nil, bizErr
-		}
-		if record != nil && record.Status != actionStatusPending {
-			if record.Status == "succeeded" {
-				return s.loadPaymentByActionRecord(ctx, record)
-			}
+	existing, bizErr := s.findActionRecord(ctx, actionTypeCreate, requestID)
+	if bizErr != nil {
+		return nil, bizErr
+	}
+	if existing != nil {
+		switch existing.Status {
+		case "succeeded":
+			logx.L(ctx).Info("create payment hit succeeded action record",
+				zap.String("request_id", requestID),
+				zap.Int64("payment_id", existing.PaymentID),
+				zap.Int64("order_id", existing.OrderID),
+			)
+			return s.loadPaymentByActionRecord(ctx, existing)
+		case actionStatusPending:
+			logx.L(ctx).Warn("create payment blocked by pending action record",
+				zap.String("request_id", requestID),
+				zap.Int64("order_id", req.GetOrderId()),
+			)
 			return nil, errno.ErrPaymentIdempotencyBusy
+		default:
+			logx.L(ctx).Warn("create payment rejected by failed action record",
+				zap.String("request_id", requestID),
+				zap.Int64("order_id", req.GetOrderId()),
+				zap.String("status", existing.Status),
+			)
+			return nil, errno.ErrPaymentStateConflict
 		}
+	}
+	record, bizErr := s.createPendingActionRecord(ctx, actionTypeCreate, requestID, 0, req.GetOrderId())
+	if bizErr != nil {
+		return nil, bizErr
+	}
+	if record != nil && record.Status != actionStatusPending {
+		if record.Status == "succeeded" {
+			return s.loadPaymentByActionRecord(ctx, record)
+		}
+		return nil, errno.ErrPaymentIdempotencyBusy
 	}
 
 	existingPayments, err := s.repo.ListByOrderID(ctx, req.GetOrderId(), req.GetUserId())

@@ -50,10 +50,7 @@ func confirmActionKey(req *paymentpb.ConfirmPaymentSuccessRequest) string {
 	if req == nil {
 		return ""
 	}
-	if requestID := strings.TrimSpace(req.GetRequestId()); requestID != "" {
-		return requestID
-	}
-	return strconv.FormatInt(req.GetPaymentId(), 10)
+	return strings.TrimSpace(req.GetRequestId())
 }
 
 func paymentConflict(existing, incoming string) bool {
@@ -67,6 +64,14 @@ func closeActionKey(paymentID int64, requestID string) string {
 		return trimmed
 	}
 	return strconv.FormatInt(paymentID, 10)
+}
+
+func requireRequestID(requestID string) (string, *common.BizError) {
+	trimmed := strings.TrimSpace(requestID)
+	if trimmed == "" {
+		return "", common.ErrInvalidParam
+	}
+	return trimmed, nil
 }
 
 func (s *PaymentService) findActionRecord(ctx context.Context, actionType, actionKey string) (*dalmodel.PaymentActionRecord, *common.BizError) {

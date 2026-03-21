@@ -89,7 +89,7 @@
 执行顺序：
 
 1. 校验请求参数和支付方式
-2. 若传 `request_id`，先检查创建支付单幂等记录
+2. 校验 `request_id` 必填，并先检查创建支付单幂等记录
 3. 查询是否已存在同一订单的有效支付单
    - 当前有效状态定义为 `pending/succeeded`
    - 如果已存在，则直接返回已有支付单
@@ -125,8 +125,8 @@
 
 执行顺序：
 
-1. 校验 `payment_id` 和 `payment_method`
-2. 若传 `request_id`，先检查支付成功确认幂等记录
+1. 校验 `payment_id`、`payment_method` 和必填 `request_id`
+2. 先检查支付成功确认幂等记录
 3. 查询支付单并校验状态必须为 `pending`
 4. 校验支付单未过期
 5. 生成或读取 `payment_trade_no`
@@ -183,10 +183,9 @@
 当前幂等覆盖：
 
 - 创建支付单：
-  - `CreatePaymentRequest.request_id`
+  - `CreatePaymentRequest.request_id`，强制必填
 - 支付成功确认：
-  - 默认使用 `payment_id`
-  - 若传 `request_id`，优先使用 `request_id`
+  - `ConfirmPaymentSuccessRequest.request_id`，强制必填
 - 关闭支付单：
   - 默认使用 `payment_id`
   - 若传 `request_id`，优先使用 `request_id`

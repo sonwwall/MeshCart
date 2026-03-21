@@ -30,7 +30,14 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 		return nil, common.ErrInvalidParam
 	}
 
-	requestID := strings.TrimSpace(req.GetRequestId())
+	requestID, bizErr := requireRequestID(req.GetRequestId())
+	if bizErr != nil {
+		logx.L(ctx).Warn("cancel order rejected by missing request_id",
+			zap.Int64("user_id", req.GetUserId()),
+			zap.Int64("order_id", req.GetOrderId()),
+		)
+		return nil, bizErr
+	}
 	logx.L(ctx).Info("cancel order start",
 		zap.Int64("user_id", req.GetUserId()),
 		zap.Int64("order_id", req.GetOrderId()),

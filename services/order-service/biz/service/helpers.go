@@ -61,6 +61,14 @@ func paymentActionKey(req *orderpb.ConfirmOrderPaidRequest) string {
 	return strings.TrimSpace(req.GetPaymentId())
 }
 
+func requireRequestID(requestID string) (string, *common.BizError) {
+	trimmed := strings.TrimSpace(requestID)
+	if trimmed == "" {
+		return "", common.ErrInvalidParam
+	}
+	return trimmed, nil
+}
+
 func normalizePaymentMethod(method string) string {
 	return strings.ToLower(strings.TrimSpace(method))
 }

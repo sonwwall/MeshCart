@@ -76,7 +76,7 @@ func newOrderTestServiceContext(t *testing.T, orderClient orderrpc.Client) *svc.
 func TestCreateLogic_Success(t *testing.T) {
 	logic := NewCreateLogic(context.Background(), newOrderTestServiceContext(t, &stubOrderClient{
 		createOrderFn: func(_ context.Context, req *orderpb.CreateOrderRequest) (*orderrpc.CreateOrderResponse, error) {
-			if req.GetUserId() != 101 || len(req.GetItems()) != 1 || req.GetItems()[0].GetSkuId() != 3001 {
+			if req.GetUserId() != 101 || len(req.GetItems()) != 1 || req.GetItems()[0].GetSkuId() != 3001 || req.GetRequestId() != "req-1" {
 				t.Fatalf("unexpected create order req: %+v", req)
 			}
 			return &orderrpc.CreateOrderResponse{
@@ -108,6 +108,27 @@ func TestCreateLogic_Success(t *testing.T) {
 	}
 	if data == nil || data.OrderID != 1 || len(data.Items) != 1 || data.PaymentMethod != "mock" || data.PaymentTradeNo != "trade-1" {
 		t.Fatalf("unexpected order data: %+v", data)
+	}
+}
+
+func TestCreateLogic_RejectsMissingRequestID(t *testing.T) {
+	logic := NewCreateLogic(context.Background(), newOrderTestServiceContext(t, &stubOrderClient{
+		createOrderFn: func(_ context.Context, req *orderpb.CreateOrderRequest) (*orderrpc.CreateOrderResponse, error) {
+			t.Fatalf("create order rpc should not be called: %+v", req)
+			return nil, nil
+		},
+	}))
+
+	data, bizErr := logic.Create(101, &types.CreateOrderRequest{
+		Items: []types.CreateOrderItemInput{
+			{ProductID: 2001, SKUID: 3001, Quantity: 2},
+		},
+	})
+	if data != nil {
+		t.Fatalf("expected nil data, got %+v", data)
+	}
+	if bizErr != common.ErrInvalidParam {
+		t.Fatalf("expected invalid param, got %+v", bizErr)
 	}
 }
 
@@ -175,7 +196,7 @@ func TestListLogic_DefaultPagination(t *testing.T) {
 func TestCancelLogic_Success(t *testing.T) {
 	logic := NewCancelLogic(context.Background(), newOrderTestServiceContext(t, &stubOrderClient{
 		cancelOrderFn: func(_ context.Context, req *orderpb.CancelOrderRequest) (*orderrpc.CancelOrderResponse, error) {
-			if req.GetUserId() != 101 || req.GetOrderId() != 1 || req.GetCancelReason() != "changed_mind" {
+			if req.GetUserId() != 101 || req.GetOrderId() != 1 || req.GetCancelReason() != "changed_mind" || req.GetRequestId() != "cancel-req-1" {
 				t.Fatalf("unexpected cancel order req: %+v", req)
 			}
 			return &orderrpc.CancelOrderResponse{
@@ -185,11 +206,28 @@ func TestCancelLogic_Success(t *testing.T) {
 		},
 	}))
 
-	data, bizErr := logic.Cancel(101, 1, &types.CancelOrderRequest{CancelReason: "changed_mind"})
+	data, bizErr := logic.Cancel(101, 1, &types.CancelOrderRequest{RequestID: "cancel-req-1", CancelReason: "changed_mind"})
 	if bizErr != nil {
 		t.Fatalf("expected nil error, got %+v", bizErr)
 	}
 	if data == nil || data.Status != 4 || data.CancelReason != "changed_mind" {
 		t.Fatalf("unexpected cancel data: %+v", data)
+	}
+}
+
+func TestCancelLogic_RejectsMissingRequestID(t *testing.T) {
+	logic := NewCancelLogic(context.Background(), newOrderTestServiceContext(t, &stubOrderClient{
+		cancelOrderFn: func(_ context.Context, req *orderpb.CancelOrderRequest) (*orderrpc.CancelOrderResponse, error) {
+			t.Fatalf("cancel order rpc should not be called: %+v", req)
+			return nil, nil
+		},
+	}))
+
+	data, bizErr := logic.Cancel(101, 1, &types.CancelOrderRequest{CancelReason: "changed_mind"})
+	if data != nil {
+		t.Fatalf("expected nil data, got %+v", data)
+	}
+	if bizErr != common.ErrInvalidParam {
+		t.Fatalf("expected invalid param, got %+v", bizErr)
 	}
 }

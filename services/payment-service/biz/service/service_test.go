@@ -124,7 +124,7 @@ func TestPaymentService_CreatePayment_Success(t *testing.T) {
 	svc := newPaymentService(t, &stubPaymentRepository{
 		createFn: func(_ context.Context, payment *dalmodel.Payment) (*dalmodel.Payment, error) {
 			expectedExpireAt := time.Unix(1710000000, 0).Add(15 * time.Minute)
-			if payment.OrderID != 10 || payment.UserID != 101 || payment.Amount != 1999 || payment.PaymentMethod != "mock" || !payment.ExpireAt.Equal(expectedExpireAt) {
+			if payment.OrderID != 10 || payment.UserID != 101 || payment.Amount != 1999 || payment.PaymentMethod != "mock" || payment.RequestID != "pay-req-1" || !payment.ExpireAt.Equal(expectedExpireAt) {
 				t.Fatalf("unexpected payment create args: %+v", payment)
 			}
 			return payment, nil
@@ -135,7 +135,7 @@ func TestPaymentService_CreatePayment_Success(t *testing.T) {
 		},
 	})
 
-	payment, bizErr := svc.CreatePayment(context.Background(), &paymentpb.CreatePaymentRequest{OrderId: 10, UserId: 101, PaymentMethod: "mock"})
+	payment, bizErr := svc.CreatePayment(context.Background(), &paymentpb.CreatePaymentRequest{OrderId: 10, UserId: 101, PaymentMethod: "mock", RequestId: stringPointer("pay-req-1")})
 	if bizErr != nil {
 		t.Fatalf("expected nil error, got %+v", bizErr)
 	}
@@ -151,12 +151,29 @@ func TestPaymentService_CreatePayment_ReturnActivePayment(t *testing.T) {
 		},
 	}, &stubOrderClient{})
 
-	payment, bizErr := svc.CreatePayment(context.Background(), &paymentpb.CreatePaymentRequest{OrderId: 10, UserId: 101, PaymentMethod: "mock"})
+	payment, bizErr := svc.CreatePayment(context.Background(), &paymentpb.CreatePaymentRequest{OrderId: 10, UserId: 101, PaymentMethod: "mock", RequestId: stringPointer("pay-req-2")})
 	if bizErr != nil {
 		t.Fatalf("expected nil error, got %+v", bizErr)
 	}
 	if payment.GetPaymentId() != 1 {
 		t.Fatalf("unexpected active payment: %+v", payment)
+	}
+}
+
+func TestPaymentService_CreatePayment_RejectsMissingRequestID(t *testing.T) {
+	svc := newPaymentService(t, &stubPaymentRepository{
+		listByOrderIDFn: func(_ context.Context, orderID, userID int64) ([]*dalmodel.Payment, error) {
+			t.Fatalf("list payments should not be called: %d %d", orderID, userID)
+			return nil, nil
+		},
+	}, &stubOrderClient{})
+
+	payment, bizErr := svc.CreatePayment(context.Background(), &paymentpb.CreatePaymentRequest{OrderId: 10, UserId: 101, PaymentMethod: "mock"})
+	if payment != nil {
+		t.Fatalf("expected nil payment, got %+v", payment)
+	}
+	if bizErr != common.ErrInvalidParam {
+		t.Fatalf("expected invalid param, got %+v", bizErr)
 	}
 }
 
@@ -180,7 +197,7 @@ func TestPaymentService_ConfirmPaymentSuccess_Success(t *testing.T) {
 		},
 	})
 
-	payment, bizErr := svc.ConfirmPaymentSuccess(context.Background(), &paymentpb.ConfirmPaymentSuccessRequest{PaymentId: 100, PaymentMethod: "mock"})
+	payment, bizErr := svc.ConfirmPaymentSuccess(context.Background(), &paymentpb.ConfirmPaymentSuccessRequest{PaymentId: 100, PaymentMethod: "mock", RequestId: stringPointer("pay-confirm-100")})
 	if bizErr != nil {
 		t.Fatalf("expected nil error, got %+v", bizErr)
 	}
@@ -200,7 +217,7 @@ func TestPaymentService_ConfirmPaymentSuccess_OrderRPCError(t *testing.T) {
 		},
 	})
 
-	payment, bizErr := svc.ConfirmPaymentSuccess(context.Background(), &paymentpb.ConfirmPaymentSuccessRequest{PaymentId: 100, PaymentMethod: "mock"})
+	payment, bizErr := svc.ConfirmPaymentSuccess(context.Background(), &paymentpb.ConfirmPaymentSuccessRequest{PaymentId: 100, PaymentMethod: "mock", RequestId: stringPointer("pay-confirm-101")})
 	if payment != nil {
 		t.Fatalf("expected nil payment, got %+v", payment)
 	}
@@ -226,12 +243,29 @@ func TestPaymentService_ConfirmPaymentSuccess_RetryAfterFailedActionRecord(t *te
 		},
 	})
 
-	payment, bizErr := svc.ConfirmPaymentSuccess(context.Background(), &paymentpb.ConfirmPaymentSuccessRequest{PaymentId: 100, PaymentMethod: "mock"})
+	payment, bizErr := svc.ConfirmPaymentSuccess(context.Background(), &paymentpb.ConfirmPaymentSuccessRequest{PaymentId: 100, PaymentMethod: "mock", RequestId: stringPointer("pay-confirm-102")})
 	if bizErr != nil {
 		t.Fatalf("expected nil error, got %+v", bizErr)
 	}
 	if payment == nil || payment.GetStatus() != PaymentStatusSucceeded {
 		t.Fatalf("unexpected payment: %+v", payment)
+	}
+}
+
+func TestPaymentService_ConfirmPaymentSuccess_RejectsMissingRequestID(t *testing.T) {
+	svc := newPaymentService(t, &stubPaymentRepository{
+		getByPaymentIDFn: func(_ context.Context, paymentID int64) (*dalmodel.Payment, error) {
+			t.Fatalf("get payment should not be called: %d", paymentID)
+			return nil, nil
+		},
+	}, &stubOrderClient{})
+
+	payment, bizErr := svc.ConfirmPaymentSuccess(context.Background(), &paymentpb.ConfirmPaymentSuccessRequest{PaymentId: 100, PaymentMethod: "mock"})
+	if payment != nil {
+		t.Fatalf("expected nil payment, got %+v", payment)
+	}
+	if bizErr != common.ErrInvalidParam {
+		t.Fatalf("expected invalid param, got %+v", bizErr)
 	}
 }
 
@@ -259,7 +293,7 @@ func TestPaymentService_ConfirmPaymentSuccess_ExpiredPayment(t *testing.T) {
 		},
 	}, &stubOrderClient{})
 
-	payment, bizErr := svc.ConfirmPaymentSuccess(context.Background(), &paymentpb.ConfirmPaymentSuccessRequest{PaymentId: 100, PaymentMethod: "mock"})
+	payment, bizErr := svc.ConfirmPaymentSuccess(context.Background(), &paymentpb.ConfirmPaymentSuccessRequest{PaymentId: 100, PaymentMethod: "mock", RequestId: stringPointer("pay-confirm-103")})
 	if payment != nil {
 		t.Fatalf("expected nil payment, got %+v", payment)
 	}

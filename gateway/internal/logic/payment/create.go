@@ -35,14 +35,16 @@ func (l *CreateLogic) Create(userID int64, req *types.CreatePaymentRequest) (*ty
 	if userID <= 0 || req == nil || req.OrderID <= 0 {
 		return nil, common.ErrInvalidParam
 	}
+	requestID := strings.TrimSpace(req.RequestID)
+	if requestID == "" {
+		return nil, common.ErrInvalidParam
+	}
 
 	rpcReq := &paymentpb.CreatePaymentRequest{
 		OrderId:       req.OrderID,
 		UserId:        userID,
 		PaymentMethod: strings.TrimSpace(req.PaymentMethod),
-	}
-	if requestID := strings.TrimSpace(req.RequestID); requestID != "" {
-		rpcReq.RequestId = &requestID
+		RequestId:     &requestID,
 	}
 
 	resp, err := l.svcCtx.PaymentClient.CreatePayment(ctx, rpcReq)

@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"sort"
-	"strings"
 	"time"
 
 	"meshcart/app/common"
@@ -31,7 +30,14 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 		return nil, common.ErrInvalidParam
 	}
 
-	requestID := strings.TrimSpace(req.GetRequestId())
+	requestID, bizErr := requireRequestID(req.GetRequestId())
+	if bizErr != nil {
+		logx.L(ctx).Warn("create order rejected by missing request_id",
+			zap.Int64("user_id", req.GetUserId()),
+			zap.Int("item_count", len(req.GetItems())),
+		)
+		return nil, bizErr
+	}
 	logx.L(ctx).Info("create order start",
 		zap.Int64("user_id", req.GetUserId()),
 		zap.Int("item_count", len(req.GetItems())),

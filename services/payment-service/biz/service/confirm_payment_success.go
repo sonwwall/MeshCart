@@ -24,11 +24,19 @@ func (s *PaymentService) ConfirmPaymentSuccess(ctx context.Context, req *payment
 		logx.L(ctx).Warn("confirm payment success rejected by unsupported method", zap.Int64("payment_id", req.GetPaymentId()), zap.String("payment_method", req.GetPaymentMethod()))
 		return nil, bizErr
 	}
+	requestID, bizErr := requireRequestID(req.GetRequestId())
+	if bizErr != nil {
+		logx.L(ctx).Warn("confirm payment success rejected by missing request_id",
+			zap.Int64("payment_id", req.GetPaymentId()),
+			zap.String("payment_method", method),
+		)
+		return nil, bizErr
+	}
 	tradeNo := strings.TrimSpace(req.GetPaymentTradeNo())
 	if tradeNo == "" {
 		tradeNo = "mock-" + buildOrderPaymentID(req.GetPaymentId())
 	}
-	actionKey := confirmActionKey(req)
+	actionKey := requestID
 	logx.L(ctx).Info("confirm payment success start",
 		zap.Int64("payment_id", req.GetPaymentId()),
 		zap.String("payment_method", method),
@@ -147,7 +155,7 @@ func (s *PaymentService) ConfirmPaymentSuccess(ctx context.Context, req *payment
 	orderReq := &orderpb.ConfirmOrderPaidRequest{
 		OrderId:        payment.OrderID,
 		PaymentId:      buildOrderPaymentID(payment.PaymentID),
-		RequestId:      stringPointer(strings.TrimSpace(req.GetRequestId())),
+		RequestId:      stringPointer(requestID),
 		PaymentMethod:  stringPointer(method),
 		PaymentTradeNo: stringPointer(tradeNo),
 		PaidAt:         paidAtUnixPointer(req.GetPaidAt()),

@@ -294,6 +294,74 @@ func TestGatewayAcceptance_RefreshTokenConcurrentOnlyOneSucceeds(t *testing.T) {
 	}
 }
 
+func TestGatewayAcceptance_WriteEndpointsRequireRequestID(t *testing.T) {
+	svcCtx := newTestServiceContext(t, permissiveRateLimitConfig())
+	svcCtx.UserClient = &stubUserClient{
+		loginFn: func(_ context.Context, req *userrpc.LoginRequest) (*userrpc.LoginResponse, error) {
+			return &userrpc.LoginResponse{
+				Code:     common.CodeOK,
+				Message:  "成功",
+				UserID:   101,
+				Username: req.Username,
+				Role:     authz.RoleUser,
+			}, nil
+		},
+		getUserFn: func(_ context.Context, req *userrpc.GetUserRequest) (*userrpc.GetUserResponse, error) {
+			return &userrpc.GetUserResponse{
+				Code:     common.CodeOK,
+				Message:  "成功",
+				UserID:   req.UserID,
+				Username: "buyer",
+				Role:     authz.RoleUser,
+			}, nil
+		},
+	}
+	svcCtx.OrderClient = &stubOrderClient{
+		createOrderFn: func(_ context.Context, req *orderpb.CreateOrderRequest) (*orderrpc.CreateOrderResponse, error) {
+			t.Fatalf("create order rpc should not be called: %+v", req)
+			return nil, nil
+		},
+		cancelOrderFn: func(_ context.Context, req *orderpb.CancelOrderRequest) (*orderrpc.CancelOrderResponse, error) {
+			t.Fatalf("cancel order rpc should not be called: %+v", req)
+			return nil, nil
+		},
+	}
+	svcCtx.PaymentClient = &stubPaymentClient{
+		createPaymentFn: func(_ context.Context, req *paymentpb.CreatePaymentRequest) (*paymentrpc.CreatePaymentResponse, error) {
+			t.Fatalf("create payment rpc should not be called: %+v", req)
+			return nil, nil
+		},
+		confirmPaymentSuccessFn: func(_ context.Context, req *paymentpb.ConfirmPaymentSuccessRequest) (*paymentrpc.ConfirmPaymentSuccessResponse, error) {
+			t.Fatalf("confirm payment success rpc should not be called: %+v", req)
+			return nil, nil
+		},
+	}
+
+	addr := startGatewayTestServer(t, svcCtx)
+	userToken := loginAndGetToken(t, addr, "buyer", "123456")
+
+	requests := []struct {
+		name string
+		url  string
+		body string
+	}{
+		{name: "create_order", url: "http://" + addr + "/api/v1/orders", body: `{"items":[{"product_id":2001,"sku_id":3001,"quantity":1}]}`},
+		{name: "cancel_order", url: "http://" + addr + "/api/v1/orders/4001/cancel", body: `{"cancel_reason":"changed_mind"}`},
+		{name: "create_payment", url: "http://" + addr + "/api/v1/payments", body: `{"order_id":4001,"payment_method":"mock"}`},
+		{name: "confirm_payment", url: "http://" + addr + "/api/v1/payments/5001/mock_success", body: `{"payment_trade_no":"trade-5001"}`},
+	}
+
+	for _, tc := range requests {
+		resp := doRequest(t, http.MethodPost, tc.url, strings.NewReader(tc.body), map[string]string{
+			"Content-Type":  "application/json",
+			"Authorization": userToken,
+		})
+		if resp.Code != common.CodeInvalidParam {
+			t.Fatalf("%s: expected invalid param, got code=%d message=%q", tc.name, resp.Code, resp.Message)
+		}
+	}
+}
+
 func TestGatewayAcceptance_ProductListFlow(t *testing.T) {
 	svcCtx := newTestServiceContext(t, config.RateLimitConfig{
 		Enabled: true,

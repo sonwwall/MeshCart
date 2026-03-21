@@ -184,9 +184,9 @@
 当前幂等覆盖：
 
 - 下单：
-  - `CreateOrderRequest.request_id`
+  - `CreateOrderRequest.request_id`，强制必填
 - 取消订单：
-  - `CancelOrderRequest.request_id`
+  - `CancelOrderRequest.request_id`，强制必填
 - 支付确认：
   - 默认使用 `payment_id`
   - 若传 `request_id`，优先使用 `request_id`

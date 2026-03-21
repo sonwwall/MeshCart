@@ -35,6 +35,10 @@ func (l *CreateLogic) Create(userID int64, req *types.CreateOrderRequest) (*type
 	if userID <= 0 || req == nil || len(req.Items) == 0 {
 		return nil, common.ErrInvalidParam
 	}
+	requestID := strings.TrimSpace(req.RequestID)
+	if requestID == "" {
+		return nil, common.ErrInvalidParam
+	}
 
 	items := make([]*orderpb.OrderItemInput, 0, len(req.Items))
 	for _, item := range req.Items {
@@ -49,11 +53,9 @@ func (l *CreateLogic) Create(userID int64, req *types.CreateOrderRequest) (*type
 	}
 
 	rpcReq := &orderpb.CreateOrderRequest{
-		UserId: userID,
-		Items:  items,
-	}
-	if requestID := strings.TrimSpace(req.RequestID); requestID != "" {
-		rpcReq.RequestId = &requestID
+		UserId:    userID,
+		Items:     items,
+		RequestId: &requestID,
 	}
 
 	resp, err := l.svcCtx.OrderClient.CreateOrder(ctx, rpcReq)

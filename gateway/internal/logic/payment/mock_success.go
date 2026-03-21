@@ -38,13 +38,15 @@ func (l *MockSuccessLogic) Confirm(userID, paymentID int64, req *types.ConfirmMo
 	if req == nil {
 		req = &types.ConfirmMockPaymentRequest{}
 	}
+	requestID := strings.TrimSpace(req.RequestID)
+	if requestID == "" {
+		return nil, common.ErrInvalidParam
+	}
 
 	rpcReq := &paymentpb.ConfirmPaymentSuccessRequest{
 		PaymentId:     paymentID,
 		PaymentMethod: "mock",
-	}
-	if requestID := strings.TrimSpace(req.RequestID); requestID != "" {
-		rpcReq.RequestId = &requestID
+		RequestId:     &requestID,
 	}
 	if tradeNo := strings.TrimSpace(req.PaymentTradeNo); tradeNo != "" {
 		rpcReq.PaymentTradeNo = &tradeNo

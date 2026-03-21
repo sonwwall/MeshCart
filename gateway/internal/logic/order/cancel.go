@@ -38,16 +38,18 @@ func (l *CancelLogic) Cancel(userID, orderID int64, req *types.CancelOrderReques
 	if req == nil {
 		req = &types.CancelOrderRequest{}
 	}
+	requestID := strings.TrimSpace(req.RequestID)
+	if requestID == "" {
+		return nil, common.ErrInvalidParam
+	}
 
 	rpcReq := &orderpb.CancelOrderRequest{
-		UserId:  userID,
-		OrderId: orderID,
+		UserId:    userID,
+		OrderId:   orderID,
+		RequestId: &requestID,
 	}
 	if reason := strings.TrimSpace(req.CancelReason); reason != "" {
 		rpcReq.CancelReason = &reason
-	}
-	if requestID := strings.TrimSpace(req.RequestID); requestID != "" {
-		rpcReq.RequestId = &requestID
 	}
 
 	resp, err := l.svcCtx.OrderClient.CancelOrder(ctx, rpcReq)

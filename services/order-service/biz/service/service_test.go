@@ -211,7 +211,8 @@ func TestOrderService_CreateOrder_Success(t *testing.T) {
 	})
 
 	order, bizErr := svc.CreateOrder(context.Background(), &orderpb.CreateOrderRequest{
-		UserId: 101,
+		UserId:    101,
+		RequestId: ptrString("create-success-1"),
 		Items: []*orderpb.OrderItemInput{{
 			ProductId: 2001,
 			SkuId:     3001,
@@ -268,8 +269,9 @@ func TestOrderService_CreateOrder_ReserveFailed(t *testing.T) {
 	})
 
 	order, bizErr := svc.CreateOrder(context.Background(), &orderpb.CreateOrderRequest{
-		UserId: 101,
-		Items:  []*orderpb.OrderItemInput{{ProductId: 2001, SkuId: 3001, Quantity: 1}},
+		UserId:    101,
+		RequestId: ptrString("create-reserve-failed-1"),
+		Items:     []*orderpb.OrderItemInput{{ProductId: 2001, SkuId: 3001, Quantity: 1}},
 	})
 	if order != nil {
 		t.Fatalf("expected nil order, got %+v", order)
@@ -303,8 +305,9 @@ func TestOrderService_CreateOrder_CreateFailedReleaseReserved(t *testing.T) {
 	})
 
 	order, bizErr := svc.CreateOrder(context.Background(), &orderpb.CreateOrderRequest{
-		UserId: 101,
-		Items:  []*orderpb.OrderItemInput{{ProductId: 2001, SkuId: 3001, Quantity: 1}},
+		UserId:    101,
+		RequestId: ptrString("create-persist-failed-1"),
+		Items:     []*orderpb.OrderItemInput{{ProductId: 2001, SkuId: 3001, Quantity: 1}},
 	})
 	if order != nil {
 		t.Fatalf("expected nil order, got %+v", order)
@@ -344,7 +347,7 @@ func TestOrderService_CancelOrder_Success(t *testing.T) {
 		},
 	})
 
-	order, bizErr := svc.CancelOrder(context.Background(), &orderpb.CancelOrderRequest{UserId: 101, OrderId: 1})
+	order, bizErr := svc.CancelOrder(context.Background(), &orderpb.CancelOrderRequest{UserId: 101, OrderId: 1, RequestId: ptrString("cancel-success-1")})
 	if bizErr != nil {
 		t.Fatalf("expected nil error, got %+v", bizErr)
 	}
@@ -360,7 +363,7 @@ func TestOrderService_CancelOrder_AlreadyPaid(t *testing.T) {
 		},
 	}, &stubProductClient{}, &stubInventoryClient{})
 
-	order, bizErr := svc.CancelOrder(context.Background(), &orderpb.CancelOrderRequest{UserId: 101, OrderId: 1})
+	order, bizErr := svc.CancelOrder(context.Background(), &orderpb.CancelOrderRequest{UserId: 101, OrderId: 1, RequestId: ptrString("cancel-paid-1")})
 	if order != nil {
 		t.Fatalf("expected nil order, got %+v", order)
 	}
@@ -433,6 +436,46 @@ func TestOrderService_CreateOrder_IdempotentByRequestID(t *testing.T) {
 	}
 	if order.GetOrderId() != 10101 {
 		t.Fatalf("unexpected idempotent order: %+v", order)
+	}
+}
+
+func TestOrderService_CreateOrder_RejectsMissingRequestID(t *testing.T) {
+	svc := newOrderService(t, &stubOrderRepository{
+		createActionRecordFn: func(_ context.Context, record *dalmodel.OrderActionRecord) error {
+			t.Fatalf("create action record should not be called: %+v", record)
+			return nil
+		},
+	}, &stubProductClient{}, &stubInventoryClient{})
+
+	order, bizErr := svc.CreateOrder(context.Background(), &orderpb.CreateOrderRequest{
+		UserId: 101,
+		Items:  []*orderpb.OrderItemInput{{ProductId: 2001, SkuId: 3001, Quantity: 1}},
+	})
+	if order != nil {
+		t.Fatalf("expected nil order, got %+v", order)
+	}
+	if bizErr != common.ErrInvalidParam {
+		t.Fatalf("expected invalid param, got %+v", bizErr)
+	}
+}
+
+func TestOrderService_CancelOrder_RejectsMissingRequestID(t *testing.T) {
+	svc := newOrderService(t, &stubOrderRepository{
+		getByOrderIDFn: func(_ context.Context, userID, orderID int64) (*dalmodel.Order, error) {
+			t.Fatalf("get order should not be called: %d %d", userID, orderID)
+			return nil, nil
+		},
+	}, &stubProductClient{}, &stubInventoryClient{})
+
+	order, bizErr := svc.CancelOrder(context.Background(), &orderpb.CancelOrderRequest{
+		UserId:  101,
+		OrderId: 1,
+	})
+	if order != nil {
+		t.Fatalf("expected nil order, got %+v", order)
+	}
+	if bizErr != common.ErrInvalidParam {
+		t.Fatalf("expected invalid param, got %+v", bizErr)
 	}
 }
 
