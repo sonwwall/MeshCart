@@ -132,7 +132,7 @@ func TestPaymentHandler_CreatePayment_Success(t *testing.T) {
 	})
 
 	h := NewPaymentServiceImpl(svc)
-	resp, err := h.CreatePayment(context.Background(), &paymentpb.CreatePaymentRequest{OrderId: 10, UserId: 101, PaymentMethod: "mock"})
+	resp, err := h.CreatePayment(context.Background(), &paymentpb.CreatePaymentRequest{OrderId: 10, UserId: 101, PaymentMethod: "mock", RequestId: ptrString("rpc-payment-create-1")})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -156,7 +156,7 @@ func TestPaymentHandler_ConfirmPaymentSuccess_Success(t *testing.T) {
 	})
 
 	h := NewPaymentServiceImpl(svc)
-	resp, err := h.ConfirmPaymentSuccess(context.Background(), &paymentpb.ConfirmPaymentSuccessRequest{PaymentId: 100, PaymentMethod: "mock"})
+	resp, err := h.ConfirmPaymentSuccess(context.Background(), &paymentpb.ConfirmPaymentSuccessRequest{PaymentId: 100, PaymentMethod: "mock", RequestId: ptrString("rpc-payment-confirm-1")})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -184,4 +184,8 @@ func TestPaymentHandler_ClosePayment_Success(t *testing.T) {
 	if resp.GetBase().GetCode() != 0 || resp.GetPayment() == nil || resp.GetPayment().GetStatus() != bizservice.PaymentStatusClosed {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
+}
+
+func ptrString(v string) *string {
+	return &v
 }

@@ -169,8 +169,9 @@ func TestOrderHandler_CreateOrder_Success(t *testing.T) {
 
 	h := NewOrderServiceImpl(svc)
 	resp, err := h.CreateOrder(context.Background(), &orderpb.CreateOrderRequest{
-		UserId: 101,
-		Items:  []*orderpb.OrderItemInput{{ProductId: 2001, SkuId: 3001, Quantity: 2}},
+		UserId:    101,
+		RequestId: ptrString("rpc-order-create-1"),
+		Items:     []*orderpb.OrderItemInput{{ProductId: 2001, SkuId: 3001, Quantity: 2}},
 	})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
