@@ -127,6 +127,9 @@ func TestPaymentService_CreatePayment_Success(t *testing.T) {
 			if payment.OrderID != 10 || payment.UserID != 101 || payment.Amount != 1999 || payment.PaymentMethod != "mock" || payment.RequestID != "pay-req-1" || !payment.ExpireAt.Equal(expectedExpireAt) {
 				t.Fatalf("unexpected payment create args: %+v", payment)
 			}
+			if payment.ActiveOrderID == nil || *payment.ActiveOrderID != 10 {
+				t.Fatalf("unexpected payment create args: %+v", payment)
+			}
 			return payment, nil
 		},
 	}, &stubOrderClient{
@@ -157,6 +160,42 @@ func TestPaymentService_CreatePayment_ReturnActivePayment(t *testing.T) {
 	}
 	if payment.GetPaymentId() != 1 {
 		t.Fatalf("unexpected active payment: %+v", payment)
+	}
+}
+
+func TestPaymentService_CreatePayment_ReusesActivePaymentAfterUniqueGuardConflict(t *testing.T) {
+	svc := newPaymentService(t, &stubPaymentRepository{
+		createFn: func(_ context.Context, payment *dalmodel.Payment) (*dalmodel.Payment, error) {
+			if payment.ActiveOrderID == nil || *payment.ActiveOrderID != payment.OrderID {
+				t.Fatalf("unexpected active order id on create: %+v", payment)
+			}
+			return nil, repository.ErrActivePaymentExists
+		},
+		getLatestActiveByOrderIDFn: func(_ context.Context, orderID, userID int64) (*dalmodel.Payment, error) {
+			return &dalmodel.Payment{
+				PaymentID:     2,
+				OrderID:       orderID,
+				ActiveOrderID: int64Pointer(orderID),
+				UserID:        userID,
+				Status:        PaymentStatusPending,
+				PaymentMethod: "mock",
+				Amount:        1999,
+				Currency:      "CNY",
+				ExpireAt:      time.Unix(1710000000, 0).Add(5 * time.Minute),
+			}, nil
+		},
+	}, &stubOrderClient{
+		getOrderFn: func(_ context.Context, userID, orderID int64) (*orderrpc.GetOrderResponse, error) {
+			return &orderrpc.GetOrderResponse{Code: 0, Order: &orderpb.Order{OrderId: orderID, UserId: userID, Status: 2, PayAmount: 1999, ExpireAt: time.Unix(1710000000, 0).Add(30 * time.Minute).Unix()}}, nil
+		},
+	})
+
+	payment, bizErr := svc.CreatePayment(context.Background(), &paymentpb.CreatePaymentRequest{OrderId: 10, UserId: 101, PaymentMethod: "mock", RequestId: stringPointer("pay-req-3")})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if payment == nil || payment.GetPaymentId() != 2 || payment.GetStatus() != PaymentStatusPending {
+		t.Fatalf("unexpected payment: %+v", payment)
 	}
 }
 

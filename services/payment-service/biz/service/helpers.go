@@ -195,11 +195,18 @@ func mapRepositoryError(err error) *common.BizError {
 		return errno.ErrPaymentNotFound
 	case errors.Is(err, repository.ErrInvalidPayment):
 		return errno.ErrInvalidPaymentData
+	case errors.Is(err, repository.ErrActivePaymentExists):
+		return errno.ErrPaymentStateConflict
 	case errors.Is(err, repository.ErrPaymentStateConflict):
 		return errno.ErrPaymentStateConflict
 	default:
 		return common.ErrInternalError
 	}
+}
+
+func int64Pointer(value int64) *int64 {
+	v := value
+	return &v
 }
 
 func mapOrderRPCError(code int32) *common.BizError {

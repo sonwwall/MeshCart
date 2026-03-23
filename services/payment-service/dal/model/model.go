@@ -5,6 +5,7 @@ import "time"
 type Payment struct {
 	PaymentID      int64      `gorm:"column:payment_id;primaryKey"`
 	OrderID        int64      `gorm:"column:order_id;not null;index:idx_payments_order_id_status,priority:1"`
+	ActiveOrderID  *int64     `gorm:"column:active_order_id;uniqueIndex:uk_payments_active_order_id"`
 	UserID         int64      `gorm:"column:user_id;not null;index:idx_payments_user_id"`
 	Status         int32      `gorm:"column:status;type:tinyint;not null;default:1;index:idx_payments_order_id_status,priority:2;index:idx_payments_status_updated_at,priority:1"`
 	PaymentMethod  string     `gorm:"column:payment_method;type:varchar(32);not null;default:''"`

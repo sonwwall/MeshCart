@@ -183,6 +183,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req *paymentpb.Creat
 	model := &dalmodel.Payment{
 		PaymentID:     s.node.Generate().Int64(),
 		OrderID:       req.GetOrderId(),
+		ActiveOrderID: int64Pointer(req.GetOrderId()),
 		UserID:        req.GetUserId(),
 		Status:        PaymentStatusPending,
 		PaymentMethod: method,
@@ -193,6 +194,25 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req *paymentpb.Creat
 	}
 	created, createErr := s.repo.Create(ctx, model)
 	if createErr != nil {
+		if createErr == repository.ErrActivePaymentExists {
+			activePayment, activeErr := s.repo.GetLatestActiveByOrderID(ctx, req.GetOrderId(), req.GetUserId())
+			if activeErr == nil {
+				logx.L(ctx).Info("create payment reused active payment after unique guard conflict",
+					zap.Int64("payment_id", activePayment.PaymentID),
+					zap.Int64("order_id", activePayment.OrderID),
+					zap.Int64("user_id", activePayment.UserID),
+					zap.String("request_id", requestID),
+				)
+				s.markActionSucceeded(ctx, actionTypeCreate, requestID, activePayment.PaymentID, activePayment.OrderID)
+				return toRPCPayment(activePayment), nil
+			}
+			logx.L(ctx).Error("create payment load active payment after unique guard conflict failed",
+				zap.Error(activeErr),
+				zap.Int64("order_id", req.GetOrderId()),
+				zap.Int64("user_id", req.GetUserId()),
+				zap.String("request_id", requestID),
+			)
+		}
 		bizErr := mapRepositoryError(createErr)
 		logx.L(ctx).Error("create payment persist failed",
 			zap.Error(createErr),

@@ -17,6 +17,7 @@ var (
 	ErrPaymentNotFound      = errors.New("payment not found")
 	ErrInvalidPayment       = errors.New("invalid payment")
 	ErrPaymentStateConflict = errors.New("payment state conflict")
+	ErrActivePaymentExists  = errors.New("active payment already exists")
 	ErrActionRecordNotFound = errors.New("payment action record not found")
 	ErrActionRecordExists   = errors.New("payment action record exists")
 )
@@ -66,6 +67,16 @@ func (r *MySQLPaymentRepository) Create(ctx context.Context, payment *dalmodel.P
 	}
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(payment).Error; err != nil {
+			if isActivePaymentUniqueConstraintError(err) {
+				logx.L(ctx).Warn("create payment rejected by active payment unique guard",
+					zap.Error(err),
+					zap.Int64("payment_id", payment.PaymentID),
+					zap.Int64("order_id", payment.OrderID),
+					zap.Int64("user_id", payment.UserID),
+					zap.String("request_id", payment.RequestID),
+				)
+				return ErrActivePaymentExists
+			}
 			if isUniqueConstraintError(err) {
 				logx.L(ctx).Warn("create payment duplicate key",
 					zap.Error(err),
@@ -170,7 +181,7 @@ func (r *MySQLPaymentRepository) GetLatestActiveByOrderID(ctx context.Context, o
 
 	var payment dalmodel.Payment
 	if err := r.db.WithContext(ctx).
-		Where("order_id = ? AND user_id = ? AND status IN ?", orderID, userID, []int32{1, 2}).
+		Where("active_order_id = ? AND user_id = ?", orderID, userID).
 		Order("created_at DESC, payment_id DESC").
 		Take(&payment).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -218,6 +229,11 @@ func (r *MySQLPaymentRepository) TransitionStatus(ctx context.Context, transitio
 		updates := map[string]any{
 			"status":      transition.ToStatus,
 			"fail_reason": transition.FailReason,
+		}
+		if transition.ToStatus == 1 {
+			updates["active_order_id"] = payment.OrderID
+		} else {
+			updates["active_order_id"] = nil
 		}
 		if transition.PaymentMethod != "" {
 			updates["payment_method"] = transition.PaymentMethod
@@ -386,6 +402,16 @@ func isUniqueConstraintError(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "Duplicate entry") || strings.Contains(msg, "UNIQUE constraint failed")
+}
+
+func isActivePaymentUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "uk_payments_active_order_id") ||
+		strings.Contains(msg, "payments.active_order_id") ||
+		strings.Contains(msg, "payments`.`active_order_id")
 }
 
 func truncateString(s string, max int) string {
