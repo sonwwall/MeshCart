@@ -15,20 +15,20 @@ import (
 	orderpb "meshcart/kitex_gen/meshcart/order"
 	paymentpb "meshcart/kitex_gen/meshcart/payment"
 	productpb "meshcart/kitex_gen/meshcart/product"
-	ordererrno "meshcart/services/order-service/biz/errno"
 	inventoryrepo "meshcart/services/inventory-service/biz/repository"
 	inventoryservice "meshcart/services/inventory-service/biz/service"
 	inventorymodel "meshcart/services/inventory-service/dal/model"
+	ordererrno "meshcart/services/order-service/biz/errno"
 	orderrepo "meshcart/services/order-service/biz/repository"
 	orderservice "meshcart/services/order-service/biz/service"
 	ordermodel "meshcart/services/order-service/dal/model"
 	inventoryrpc "meshcart/services/order-service/rpcclient/inventory"
 	productrpc "meshcart/services/order-service/rpcclient/product"
+	paymenterrno "meshcart/services/payment-service/biz/errno"
 	paymentrepo "meshcart/services/payment-service/biz/repository"
 	paymentservice "meshcart/services/payment-service/biz/service"
 	paymentmodel "meshcart/services/payment-service/dal/model"
 	orderrpc "meshcart/services/payment-service/rpcclient/order"
-	paymenterrno "meshcart/services/payment-service/biz/errno"
 	productrepo "meshcart/services/product-service/biz/repository"
 	productservice "meshcart/services/product-service/biz/service"
 	productmodel "meshcart/services/product-service/dal/model"
@@ -624,6 +624,14 @@ func (r *failingCreateOrderRepo) MarkActionRecordFailed(context.Context, string,
 	return nil
 }
 
+func (r *failingCreateOrderRepo) MarkActionRecordSucceededByID(context.Context, int64, int64) error {
+	return nil
+}
+
+func (r *failingCreateOrderRepo) MarkActionRecordFailedByID(context.Context, int64, string) error {
+	return nil
+}
+
 func newTradeFlowEnv(t *testing.T) *tradeFlowEnv {
 	t.Helper()
 
@@ -721,6 +729,14 @@ func (a *productServiceAdapter) GetProductDetail(ctx context.Context, req *produ
 		return &productrpc.GetProductDetailResponse{Code: bizErr.Code, Message: bizErr.Msg}, nil
 	}
 	return &productrpc.GetProductDetailResponse{Code: 0, Message: "成功", Product: product}, nil
+}
+
+func (a *productServiceAdapter) BatchGetProducts(ctx context.Context, req *productpb.BatchGetProductsRequest) (*productrpc.BatchGetProductsResponse, error) {
+	products, bizErr := a.svc.BatchGetProducts(ctx, req.GetProductIds())
+	if bizErr != nil {
+		return &productrpc.BatchGetProductsResponse{Code: bizErr.Code, Message: bizErr.Msg}, nil
+	}
+	return &productrpc.BatchGetProductsResponse{Code: 0, Message: "成功", Products: products}, nil
 }
 
 func (a *productServiceAdapter) BatchGetSKU(ctx context.Context, req *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
