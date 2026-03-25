@@ -65,6 +65,22 @@ func (s *slowProductService) GetProductDetail(ctx context.Context, request *prod
 	}, nil
 }
 
+func (s *slowProductService) BatchGetProducts(ctx context.Context, request *productpb.BatchGetProductsRequest) (*productpb.BatchGetProductsResponse, error) {
+	products := make([]*productpb.Product, 0, len(request.GetProductIds()))
+	for _, productID := range request.GetProductIds() {
+		products = append(products, &productpb.Product{
+			Id:        productID,
+			Title:     "slow product",
+			Status:    2,
+			CreatorId: 1,
+		})
+	}
+	return &productpb.BatchGetProductsResponse{
+		Products: products,
+		Base:     &basepb.BaseResponse{Code: 0, Message: "成功"},
+	}, nil
+}
+
 func TestClient_GetProductDetailRetriesOnTransportError(t *testing.T) {
 	addr := acquireFreeAddr(t)
 	svc := &slowProductService{
