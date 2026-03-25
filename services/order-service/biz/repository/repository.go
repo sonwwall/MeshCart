@@ -33,6 +33,8 @@ type OrderRepository interface {
 	CreateActionRecord(ctx context.Context, record *dalmodel.OrderActionRecord) error
 	MarkActionRecordSucceeded(ctx context.Context, actionType, actionKey string, orderID int64) error
 	MarkActionRecordFailed(ctx context.Context, actionType, actionKey, errorMessage string) error
+	MarkActionRecordSucceededByID(ctx context.Context, id, orderID int64) error
+	MarkActionRecordFailedByID(ctx context.Context, id int64, errorMessage string) error
 }
 
 type OrderTransition struct {
@@ -80,16 +82,14 @@ func (r *MySQLOrderRepository) CreateWithItems(ctx context.Context, order *dalmo
 			if item == nil || item.ID <= 0 || item.OrderID != order.OrderID || item.SKUID <= 0 || item.Quantity <= 0 {
 				return ErrInvalidOrder
 			}
-			if err := tx.Create(item).Error; err != nil {
-				logx.L(ctx).Error("create order item failed",
-					zap.Error(err),
-					zap.Int64("order_id", item.OrderID),
-					zap.Int64("item_id", item.ID),
-					zap.Int64("sku_id", item.SKUID),
-					zap.Int32("quantity", item.Quantity),
-				)
-				return err
-			}
+		}
+		if err := tx.Create(&items).Error; err != nil {
+			logx.L(ctx).Error("create order items failed",
+				zap.Error(err),
+				zap.Int64("order_id", order.OrderID),
+				zap.Int("item_count", len(items)),
+			)
+			return err
 		}
 		if err := tx.Create(&dalmodel.OrderStatusLog{
 			ID:         order.OrderID,
@@ -111,7 +111,13 @@ func (r *MySQLOrderRepository) CreateWithItems(ctx context.Context, order *dalmo
 	if err != nil {
 		return nil, err
 	}
-	return r.GetByOrderID(ctx, order.UserID, order.OrderID)
+	order.Items = make([]dalmodel.OrderItem, 0, len(items))
+	for _, item := range items {
+		if item != nil {
+			order.Items = append(order.Items, *item)
+		}
+	}
+	return order, nil
 }
 
 func (r *MySQLOrderRepository) GetByOrderID(ctx context.Context, userID, orderID int64) (*dalmodel.Order, error) {
@@ -412,6 +418,62 @@ func (r *MySQLOrderRepository) MarkActionRecordFailed(ctx context.Context, actio
 		logx.L(ctx).Warn("mark order action record failed missed record",
 			zap.String("action_type", actionType),
 			zap.String("action_key", actionKey),
+		)
+		return ErrActionRecordNotFound
+	}
+	return nil
+}
+
+func (r *MySQLOrderRepository) MarkActionRecordSucceededByID(ctx context.Context, id, orderID int64) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	result := r.db.WithContext(ctx).Model(&dalmodel.OrderActionRecord{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"status":        "succeeded",
+			"order_id":      orderID,
+			"error_message": "",
+		})
+	if result.Error != nil {
+		logx.L(ctx).Error("mark order action record succeeded by id failed",
+			zap.Error(result.Error),
+			zap.Int64("id", id),
+			zap.Int64("order_id", orderID),
+		)
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		logx.L(ctx).Warn("mark order action record succeeded by id missed record",
+			zap.Int64("id", id),
+			zap.Int64("order_id", orderID),
+		)
+		return ErrActionRecordNotFound
+	}
+	return nil
+}
+
+func (r *MySQLOrderRepository) MarkActionRecordFailedByID(ctx context.Context, id int64, errorMessage string) error {
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	result := r.db.WithContext(ctx).Model(&dalmodel.OrderActionRecord{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"status":        "failed",
+			"error_message": truncateString(errorMessage, 255),
+		})
+	if result.Error != nil {
+		logx.L(ctx).Error("mark order action record failed by id failed",
+			zap.Error(result.Error),
+			zap.Int64("id", id),
+			zap.String("error_message", truncateString(errorMessage, 255)),
+		)
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		logx.L(ctx).Warn("mark order action record failed by id missed record",
+			zap.Int64("id", id),
 		)
 		return ErrActionRecordNotFound
 	}

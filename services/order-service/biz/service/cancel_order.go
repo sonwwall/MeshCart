@@ -11,6 +11,7 @@ import (
 	orderpb "meshcart/kitex_gen/meshcart/order"
 	"meshcart/services/order-service/biz/errno"
 	"meshcart/services/order-service/biz/repository"
+	dalmodel "meshcart/services/order-service/dal/model"
 
 	"go.uber.org/zap"
 )
@@ -43,54 +44,20 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 		zap.Int64("order_id", req.GetOrderId()),
 		zap.String("request_id", requestID),
 	)
+	var actionRecord *dalmodel.OrderActionRecord
 	if requestID != "" {
-		existing, bizErr := s.findActionRecord(ctx, actionTypeCancel, requestID)
+		record, created, bizErr := s.resolvePendingActionRecord(ctx, actionTypeCancel, requestID, req.GetOrderId(), req.GetUserId())
 		if bizErr != nil {
 			return nil, bizErr
 		}
-		if existing != nil {
-			switch existing.Status {
-			case "succeeded":
-				logx.L(ctx).Info("cancel order hit succeeded action record",
-					zap.String("request_id", requestID),
-					zap.Int64("order_id", existing.OrderID),
-					zap.Int64("user_id", req.GetUserId()),
-				)
-				return s.loadOrderByActionRecord(ctx, existing)
-			case actionStatusPending:
-				logx.L(ctx).Warn("cancel order blocked by pending action record",
-					zap.String("request_id", requestID),
-					zap.Int64("order_id", req.GetOrderId()),
-				)
-				return nil, errno.ErrOrderIdempotencyBusy
-			default:
-				logx.L(ctx).Warn("cancel order rejected by failed action record",
-					zap.String("request_id", requestID),
-					zap.Int64("order_id", req.GetOrderId()),
-					zap.String("status", existing.Status),
-				)
-				return nil, errno.ErrOrderStateConflict
-			}
-		}
-		record, bizErr := s.createPendingActionRecord(ctx, actionTypeCancel, requestID, req.GetOrderId(), req.GetUserId())
-		if bizErr != nil {
-			return nil, bizErr
-		}
-		if record != nil && record.Status != actionStatusPending {
-			if record.Status == "succeeded" {
-				logx.L(ctx).Info("cancel order reused succeeded action record after create attempt",
-					zap.String("request_id", requestID),
-					zap.Int64("order_id", record.OrderID),
-				)
-				return s.loadOrderByActionRecord(ctx, record)
-			}
-			logx.L(ctx).Warn("cancel order blocked by non-pending action record after create attempt",
+		if !created {
+			logx.L(ctx).Info("cancel order reused succeeded action record",
 				zap.String("request_id", requestID),
-				zap.Int64("order_id", req.GetOrderId()),
-				zap.String("status", record.Status),
+				zap.Int64("order_id", record.OrderID),
 			)
-			return nil, errno.ErrOrderIdempotencyBusy
+			return s.loadOrderByActionRecord(ctx, record)
 		}
+		actionRecord = record
 	}
 
 	order, err := s.repo.GetByOrderID(ctx, req.GetUserId(), req.GetOrderId())
@@ -103,7 +70,7 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 			zap.Int32("mapped_code", bizErr.Code),
 			zap.String("mapped_message", bizErr.Msg),
 		)
-		s.markActionFailed(ctx, actionTypeCancel, requestID, bizErr)
+		s.markActionFailed(ctx, actionRecord, actionTypeCancel, requestID, bizErr)
 		return nil, bizErr
 	}
 	switch order.Status {
@@ -113,7 +80,7 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 			zap.Int64("user_id", order.UserID),
 			zap.Int32("status", order.Status),
 		)
-		s.markActionSucceeded(ctx, actionTypeCancel, requestID, order.OrderID)
+		s.markActionSucceeded(ctx, actionRecord, actionTypeCancel, requestID, order.OrderID)
 		return toRPCOrder(order), nil
 	case OrderStatusPaid:
 		logx.L(ctx).Warn("cancel order rejected by paid status",
@@ -121,7 +88,7 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 			zap.Int64("user_id", order.UserID),
 			zap.Int32("status", order.Status),
 		)
-		s.markActionFailed(ctx, actionTypeCancel, requestID, errno.ErrOrderPaidImmutable)
+		s.markActionFailed(ctx, actionRecord, actionTypeCancel, requestID, errno.ErrOrderPaidImmutable)
 		return nil, errno.ErrOrderPaidImmutable
 	case OrderStatusPending, OrderStatusReserved:
 	default:
@@ -130,7 +97,7 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 			zap.Int64("user_id", order.UserID),
 			zap.Int32("status", order.Status),
 		)
-		s.markActionFailed(ctx, actionTypeCancel, requestID, errno.ErrOrderStateConflict)
+		s.markActionFailed(ctx, actionRecord, actionTypeCancel, requestID, errno.ErrOrderStateConflict)
 		return nil, errno.ErrOrderStateConflict
 	}
 
@@ -151,7 +118,7 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 			zap.Int64("user_id", order.UserID),
 			zap.String("biz_id", s.reserveBizID(order.OrderID)),
 		)
-		s.markActionFailed(ctx, actionTypeCancel, requestID, common.ErrServiceUnavailable)
+		s.markActionFailed(ctx, actionRecord, actionTypeCancel, requestID, common.ErrServiceUnavailable)
 		return nil, common.ErrServiceUnavailable
 	}
 	if releaseResp.Code != 0 {
@@ -164,7 +131,7 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 			zap.Int32("mapped_code", bizErr.Code),
 			zap.String("mapped_message", bizErr.Msg),
 		)
-		s.markActionFailed(ctx, actionTypeCancel, requestID, bizErr)
+		s.markActionFailed(ctx, actionRecord, actionTypeCancel, requestID, bizErr)
 		return nil, bizErr
 	}
 
@@ -183,7 +150,7 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 			zap.Int32("status", updated.Status),
 			zap.String("cancel_reason", updated.CancelReason),
 		)
-		s.markActionSucceeded(ctx, actionTypeCancel, requestID, updated.OrderID)
+		s.markActionSucceeded(ctx, actionRecord, actionTypeCancel, requestID, updated.OrderID)
 		return toRPCOrder(updated), nil
 	}
 	if !errors.Is(updateErr, repository.ErrOrderStateConflict) {
@@ -195,7 +162,7 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 			zap.Int32("mapped_code", bizErr.Code),
 			zap.String("mapped_message", bizErr.Msg),
 		)
-		s.markActionFailed(ctx, actionTypeCancel, requestID, bizErr)
+		s.markActionFailed(ctx, actionRecord, actionTypeCancel, requestID, bizErr)
 		return nil, bizErr
 	}
 
@@ -218,7 +185,7 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 			zap.Int64("user_id", current.UserID),
 			zap.Int32("status", current.Status),
 		)
-		s.markActionSucceeded(ctx, actionTypeCancel, requestID, current.OrderID)
+		s.markActionSucceeded(ctx, actionRecord, actionTypeCancel, requestID, current.OrderID)
 		return toRPCOrder(current), nil
 	case OrderStatusPaid:
 		logx.L(ctx).Warn("cancel order reconciled to paid status",
@@ -226,7 +193,7 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 			zap.Int64("user_id", current.UserID),
 			zap.Int32("status", current.Status),
 		)
-		s.markActionFailed(ctx, actionTypeCancel, requestID, errno.ErrOrderPaidImmutable)
+		s.markActionFailed(ctx, actionRecord, actionTypeCancel, requestID, errno.ErrOrderPaidImmutable)
 		return nil, errno.ErrOrderPaidImmutable
 	default:
 		logx.L(ctx).Warn("cancel order reconciled to unsupported status",
@@ -234,7 +201,7 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 			zap.Int64("user_id", current.UserID),
 			zap.Int32("status", current.Status),
 		)
-		s.markActionFailed(ctx, actionTypeCancel, requestID, errno.ErrOrderStateConflict)
+		s.markActionFailed(ctx, actionRecord, actionTypeCancel, requestID, errno.ErrOrderStateConflict)
 		return nil, errno.ErrOrderStateConflict
 	}
 }

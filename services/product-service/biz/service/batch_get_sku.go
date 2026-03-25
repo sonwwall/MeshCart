@@ -16,17 +16,18 @@ func (s *ProductService) BatchGetSKU(ctx context.Context, skuIDs []int64) ([]*pr
 		return nil, common.ErrInvalidParam
 	}
 
+	uniqueIDs := dedupeInt64s(skuIDs)
 	cachedSKUs := make(map[int64]*productpb.ProductSku, len(skuIDs))
-	missingIDs := skuIDs
+	missingIDs := uniqueIDs
 	if s.cache != nil {
-		cached, cacheErr := s.cache.GetSKUs(ctx, skuIDs)
+		cached, cacheErr := s.cache.GetSKUs(ctx, uniqueIDs)
 		if cacheErr != nil {
-			logx.L(ctx).Warn("batch get sku cache read failed", zap.Error(cacheErr), zap.Int64s("sku_ids", skuIDs))
+			logx.L(ctx).Warn("batch get sku cache read failed", zap.Error(cacheErr), zap.Int64s("sku_ids", uniqueIDs))
 		}
 		cachedSKUs = cached
 		if len(cached) > 0 {
-			missingIDs = make([]int64, 0, len(skuIDs)-len(cached))
-			for _, skuID := range skuIDs {
+			missingIDs = make([]int64, 0, len(uniqueIDs)-len(cached))
+			for _, skuID := range uniqueIDs {
 				if _, ok := cached[skuID]; !ok {
 					missingIDs = append(missingIDs, skuID)
 				}
@@ -37,7 +38,7 @@ func (s *ProductService) BatchGetSKU(ctx context.Context, skuIDs []int64) ([]*pr
 		return orderedSKUs(skuIDs, cachedSKUs)
 	}
 
-	skus, err := s.repo.GetSKUsByIDs(ctx, missingIDs)
+	skus, err := s.repo.GetSKUsByIDsLite(ctx, missingIDs)
 	if err != nil {
 		return nil, common.ErrInternalError
 	}

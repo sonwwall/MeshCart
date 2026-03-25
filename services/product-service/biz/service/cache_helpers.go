@@ -34,3 +34,19 @@ func skuIDsFromModels(skus []*dalmodel.ProductSKU) []int64 {
 	}
 	return result
 }
+
+func dedupeInt64s(values []int64) []int64 {
+	if len(values) <= 1 {
+		return values
+	}
+	result := make([]int64, 0, len(values))
+	seen := make(map[int64]struct{}, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}

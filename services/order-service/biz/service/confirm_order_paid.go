@@ -11,6 +11,7 @@ import (
 	orderpb "meshcart/kitex_gen/meshcart/order"
 	"meshcart/services/order-service/biz/errno"
 	"meshcart/services/order-service/biz/repository"
+	dalmodel "meshcart/services/order-service/dal/model"
 
 	"go.uber.org/zap"
 )
@@ -43,57 +44,20 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 		zap.Int64("paid_at", req.GetPaidAt()),
 	)
 
-	existing, bizErr := s.findActionRecord(ctx, actionTypePay, actionKey)
+	var actionRecord *dalmodel.OrderActionRecord
+	record, created, bizErr := s.resolvePendingActionRecord(ctx, actionTypePay, actionKey, req.GetOrderId(), 0)
 	if bizErr != nil {
 		return nil, bizErr
 	}
-	if existing != nil {
-		switch existing.Status {
-		case "succeeded":
-			logx.L(ctx).Info("confirm order paid hit succeeded action record",
-				zap.String("action_key", actionKey),
-				zap.Int64("order_id", existing.OrderID),
-				zap.String("payment_id", paymentID),
-			)
-			return s.loadOrderByActionRecord(ctx, existing)
-		case actionStatusPending:
-			logx.L(ctx).Warn("confirm order paid blocked by pending action record",
-				zap.String("action_key", actionKey),
-				zap.Int64("order_id", req.GetOrderId()),
-				zap.String("payment_id", paymentID),
-			)
-			return nil, errno.ErrOrderIdempotencyBusy
-		default:
-			logx.L(ctx).Warn("confirm order paid rejected by failed action record",
-				zap.String("action_key", actionKey),
-				zap.Int64("order_id", req.GetOrderId()),
-				zap.String("payment_id", paymentID),
-				zap.String("status", existing.Status),
-			)
-			return nil, errno.ErrOrderStateConflict
-		}
-	}
-	record, bizErr := s.createPendingActionRecord(ctx, actionTypePay, actionKey, req.GetOrderId(), 0)
-	if bizErr != nil {
-		return nil, bizErr
-	}
-	if record != nil && record.Status != actionStatusPending {
-		if record.Status == "succeeded" {
-			logx.L(ctx).Info("confirm order paid reused succeeded action record after create attempt",
-				zap.String("action_key", actionKey),
-				zap.Int64("order_id", record.OrderID),
-				zap.String("payment_id", paymentID),
-			)
-			return s.loadOrderByActionRecord(ctx, record)
-		}
-		logx.L(ctx).Warn("confirm order paid blocked by non-pending action record after create attempt",
+	if !created {
+		logx.L(ctx).Info("confirm order paid reused succeeded action record",
 			zap.String("action_key", actionKey),
-			zap.Int64("order_id", req.GetOrderId()),
+			zap.Int64("order_id", record.OrderID),
 			zap.String("payment_id", paymentID),
-			zap.String("status", record.Status),
 		)
-		return nil, errno.ErrOrderIdempotencyBusy
+		return s.loadOrderByActionRecord(ctx, record)
 	}
+	actionRecord = record
 
 	order, err := s.repo.GetByID(ctx, req.GetOrderId())
 	if err != nil {
@@ -105,7 +69,7 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 			zap.Int32("mapped_code", bizErr.Code),
 			zap.String("mapped_message", bizErr.Msg),
 		)
-		s.markActionFailed(ctx, actionTypePay, actionKey, bizErr)
+		s.markActionFailed(ctx, actionRecord, actionTypePay, actionKey, bizErr)
 		return nil, bizErr
 	}
 	if order.Status == OrderStatusPaid {
@@ -118,7 +82,7 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 				zap.String("payment_method", paymentMethod),
 				zap.String("payment_trade_no", paymentTradeNo),
 			)
-			s.markActionSucceeded(ctx, actionTypePay, actionKey, order.OrderID)
+			s.markActionSucceeded(ctx, actionRecord, actionTypePay, actionKey, order.OrderID)
 			return toRPCOrder(order), nil
 		}
 		logx.L(ctx).Warn("confirm order paid rejected by payment conflict",
@@ -130,7 +94,7 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 			zap.String("payment_trade_no", paymentTradeNo),
 			zap.String("existing_payment_trade_no", order.PaymentTradeNo),
 		)
-		s.markActionFailed(ctx, actionTypePay, actionKey, errno.ErrOrderPaymentConflict)
+		s.markActionFailed(ctx, actionRecord, actionTypePay, actionKey, errno.ErrOrderPaymentConflict)
 		return nil, errno.ErrOrderPaymentConflict
 	}
 	if order.Status == OrderStatusClosed || order.Status == OrderStatusCancelled {
@@ -139,7 +103,7 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 			zap.String("payment_id", paymentID),
 			zap.Int32("status", order.Status),
 		)
-		s.markActionFailed(ctx, actionTypePay, actionKey, errno.ErrOrderStateConflict)
+		s.markActionFailed(ctx, actionRecord, actionTypePay, actionKey, errno.ErrOrderStateConflict)
 		return nil, errno.ErrOrderStateConflict
 	}
 	if order.Status != OrderStatusReserved {
@@ -148,7 +112,7 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 			zap.String("payment_id", paymentID),
 			zap.Int32("status", order.Status),
 		)
-		s.markActionFailed(ctx, actionTypePay, actionKey, errno.ErrOrderStateConflict)
+		s.markActionFailed(ctx, actionRecord, actionTypePay, actionKey, errno.ErrOrderStateConflict)
 		return nil, errno.ErrOrderStateConflict
 	}
 	if !order.ExpireAt.IsZero() && !s.now().Before(order.ExpireAt) {
@@ -158,7 +122,7 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 			zap.Time("expire_at", order.ExpireAt),
 			zap.Time("now", s.now()),
 		)
-		s.markActionFailed(ctx, actionTypePay, actionKey, errno.ErrOrderStateConflict)
+		s.markActionFailed(ctx, actionRecord, actionTypePay, actionKey, errno.ErrOrderStateConflict)
 		return nil, errno.ErrOrderStateConflict
 	}
 
@@ -169,7 +133,7 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 	})
 	if confirmErr != nil {
 		logx.L(ctx).Error("confirm deduct inventory failed", zap.Error(confirmErr), zap.Int64("order_id", order.OrderID), zap.String("payment_id", paymentID), zap.String("payment_trade_no", paymentTradeNo))
-		s.markActionFailed(ctx, actionTypePay, actionKey, common.ErrServiceUnavailable)
+		s.markActionFailed(ctx, actionRecord, actionTypePay, actionKey, common.ErrServiceUnavailable)
 		return nil, common.ErrServiceUnavailable
 	}
 	if confirmResp.Code != 0 {
@@ -182,7 +146,7 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 			zap.Int32("mapped_code", bizErr.Code),
 			zap.String("mapped_message", bizErr.Msg),
 		)
-		s.markActionFailed(ctx, actionTypePay, actionKey, bizErr)
+		s.markActionFailed(ctx, actionRecord, actionTypePay, actionKey, bizErr)
 		return nil, bizErr
 	}
 
@@ -217,7 +181,7 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 			zap.Int32("mapped_code", bizErr.Code),
 			zap.String("mapped_message", bizErr.Msg),
 		)
-		s.markActionFailed(ctx, actionTypePay, actionKey, bizErr)
+		s.markActionFailed(ctx, actionRecord, actionTypePay, actionKey, bizErr)
 		return nil, bizErr
 	}
 	var paidAtLog any
@@ -232,6 +196,6 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 		zap.Int32("status", updated.Status),
 		zap.Any("paid_at", paidAtLog),
 	)
-	s.markActionSucceeded(ctx, actionTypePay, actionKey, updated.OrderID)
+	s.markActionSucceeded(ctx, actionRecord, actionTypePay, actionKey, updated.OrderID)
 	return toRPCOrder(updated), nil
 }

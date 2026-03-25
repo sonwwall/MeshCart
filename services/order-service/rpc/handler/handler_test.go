@@ -29,6 +29,8 @@ type stubOrderRepository struct {
 	createActionRecordFn func(context.Context, *dalmodel.OrderActionRecord) error
 	markActionOKFn       func(context.Context, string, string, int64) error
 	markActionFailFn     func(context.Context, string, string, string) error
+	markActionOKByIDFn   func(context.Context, int64, int64) error
+	markActionFailByIDFn func(context.Context, int64, string) error
 }
 
 func (s *stubOrderRepository) CreateWithItems(ctx context.Context, order *dalmodel.Order, items []*dalmodel.OrderItem) (*dalmodel.Order, error) {
@@ -91,6 +93,18 @@ func (s *stubOrderRepository) MarkActionRecordSucceeded(ctx context.Context, act
 func (s *stubOrderRepository) MarkActionRecordFailed(ctx context.Context, actionType, actionKey, errorMessage string) error {
 	if s.markActionFailFn != nil {
 		return s.markActionFailFn(ctx, actionType, actionKey, errorMessage)
+	}
+	return nil
+}
+func (s *stubOrderRepository) MarkActionRecordSucceededByID(ctx context.Context, id, orderID int64) error {
+	if s.markActionOKByIDFn != nil {
+		return s.markActionOKByIDFn(ctx, id, orderID)
+	}
+	return nil
+}
+func (s *stubOrderRepository) MarkActionRecordFailedByID(ctx context.Context, id int64, errorMessage string) error {
+	if s.markActionFailByIDFn != nil {
+		return s.markActionFailByIDFn(ctx, id, errorMessage)
 	}
 	return nil
 }

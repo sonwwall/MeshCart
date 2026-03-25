@@ -220,9 +220,9 @@ func (s *OrderService) findActionRecord(ctx context.Context, actionType, actionK
 	return nil, common.ErrInternalError
 }
 
-func (s *OrderService) createPendingActionRecord(ctx context.Context, actionType, actionKey string, orderID, userID int64) (*dalmodel.OrderActionRecord, *common.BizError) {
+func (s *OrderService) createPendingActionRecord(ctx context.Context, actionType, actionKey string, orderID, userID int64) (*dalmodel.OrderActionRecord, bool, *common.BizError) {
 	if strings.TrimSpace(actionKey) == "" {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	record := &dalmodel.OrderActionRecord{
@@ -237,28 +237,53 @@ func (s *OrderService) createPendingActionRecord(ctx context.Context, actionType
 		if err == repository.ErrActionRecordExists {
 			existing, lookupErr := s.findActionRecord(ctx, actionType, actionKey)
 			if lookupErr != nil {
-				return nil, lookupErr
+				return nil, false, lookupErr
 			}
 			if existing != nil {
-				return existing, nil
+				return existing, false, nil
 			}
 		}
 		logx.L(ctx).Error("create order action record failed", zap.Error(err), zap.String("action_type", actionType), zap.String("action_key", actionKey))
-		return nil, common.ErrInternalError
+		return nil, false, common.ErrInternalError
 	}
-	return record, nil
+	return record, true, nil
 }
 
-func (s *OrderService) markActionSucceeded(ctx context.Context, actionType, actionKey string, orderID int64) {
+func (s *OrderService) resolvePendingActionRecord(ctx context.Context, actionType, actionKey string, orderID, userID int64) (*dalmodel.OrderActionRecord, bool, *common.BizError) {
+	record, created, bizErr := s.createPendingActionRecord(ctx, actionType, actionKey, orderID, userID)
+	if bizErr != nil {
+		return nil, false, bizErr
+	}
+	if created || record == nil {
+		return record, true, nil
+	}
+
+	switch record.Status {
+	case "succeeded":
+		return record, false, nil
+	case actionStatusPending:
+		return nil, false, errno.ErrOrderIdempotencyBusy
+	default:
+		return nil, false, errno.ErrOrderStateConflict
+	}
+}
+
+func (s *OrderService) markActionSucceeded(ctx context.Context, record *dalmodel.OrderActionRecord, actionType, actionKey string, orderID int64) {
 	if strings.TrimSpace(actionKey) == "" {
 		return
 	}
-	if err := s.repo.MarkActionRecordSucceeded(ctx, actionType, actionKey, orderID); err != nil {
+	var err error
+	if record != nil && record.ID > 0 {
+		err = s.repo.MarkActionRecordSucceededByID(ctx, record.ID, orderID)
+	} else {
+		err = s.repo.MarkActionRecordSucceeded(ctx, actionType, actionKey, orderID)
+	}
+	if err != nil {
 		logx.L(ctx).Error("mark order action succeeded failed", zap.Error(err), zap.String("action_type", actionType), zap.String("action_key", actionKey), zap.Int64("order_id", orderID))
 	}
 }
 
-func (s *OrderService) markActionFailed(ctx context.Context, actionType, actionKey string, bizErr *common.BizError) {
+func (s *OrderService) markActionFailed(ctx context.Context, record *dalmodel.OrderActionRecord, actionType, actionKey string, bizErr *common.BizError) {
 	if strings.TrimSpace(actionKey) == "" {
 		return
 	}
@@ -266,7 +291,13 @@ func (s *OrderService) markActionFailed(ctx context.Context, actionType, actionK
 	if bizErr != nil {
 		message = bizErr.Msg
 	}
-	if err := s.repo.MarkActionRecordFailed(ctx, actionType, actionKey, message); err != nil {
+	var err error
+	if record != nil && record.ID > 0 {
+		err = s.repo.MarkActionRecordFailedByID(ctx, record.ID, message)
+	} else {
+		err = s.repo.MarkActionRecordFailed(ctx, actionType, actionKey, message)
+	}
+	if err != nil {
 		logx.L(ctx).Error("mark order action failed failed", zap.Error(err), zap.String("action_type", actionType), zap.String("action_key", actionKey))
 	}
 }

@@ -31,6 +31,8 @@ type stubOrderRepository struct {
 	createActionRecordFn  func(context.Context, *dalmodel.OrderActionRecord) error
 	markActionSucceededFn func(context.Context, string, string, int64) error
 	markActionFailedFn    func(context.Context, string, string, string) error
+	markActionOKByIDFn    func(context.Context, int64, int64) error
+	markActionFailByIDFn  func(context.Context, int64, string) error
 }
 
 func (s *stubOrderRepository) CreateWithItems(ctx context.Context, order *dalmodel.Order, items []*dalmodel.OrderItem) (*dalmodel.Order, error) {
@@ -113,10 +115,24 @@ func (s *stubOrderRepository) MarkActionRecordFailed(ctx context.Context, action
 	return nil
 }
 
+func (s *stubOrderRepository) MarkActionRecordSucceededByID(ctx context.Context, id, orderID int64) error {
+	if s.markActionOKByIDFn != nil {
+		return s.markActionOKByIDFn(ctx, id, orderID)
+	}
+	return nil
+}
+
+func (s *stubOrderRepository) MarkActionRecordFailedByID(ctx context.Context, id int64, errorMessage string) error {
+	if s.markActionFailByIDFn != nil {
+		return s.markActionFailByIDFn(ctx, id, errorMessage)
+	}
+	return nil
+}
+
 type stubProductClient struct {
-	batchGetSKUFn       func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error)
-	batchGetProductsFn  func(context.Context, *productpb.BatchGetProductsRequest) (*productrpc.BatchGetProductsResponse, error)
-	getProductDetailFn  func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error)
+	batchGetSKUFn      func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error)
+	batchGetProductsFn func(context.Context, *productpb.BatchGetProductsRequest) (*productrpc.BatchGetProductsResponse, error)
+	getProductDetailFn func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error)
 }
 
 func (s *stubProductClient) BatchGetSKU(ctx context.Context, req *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
@@ -481,6 +497,12 @@ func TestOrderService_CloseExpiredOrders_Success(t *testing.T) {
 
 func TestOrderService_CreateOrder_IdempotentByRequestID(t *testing.T) {
 	svc := newOrderService(t, &stubOrderRepository{
+		createActionRecordFn: func(_ context.Context, record *dalmodel.OrderActionRecord) error {
+			if record.ActionType != "create" || record.ActionKey != "req-create-1" {
+				t.Fatalf("unexpected action create: %+v", record)
+			}
+			return repository.ErrActionRecordExists
+		},
 		getActionRecordFn: func(_ context.Context, actionType, actionKey string) (*dalmodel.OrderActionRecord, error) {
 			if actionType != "create" || actionKey != "req-create-1" {
 				t.Fatalf("unexpected action lookup: %s %s", actionType, actionKey)
@@ -581,6 +603,12 @@ func TestOrderService_ConfirmOrderPaid_Success(t *testing.T) {
 
 func TestOrderService_ConfirmOrderPaid_IdempotentByPaymentID(t *testing.T) {
 	svc := newOrderService(t, &stubOrderRepository{
+		createActionRecordFn: func(_ context.Context, record *dalmodel.OrderActionRecord) error {
+			if record.ActionType != "pay_confirm" || record.ActionKey != "pay-1" {
+				t.Fatalf("unexpected action create: %+v", record)
+			}
+			return repository.ErrActionRecordExists
+		},
 		getActionRecordFn: func(_ context.Context, actionType, actionKey string) (*dalmodel.OrderActionRecord, error) {
 			return &dalmodel.OrderActionRecord{ActionType: actionType, ActionKey: actionKey, OrderID: 1, Status: "succeeded"}, nil
 		},

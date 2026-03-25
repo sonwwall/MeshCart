@@ -10,7 +10,6 @@ import (
 	metricsx "meshcart/app/metrics"
 	"meshcart/kitex_gen/meshcart/inventory"
 	orderpb "meshcart/kitex_gen/meshcart/order"
-	"meshcart/services/order-service/biz/errno"
 	dalmodel "meshcart/services/order-service/dal/model"
 
 	"go.uber.org/zap"
@@ -47,60 +46,22 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 		zap.Int("item_count", len(req.GetItems())),
 		zap.String("request_id", requestID),
 	)
+	var actionRecord *dalmodel.OrderActionRecord
 	if requestID != "" {
-		existing, bizErr := s.findActionRecord(ctx, actionTypeCreate, requestID)
+		record, created, bizErr := s.resolvePendingActionRecord(ctx, actionTypeCreate, requestID, 0, req.GetUserId())
 		if bizErr != nil {
 			metricsx.ObserveBizError("order-service", "order", "create", "idempotency_lookup", bizErr.Code)
 			return nil, bizErr
 		}
-		if existing != nil {
-			switch existing.Status {
-			case "succeeded":
-				logx.L(ctx).Info("create order hit succeeded action record",
-					zap.String("request_id", requestID),
-					zap.Int64("order_id", existing.OrderID),
-					zap.Int64("user_id", req.GetUserId()),
-				)
-				return s.loadOrderByActionRecord(ctx, existing)
-			case actionStatusPending:
-				logx.L(ctx).Warn("create order blocked by pending action record",
-					zap.String("request_id", requestID),
-					zap.Int64("user_id", req.GetUserId()),
-				)
-				metricsx.ObserveBizError("order-service", "order", "create", "idempotency_lookup", errno.CodeOrderIdempotencyBusy)
-				return nil, errno.ErrOrderIdempotencyBusy
-			default:
-				logx.L(ctx).Warn("create order rejected by failed action record",
-					zap.String("request_id", requestID),
-					zap.Int64("user_id", req.GetUserId()),
-					zap.String("status", existing.Status),
-				)
-				metricsx.ObserveBizError("order-service", "order", "create", "idempotency_lookup", errno.CodeOrderStateConflict)
-				return nil, errno.ErrOrderStateConflict
-			}
-		}
-		record, bizErr := s.createPendingActionRecord(ctx, actionTypeCreate, requestID, 0, req.GetUserId())
-		if bizErr != nil {
-			metricsx.ObserveBizError("order-service", "order", "create", "idempotency_create", bizErr.Code)
-			return nil, bizErr
-		}
-		if record != nil && record.Status != actionStatusPending {
-			if record.Status == "succeeded" {
-				logx.L(ctx).Info("create order reused succeeded action record after create attempt",
-					zap.String("request_id", requestID),
-					zap.Int64("order_id", record.OrderID),
-					zap.Int64("user_id", req.GetUserId()),
-				)
-				return s.loadOrderByActionRecord(ctx, record)
-			}
-			logx.L(ctx).Warn("create order blocked by non-pending action record after create attempt",
+		if !created {
+			logx.L(ctx).Info("create order reused succeeded action record",
 				zap.String("request_id", requestID),
+				zap.Int64("order_id", record.OrderID),
 				zap.Int64("user_id", req.GetUserId()),
-				zap.String("status", record.Status),
 			)
-			metricsx.ObserveBizError("order-service", "order", "create", "idempotency_create", errno.CodeOrderIdempotencyBusy)
-			return nil, errno.ErrOrderIdempotencyBusy
+			return s.loadOrderByActionRecord(ctx, record)
 		}
+		actionRecord = record
 	}
 
 	orderID := s.node.Generate().Int64()
@@ -116,7 +77,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 			zap.String("message", bizErr.Msg),
 			zap.Duration("validation_duration", validationDuration),
 		)
-		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
+		s.markActionFailed(ctx, actionRecord, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
 	}
 	sort.SliceStable(reserveItems, func(i, j int) bool { return reserveItems[i].GetSkuId() < reserveItems[j].GetSkuId() })
@@ -139,7 +100,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 			zap.Duration("validation_duration", validationDuration),
 			zap.Duration("reserve_duration", reserveDuration),
 		)
-		s.markActionFailed(ctx, actionTypeCreate, requestID, common.ErrServiceUnavailable)
+		s.markActionFailed(ctx, actionRecord, actionTypeCreate, requestID, common.ErrServiceUnavailable)
 		return nil, common.ErrServiceUnavailable
 	}
 	if reserveResp.Code != 0 {
@@ -156,7 +117,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 			zap.Duration("validation_duration", validationDuration),
 			zap.Duration("reserve_duration", reserveDuration),
 		)
-		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
+		s.markActionFailed(ctx, actionRecord, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
 	}
 
@@ -211,7 +172,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 			zap.Duration("reserve_duration", reserveDuration),
 			zap.Duration("persist_duration", persistDuration),
 		)
-		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
+		s.markActionFailed(ctx, actionRecord, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
 	}
 	logx.L(ctx).Info("create order completed",
@@ -225,6 +186,6 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 		zap.Duration("persist_duration", persistDuration),
 		zap.Duration("total_duration", s.now().Sub(startedAt)),
 	)
-	s.markActionSucceeded(ctx, actionTypeCreate, requestID, order.OrderID)
+	s.markActionSucceeded(ctx, actionRecord, actionTypeCreate, requestID, order.OrderID)
 	return toRPCOrder(order), nil
 }

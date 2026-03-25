@@ -67,6 +67,7 @@ type ProductRepository interface {
 	List(ctx context.Context, filter ListFilter) ([]*dalmodel.Product, int64, error)
 	ListSKUsByProductIDs(ctx context.Context, productIDs []int64) ([]*dalmodel.ProductSKU, error)
 	GetSKUsByIDs(ctx context.Context, skuIDs []int64) ([]*dalmodel.ProductSKU, error)
+	GetSKUsByIDsLite(ctx context.Context, skuIDs []int64) ([]*dalmodel.ProductSKU, error)
 	GetTxBranch(ctx context.Context, filter TxBranchFilter) (*dalmodel.ProductTxBranch, error)
 }
 
@@ -430,6 +431,25 @@ func (r *MySQLProductRepository) GetSKUsByIDs(ctx context.Context, skuIDs []int6
 		Preload("Attrs", func(db *gorm.DB) *gorm.DB {
 			return db.Order("sort ASC, id ASC")
 		}).
+		Where("id IN ?", skuIDs).
+		Order("id ASC").
+		Find(&skus).Error
+	if err != nil {
+		return nil, err
+	}
+	return skus, nil
+}
+
+func (r *MySQLProductRepository) GetSKUsByIDsLite(ctx context.Context, skuIDs []int64) ([]*dalmodel.ProductSKU, error) {
+	if len(skuIDs) == 0 {
+		return nil, nil
+	}
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	var skus []*dalmodel.ProductSKU
+	err := r.db.WithContext(ctx).
+		Select("id", "spu_id", "sku_code", "title", "sale_price", "market_price", "status", "cover_url").
 		Where("id IN ?", skuIDs).
 		Order("id ASC").
 		Find(&skus).Error
