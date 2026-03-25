@@ -49,6 +49,14 @@ func register() {
 		prometheus.MustRegister(rpcRequestsTotal)
 		prometheus.MustRegister(rpcRequestDurationSeconds)
 		prometheus.MustRegister(rpcErrorsTotal)
+		prometheus.MustRegister(dbOpenConnections)
+		prometheus.MustRegister(dbInUseConnections)
+		prometheus.MustRegister(dbIdleConnections)
+		prometheus.MustRegister(dbWaitCountTotal)
+		prometheus.MustRegister(dbWaitDurationSecondsTotal)
+		prometheus.MustRegister(dbMaxIdleClosedTotal)
+		prometheus.MustRegister(dbMaxIdleTimeClosedTotal)
+		prometheus.MustRegister(dbMaxLifetimeClosedTotal)
 	})
 }
 

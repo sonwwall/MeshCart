@@ -227,6 +227,65 @@
 - 但连接池不是根因本身
 - 必须和主链路瘦身、SQL 优化一起推进
 
+### 当前已完成的改动
+
+这一项已经落地了第一版，覆盖了当前最关键的 3 个服务：
+
+1. `order-service`
+2. `product-service`
+3. `inventory-service`
+
+已经完成的改动：
+
+1. 把这 3 个服务的 MySQL 连接池参数改成可配置，不再写死 `20/10/30m`
+2. 本地默认值调整为：
+   - `max_open_conns=60`
+   - `max_idle_conns=20`
+   - `conn_max_lifetime_minutes=30`
+3. 给 admin / metrics 侧补了数据库连接池指标采集，定时上报到 Prometheus
+
+对应代码：
+
+- 通用 DB pool metrics：[db.go](/Users/ruitong/GolandProjects/MeshCart/app/metrics/db.go#L10)
+- `order-service` 连接池配置：[config.go](/Users/ruitong/GolandProjects/MeshCart/services/order-service/config/config.go#L12)
+- `product-service` 连接池配置：[config.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/config/config.go#L12)
+- `inventory-service` 连接池配置：[config.go](/Users/ruitong/GolandProjects/MeshCart/services/inventory-service/config/config.go#L11)
+- `order-service` DB pool 接线与采集：[bootstrap.go](/Users/ruitong/GolandProjects/MeshCart/services/order-service/rpc/bootstrap/bootstrap.go#L139)
+
+当前已经能从 metrics 里直接看到这些指标：
+
+1. `meshcart_db_open_connections`
+2. `meshcart_db_in_use_connections`
+3. `meshcart_db_idle_connections`
+4. `meshcart_db_wait_count_total`
+5. `meshcart_db_wait_duration_seconds_total`
+6. `meshcart_db_max_idle_closed_total`
+7. `meshcart_db_max_idle_time_closed_total`
+8. `meshcart_db_max_lifetime_closed_total`
+
+这意味着下一轮压测时，已经可以直接判断：
+
+1. 是不是连接池太小导致大量等待
+2. 是不是连接长期处于高占用
+3. 是不是连接频繁因为 idle / lifetime 被关闭
+
+### 这一项还没有结束
+
+当前这版先解决了“参数可调”和“连接池可观测”，但还没有把数据库观测补到完整形态。
+
+还剩下的核心项：
+
+1. 补慢 SQL 统计和按表 / 语句维度的聚合
+2. 补事务时长观测
+3. 补锁等待观测
+4. 下一轮压测时，把 `validation_duration`、`reserve_duration`、连接池等待一起对齐分析
+
+建议下一步优先做的不是继续盲目放大连接池，而是：
+
+1. 启动服务后复跑核心下单压测
+2. 对比 `order-service`、`product-service`、`inventory-service` 的连接池等待是否明显下降
+3. 如果连接池等待仍不高，而 RT 依旧高，就继续往 SQL / 事务 / 幂等路径里找
+
 ## 3.4 优先级 P1：优化幂等记录和动作记录路径
 
 从第十轮日志观察，订单创建前会先查 `order_action_records`，再决定是否创建 pending 记录，再继续主流程。

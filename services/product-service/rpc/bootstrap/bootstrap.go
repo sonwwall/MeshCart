@@ -53,7 +53,7 @@ func Run() {
 	defer sqlDB.Close()
 
 	var draining atomic.Bool
-	adminServer := startAdminServer(sqlDB, &draining)
+	adminServer := startAdminServer(sqlDB, &draining, time.Duration(cfg.DBPool.StatsIntervalMS)*time.Millisecond)
 
 	svc := initService(mysqlDB, cfg)
 	svr := newServer(cfg, svc)
@@ -140,7 +140,11 @@ func runMigrations(cfg config.Config) {
 }
 
 func initMySQL(cfg config.Config) *gorm.DB {
-	mysqlDB, err := db.NewMySQL(cfg.MySQL.DSN())
+	mysqlDB, err := db.NewMySQL(cfg.MySQL.DSN(), db.PoolConfig{
+		MaxOpenConns:    cfg.DBPool.MaxOpenConns,
+		MaxIdleConns:    cfg.DBPool.MaxIdleConns,
+		ConnMaxLifetime: time.Duration(cfg.DBPool.ConnMaxLifetime) * time.Minute,
+	})
 	if err != nil {
 		logx.L(nil).Fatal("init mysql failed", zap.Error(err))
 	}
@@ -174,8 +178,9 @@ func initService(mysqlDB *gorm.DB, cfg config.Config) *bizservice.ProductService
 	return bizservice.NewProductService(repo, node, cache)
 }
 
-func startAdminServer(sqlDB *sql.DB, draining *atomic.Bool) *http.Server {
+func startAdminServer(sqlDB *sql.DB, draining *atomic.Bool, statsInterval time.Duration) *http.Server {
 	metricsAddr := getEnv("PRODUCT_METRICS_ADDR", ":9093")
+	stopCollectDBStats := metricsx.StartDBStatsCollector("product-service", sqlDB, statsInterval)
 	srv := &http.Server{
 		Addr: metricsAddr,
 		Handler: lifecycle.NewHTTPMux("product-service", metricsx.PromHandler(), func(ctx context.Context) error {
@@ -189,6 +194,7 @@ func startAdminServer(sqlDB *sql.DB, draining *atomic.Bool) *http.Server {
 	}
 
 	go func() {
+		defer stopCollectDBStats()
 		logx.L(nil).Info("product-service admin server starting", zap.String("addr", metricsAddr))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logx.L(nil).Error("product-service admin server stopped with error", zap.Error(err))

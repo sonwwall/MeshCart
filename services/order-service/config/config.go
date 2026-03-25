@@ -13,6 +13,7 @@ type Config struct {
 	MySQL        MySQLConfig         `mapstructure:"mysql"`
 	Migration    MigrationConfig     `mapstructure:"migration"`
 	Snowflake    SnowflakeConfig     `mapstructure:"snowflake"`
+	DBPool       DBPoolConfig        `mapstructure:"db_pool"`
 	Timeout      TimeoutConfig       `mapstructure:"timeout"`
 	ProductRPC   DownstreamRPCConfig `mapstructure:"product_rpc"`
 	InventoryRPC DownstreamRPCConfig `mapstructure:"inventory_rpc"`
@@ -35,6 +36,13 @@ type MigrationConfig struct {
 
 type SnowflakeConfig struct {
 	Node int64 `mapstructure:"node"`
+}
+
+type DBPoolConfig struct {
+	MaxOpenConns    int `mapstructure:"max_open_conns"`
+	MaxIdleConns    int `mapstructure:"max_idle_conns"`
+	ConnMaxLifetime int `mapstructure:"conn_max_lifetime_minutes"`
+	StatsIntervalMS int `mapstructure:"stats_interval_ms"`
 }
 
 type TimeoutConfig struct {
@@ -90,6 +98,10 @@ func Load() (Config, error) {
 	v.SetDefault("migration.enabled", true)
 	v.SetDefault("migration.source", "file://services/order-service/migrations")
 	v.SetDefault("snowflake.node", 5)
+	v.SetDefault("db_pool.max_open_conns", 60)
+	v.SetDefault("db_pool.max_idle_conns", 20)
+	v.SetDefault("db_pool.conn_max_lifetime_minutes", 30)
+	v.SetDefault("db_pool.stats_interval_ms", 5000)
 	v.SetDefault("timeout.db_query_ms", 1500)
 	v.SetDefault("product_rpc.service_name", "meshcart.product")
 	v.SetDefault("product_rpc.host_port", "127.0.0.1:8890")
