@@ -13,9 +13,16 @@ import (
 
 type stubCache struct {
 	products          map[int64]*productpb.Product
+	productLists      map[string]stubProductList
 	skus              map[int64]*productpb.ProductSku
 	deletedProductIDs []int64
 	deletedSKUIDs     []int64
+	deletedListCount  int
+}
+
+type stubProductList struct {
+	items []*productpb.ProductListItem
+	total int64
 }
 
 var _ productredis.Cache = (*stubCache)(nil)
@@ -45,6 +52,27 @@ func (s *stubCache) DeleteProducts(_ context.Context, productIDs []int64) error 
 	for _, productID := range productIDs {
 		delete(s.products, productID)
 	}
+	return nil
+}
+
+func (s *stubCache) GetProductList(_ context.Context, cacheKey string) ([]*productpb.ProductListItem, int64, bool, error) {
+	if item, ok := s.productLists[cacheKey]; ok {
+		return item.items, item.total, true, nil
+	}
+	return nil, 0, false, nil
+}
+
+func (s *stubCache) SetProductList(_ context.Context, cacheKey string, items []*productpb.ProductListItem, total int64) error {
+	if s.productLists == nil {
+		s.productLists = make(map[string]stubProductList)
+	}
+	s.productLists[cacheKey] = stubProductList{items: items, total: total}
+	return nil
+}
+
+func (s *stubCache) DeleteProductLists(_ context.Context) error {
+	s.deletedListCount++
+	s.productLists = make(map[string]stubProductList)
 	return nil
 }
 
@@ -121,9 +149,61 @@ func TestProductService_BatchGetSKU_UsesCache(t *testing.T) {
 	}
 }
 
+func TestProductService_GetProductDetail_UsesCache(t *testing.T) {
+	repo := repository.NewMySQLProductRepository(newProductTestDB(t), 0)
+	cache := &stubCache{
+		products: map[int64]*productpb.Product{
+			1001: {Id: 1001, Title: "Cached Detail Tee", Status: ProductStatusOnline},
+		},
+	}
+	svc := newCachedProductService(t, repo, cache)
+
+	product, bizErr := svc.GetProductDetail(context.Background(), 1001)
+	if bizErr != nil {
+		t.Fatalf("expected nil bizErr, got %+v", bizErr)
+	}
+	if product.GetTitle() != "Cached Detail Tee" {
+		t.Fatalf("unexpected product: %+v", product)
+	}
+}
+
+func TestProductService_ListProducts_UsesCache(t *testing.T) {
+	repo := repository.NewMySQLProductRepository(newProductTestDB(t), 0)
+	req := &productpb.ListProductsRequest{Page: 1, PageSize: 20}
+	cacheKey := productListCacheKey(req, 1, 20)
+	cache := &stubCache{
+		productLists: map[string]stubProductList{
+			cacheKey: {
+				items: []*productpb.ProductListItem{{
+					Id:    1001,
+					Title: "Cached List Tee",
+					Status: ProductStatusOnline,
+				}},
+				total: 1,
+			},
+		},
+	}
+	svc := newCachedProductService(t, repo, cache)
+
+	items, total, bizErr := svc.ListProducts(context.Background(), req)
+	if bizErr != nil {
+		t.Fatalf("expected nil bizErr, got %+v", bizErr)
+	}
+	if total != 1 || len(items) != 1 || items[0].GetTitle() != "Cached List Tee" {
+		t.Fatalf("unexpected result: total=%d items=%+v", total, items)
+	}
+}
+
 func TestProductService_UpdateProduct_InvalidatesCache(t *testing.T) {
 	repo := repository.NewMySQLProductRepository(newProductTestDB(t), 0)
-	cache := &stubCache{}
+	cache := &stubCache{
+		productLists: map[string]stubProductList{
+			"page=1:size=20:keyword=:status_set=false:status=0:category_set=false:category=0:creator_set=false:creator=0": {
+				items: []*productpb.ProductListItem{{Id: 1, Title: "stale"}},
+				total: 1,
+			},
+		},
+	}
 	svc := newCachedProductService(t, repo, cache)
 
 	productID, _, bizErr := svc.CreateProduct(context.Background(), &productpb.CreateProductRequest{
@@ -162,5 +242,8 @@ func TestProductService_UpdateProduct_InvalidatesCache(t *testing.T) {
 	}
 	if len(cache.deletedProductIDs) == 0 || cache.deletedProductIDs[0] != productID {
 		t.Fatalf("expected product cache invalidation, got %+v", cache.deletedProductIDs)
+	}
+	if cache.deletedListCount == 0 {
+		t.Fatalf("expected product list cache invalidation")
 	}
 }

@@ -55,6 +55,22 @@ func (s *ProductService) ListProducts(ctx context.Context, req *productpb.ListPr
 		filter.CreatorID = &creatorID
 	}
 
+	cacheKey := productListCacheKey(req, page, pageSize)
+	if s.cache != nil {
+		items, total, hit, err := s.cache.GetProductList(ctx, cacheKey)
+		if err != nil {
+			logx.L(ctx).Warn("list products cache read failed", zap.Error(err), zap.String("cache_key", cacheKey))
+		} else if hit {
+			logx.L(ctx).Info("list products cache hit",
+				zap.Int32("page", page),
+				zap.Int32("page_size", pageSize),
+				zap.Int64("total", total),
+				zap.Int("item_count", len(items)),
+			)
+			return items, total, nil
+		}
+	}
+
 	products, total, err := s.repo.List(ctx, filter)
 	if err != nil {
 		logx.L(ctx).Error("list products repository list failed",
@@ -94,5 +110,10 @@ func (s *ProductService) ListProducts(ctx context.Context, req *productpb.ListPr
 		zap.Int64("total", total),
 		zap.Int("item_count", len(items)),
 	)
+	if s.cache != nil {
+		if err := s.cache.SetProductList(ctx, cacheKey, items, total); err != nil {
+			logx.L(ctx).Warn("list products cache write failed", zap.Error(err), zap.String("cache_key", cacheKey))
+		}
+	}
 	return items, total, nil
 }

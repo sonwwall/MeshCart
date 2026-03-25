@@ -172,19 +172,29 @@
 2. `product-service` 在 `BatchGetProducts` 和 `BatchGetSKU` 两条读路径里先查 Redis，未命中再回源数据库，并把结果回填 Redis
 3. 商品创建、更新、上下线时会主动删缓存，避免旧快照长期残留
 4. Redis 不可用时会自动降级回数据库，不会阻塞主流程
+5. 在此基础上，`product-service` 的商品详情和商品列表读路径也已经补上短 TTL 读缓存，用来降低非交易读请求对数据库和产品服务的压力
 
 对应代码：
 
 - 商品批量读取 cache-aside：[batch_get_products.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/biz/service/batch_get_products.go#L14)
 - SKU 批量读取 cache-aside：[batch_get_sku.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/biz/service/batch_get_sku.go#L14)
+- 商品详情读缓存接入：[get_product_detail.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/biz/service/get_product_detail.go#L13)
+- 商品列表读缓存接入：[list_products.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/biz/service/list_products.go#L15)
 - Redis 缓存封装：[redis.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/dal/redis/redis.go#L14)
 - 商品 / SKU 缓存失效：[cache_helpers.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/biz/service/cache_helpers.go#L12)
+
+这里需要明确边界：
+
+1. 商品详情 / 商品列表读缓存，主要服务于产品读链路和后台浏览类场景
+2. 它能降低 `product-service` 的数据库压力，也能减少和下单链路共享资源时的干扰
+3. 但它不是交易主链路能否成功的前提，不能和库存、预占、订单状态这类强一致判断混为一谈
 
 ### 这一项后续更合理的演进方向
 
 1. 继续观察 `validation_duration`，确认 Redis 命中后下单校验耗时是否明显下降
 2. 视下一轮压测结果决定是否需要单飞合并，避免缓存击穿时的瞬时回源放大
 3. 根据商品更新频率和命中率，再调整 TTL、key 粒度和是否拆分更轻量的快照结构
+4. 继续观察商品详情页和商品列表页的读压测结果，再决定是否要做更细粒度的列表 key 或热门列表预热
 
 这里要强调边界：
 
@@ -472,12 +482,14 @@
 1. `order-service` 下单校验改成批量读取 SKU 和商品
 2. `product-service` 内部对批量商品 / SKU 读取增加 Redis cache-aside
 3. 订单侧商品 / SKU 快照构建不再依赖逐商品详情 RPC
+4. `product-service` 的商品详情和商品列表读路径，也已经补上短 TTL 缓存和写后失效
 
 这类优化的直接效果是：
 
 1. `validation_duration` 不再是后续轮次的首瓶颈
 2. 下单前置读链路不再出现早期那种明显失稳
 3. 读放大已经被有效压下去
+4. 商品详情 / 商品列表这类高频读接口，也已经具备进一步降压空间
 
 #### 订单幂等路径
 
@@ -561,8 +573,9 @@
 这部分不应再轻易改动：
 
 1. 商品 / SKU 批量读取和缓存方案
-2. 订单幂等路径收缩方案
-3. 当前这版稳定优先的热点库存实现
+2. 商品详情 / 商品列表读缓存及其写后失效策略
+3. 订单幂等路径收缩方案
+4. 当前这版稳定优先的热点库存实现
 
 #### P1：在稳定基线上继续优化时延和容量
 

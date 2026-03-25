@@ -25,6 +25,9 @@ type Cache interface {
 	GetProducts(ctx context.Context, productIDs []int64) (map[int64]*productpb.Product, error)
 	SetProducts(ctx context.Context, products []*productpb.Product) error
 	DeleteProducts(ctx context.Context, productIDs []int64) error
+	GetProductList(ctx context.Context, cacheKey string) ([]*productpb.ProductListItem, int64, bool, error)
+	SetProductList(ctx context.Context, cacheKey string, items []*productpb.ProductListItem, total int64) error
+	DeleteProductLists(ctx context.Context) error
 	GetSKUs(ctx context.Context, skuIDs []int64) (map[int64]*productpb.ProductSku, error)
 	SetSKUs(ctx context.Context, skus []*productpb.ProductSku) error
 	DeleteSKUs(ctx context.Context, skuIDs []int64) error
@@ -34,6 +37,11 @@ type ProductCache struct {
 	client    *goredis.Client
 	keyPrefix string
 	ttl       time.Duration
+}
+
+type cachedProductList struct {
+	Items []*productpb.ProductListItem `json:"items"`
+	Total int64                        `json:"total"`
 }
 
 func New(cfg Config) (*ProductCache, error) {
@@ -123,6 +131,56 @@ func (c *ProductCache) DeleteProducts(ctx context.Context, productIDs []int64) e
 	return c.client.Del(ctx, keys...).Err()
 }
 
+func (c *ProductCache) GetProductList(ctx context.Context, cacheKey string) ([]*productpb.ProductListItem, int64, bool, error) {
+	if cacheKey == "" {
+		return nil, 0, false, nil
+	}
+	value, err := c.client.Get(ctx, c.productListKey(cacheKey)).Result()
+	if err != nil {
+		if err == goredis.Nil {
+			return nil, 0, false, nil
+		}
+		return nil, 0, false, err
+	}
+
+	var payload cachedProductList
+	if err := json.Unmarshal([]byte(value), &payload); err != nil {
+		return nil, 0, false, nil
+	}
+	return payload.Items, payload.Total, true, nil
+}
+
+func (c *ProductCache) SetProductList(ctx context.Context, cacheKey string, items []*productpb.ProductListItem, total int64) error {
+	if cacheKey == "" {
+		return nil
+	}
+	payload, err := json.Marshal(cachedProductList{Items: items, Total: total})
+	if err != nil {
+		return err
+	}
+	return c.client.Set(ctx, c.productListKey(cacheKey), payload, c.ttl).Err()
+}
+
+func (c *ProductCache) DeleteProductLists(ctx context.Context) error {
+	pattern := c.productListKey("*")
+	var cursor uint64
+	for {
+		keys, nextCursor, err := c.client.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return err
+		}
+		if len(keys) > 0 {
+			if err := c.client.Del(ctx, keys...).Err(); err != nil {
+				return err
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			return nil
+		}
+	}
+}
+
 func (c *ProductCache) GetSKUs(ctx context.Context, skuIDs []int64) (map[int64]*productpb.ProductSku, error) {
 	keys := make([]string, 0, len(skuIDs))
 	for _, skuID := range skuIDs {
@@ -186,6 +244,10 @@ func (c *ProductCache) productKey(productID int64) string {
 
 func (c *ProductCache) skuKey(skuID int64) string {
 	return fmt.Sprintf("%ssku:%d", c.keyPrefix, skuID)
+}
+
+func (c *ProductCache) productListKey(cacheKey string) string {
+	return fmt.Sprintf("%sproduct_list:%s", c.keyPrefix, cacheKey)
 }
 
 func maxPositive(value, fallback time.Duration) time.Duration {

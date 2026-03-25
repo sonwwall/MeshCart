@@ -16,6 +16,15 @@ func (s *ProductService) GetProductDetail(ctx context.Context, productID int64) 
 		return nil, common.ErrInvalidParam
 	}
 
+	if s.cache != nil {
+		cachedProducts, err := s.cache.GetProducts(ctx, []int64{productID})
+		if err != nil {
+			logx.L(ctx).Warn("get product detail cache read failed", zap.Error(err), zap.Int64("product_id", productID))
+		} else if product, ok := cachedProducts[productID]; ok && product != nil {
+			return product, nil
+		}
+	}
+
 	productModel, err := s.repo.GetByID(ctx, productID)
 	if err != nil {
 		mapped := mapRepositoryError(err)
@@ -27,5 +36,12 @@ func (s *ProductService) GetProductDetail(ctx context.Context, productID int64) 
 		)
 		return nil, mapped
 	}
-	return toRPCProduct(productModel), nil
+
+	product := toRPCProduct(productModel)
+	if s.cache != nil {
+		if err := s.cache.SetProducts(ctx, []*productpb.Product{product}); err != nil {
+			logx.L(ctx).Warn("get product detail cache write failed", zap.Error(err), zap.Int64("product_id", productID))
+		}
+	}
+	return product, nil
 }
