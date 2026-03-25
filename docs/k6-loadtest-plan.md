@@ -3079,3 +3079,219 @@ go run ./loadtest/cmd/prepare_phase1_data \
 1. 本轮已经确认订单和 checkout 链路都恢复成有效样本
 2. 当前最重要的不是继续堆更多样本，而是先重写对系统容量阶段的判断
 3. 第十四轮和第十三轮的性质已经不同，需要先在文档和优化优先级上完成结论切换
+
+## 28. 第十五轮结果
+
+### 28.1 第十五轮目标
+
+第十五轮不再以“修复是否生效”为唯一目标，而是开始在第十四轮干净样本的基础上，识别成功率恢复后的真实容量拐点。
+
+本轮主要回答三个问题：
+
+1. 普通 SKU 和热点 SKU 的稳定容量是否已经出现明显分化
+2. checkout 在更高并发下是否仍能维持有效成功样本
+3. 当前真实拐点更接近热点库存场景，还是已经扩散到普通交易链路
+
+### 28.2 第十五轮样本范围
+
+本轮沿用第十四轮的干净配置继续执行：
+
+1. 网关所有限流规则继续关闭，避免再次污染正式样本
+2. 保持现有代码版本不变，不引入新的实现变量
+3. 保留已有的业务失败分桶和库存预占分桶指标
+
+本轮结果文件：
+
+- `loadtest/results/round15-order-core-smoke.json`
+- `loadtest/results/round15-checkout-core-smoke.json`
+- `loadtest/results/round15-order-hot-v20.json`
+- `loadtest/results/round15-order-normal-v20.json`
+- `loadtest/results/round15-order-hot-v40.json`
+- `loadtest/results/round15-order-normal-v40.json`
+- `loadtest/results/round15-checkout-v10.json`
+- `loadtest/results/round15-checkout-v20.json`
+
+说明：
+
+1. `order-hot-v20` 和 `order-hot-v40` 的 `k6` 退出码为 `99`
+2. 原因是阈值 `order_create_duration p(95)<1500` 被触发
+3. 结果文件本身有效，仍可用于正式分析
+
+### 28.3 第十五轮冒烟结果
+
+#### order smoke
+
+订单 smoke 通过，说明第十五轮开始时订单链路仍可正常执行：
+
+1. 可以继续执行正式订单阶梯升压
+2. 没有回退到第十三轮那种高比例业务快速失败状态
+
+#### checkout smoke
+
+checkout smoke 也通过，说明：
+
+1. `payment-service` 的可测性仍然保持正常
+2. checkout 可以继续执行正式 `v10 / v20` 样本
+
+### 28.4 第十五轮正式结果
+
+#### `POST /api/v1/orders` 热门 SKU 池
+
+`20 VUs`：
+
+- 吞吐：`18.52 req/s`
+- 成功请求数：`565`
+- 业务失败率：`0.35%`
+- `order_create_duration avg`：`1022.15ms`
+- `order_create_duration p95`：`1589.97ms`
+
+`40 VUs`：
+
+- 吞吐：`36.71 req/s`
+- 成功请求数：`1085`
+- 业务失败率：`3.13%`
+- `order_create_duration avg`：`1032.31ms`
+- `order_create_duration p95`：`1547.65ms`
+
+#### `POST /api/v1/orders` 普通 SKU 池
+
+`20 VUs`：
+
+- 吞吐：`88.17 req/s`
+- 成功请求数：`2694`
+- 业务失败率：`0`
+- `order_create_duration avg`：`174.26ms`
+- `order_create_duration p95`：`334.39ms`
+
+`40 VUs`：
+
+- 吞吐：`177.45 req/s`
+- 成功请求数：`5398`
+- 业务失败率：`0`
+- `order_create_duration avg`：`172.28ms`
+- `order_create_duration p95`：`317.07ms`
+
+#### checkout 核心链路
+
+`10 VUs`：
+
+- 吞吐：`48.96 req/s`
+- 成功请求数：`499`
+- 业务失败率：`0`
+- `checkout_duration avg`：`557.03ms`
+- `checkout_duration p95`：`779.20ms`
+
+`20 VUs`：
+
+- 吞吐：`97.77 req/s`
+- 成功请求数：`993`
+- 业务失败率：`0.20%`
+- `checkout_duration avg`：`557.48ms`
+- `checkout_duration p95`：`764.90ms`
+
+### 28.5 第十四轮 vs 第十五轮对比
+
+#### 热门 SKU 池
+
+和第十四轮相比，热门 SKU 已经出现非常明确的容量拐点。
+
+`40 VUs`：
+
+- 吞吐：`154.74 req/s -> 36.71 req/s`
+- 成功请求数：`3134 -> 1085`
+- 业务失败率：`0 -> 3.13%`
+- `avg`：`205.46ms -> 1032.31ms`
+- `p95`：`402.50ms -> 1547.65ms`
+
+这说明：
+
+1. 热点 SKU 场景已经不再维持第十四轮的稳定成功状态
+2. 当前热点容量瓶颈不是轻微退化，而是已经进入明显长尾放大区间
+3. 第十五轮不再继续升到 `hot-v60 / hot-v80` 是合理停止，而不是样本不足
+
+#### 普通 SKU 池
+
+普通 SKU 仍然保持稳定，且没有出现明显业务失败：
+
+`40 VUs`：
+
+- 吞吐：`165.84 req/s -> 177.45 req/s`
+- 成功请求数：`3352 -> 5398`
+- 业务失败率：`0 -> 0`
+- `avg`：`188.37ms -> 172.28ms`
+- `p95`：`388.98ms -> 317.07ms`
+
+这说明：
+
+1. 当前普通 SKU 下单链路还没有到明显失稳点
+2. 第十五轮暴露的问题更偏向热点竞争，而不是系统整体已经退化
+
+#### checkout 链路
+
+checkout 也保持了有效样本，但在更高档位已经开始出现轻微退化：
+
+`10 VUs -> 20 VUs`：
+
+- 吞吐：`48.96 req/s -> 97.77 req/s`
+- 业务失败率：`0 -> 0.20%`
+- `avg`：`557.03ms -> 557.48ms`
+- `p95`：`779.20ms -> 764.90ms`
+
+同时，相比第十四轮 `checkout-v10`：
+
+- 吞吐：`81.64 req/s -> 48.96 req/s`
+- `avg`：`313.92ms -> 557.03ms`
+- `p95`：`666.60ms -> 779.20ms`
+
+这说明 checkout 仍可用，但成功链路本身的真实耗时已经比第十四轮更重，不能再简单按“完全恢复”来判断。
+
+### 28.6 第十五轮服务侧观测
+
+本轮结束后，`inventory-service` 的预占分桶仍主要表现为成功：
+
+- `meshcart_inventory_reservation_requests_total{action="reserve", outcome="success", reason="ok"}`：`23217`
+
+本轮采样时，未观察到明显的：
+
+1. `biz_failed` 分桶计数增长
+2. `timeout` 分桶计数增长
+
+但 `order-service` 指标中仍出现少量：
+
+- `meshcart_biz_errors_total{service="order-service", module="order", action="create", stage="reserve_rpc", code="1009999"}`：`16`
+
+同时：
+
+- `meshcart_db_wait_count_total{service="order-service"}`：`2`
+
+这说明第十五轮里：
+
+1. 普通订单链路还没有被数据库连接池明显卡住
+2. 热点 SKU 的退化更像预占链路长尾或热点竞争放大
+3. 当前观测还不足以证明系统级数据库等待是主因
+
+### 28.7 第十五轮结论
+
+第十五轮最重要的结论：
+
+1. 第十四轮恢复成功率后，系统的真实容量边界已经开始显现
+2. 普通 SKU 下单链路和 checkout 仍然基本稳定
+3. 热点 SKU 场景已经在 `40 VUs` 左右出现新的明显拐点
+4. 当前最值得继续优化的，不是普通链路，而是热点库存场景下的预占与竞争治理
+
+### 28.8 下一步建议
+
+基于第十五轮结果，建议下一步按这个顺序推进：
+
+1. 先把第十五轮结果同步到高并发优化优先级文档，调整热点治理优先级
+2. 针对热点 SKU 单独做更细粒度观测，补充预占阶段长尾和失败原因
+3. 评估更激进的热点治理手段，例如更严格的限并发、分片或排队
+4. 普通 SKU 和 checkout 暂不需要盲目继续升压，应先稳定热点场景判断
+
+### 28.9 本轮停止原因
+
+第十五轮没有继续直接升到更高热点压力，原因是：
+
+1. `hot-v40` 已经出现明确业务失败和 `p95` 超过 `1.5s`
+2. 继续升到 `hot-v60 / hot-v80` 的价值已经不高，更多会重复确认同一类退化
+3. 本轮已经足够证明“热点 SKU 是当前新拐点”的判断
