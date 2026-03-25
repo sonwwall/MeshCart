@@ -1986,3 +1986,228 @@ go run ./loadtest/cmd/prepare_phase1_data \
 3. 进一步区分：
    - 限流导致的业务失败
    - 真实服务处理不过来的业务失败
+
+## 23. 第十轮结果
+
+时间：
+
+- `2026-03-25`
+
+第十轮目标：
+
+- 排除用户接口干扰，聚焦电商核心交易链路
+- 在关闭网关限流干扰后，确认真实瓶颈位于哪一层
+- 基于结果判断哪里适合加缓存、哪里适合引入消息队列、哪里需要放大连接池
+
+### 23.1 第十轮开始前的调整
+
+为了避免继续把网关限流误判为系统容量上限，本轮压测前关闭了 `gateway` 限流开关后再启动服务。
+
+说明：
+
+- 这只是压测期配置
+- 目的不是放松生产护栏，而是排除限流策略干扰，观察真实处理能力
+
+本轮新增脚本：
+
+- [round10_order_core.js](/Users/ruitong/GolandProjects/MeshCart/loadtest/k6/round10_order_core.js)
+- [round10_checkout_core.js](/Users/ruitong/GolandProjects/MeshCart/loadtest/k6/round10_checkout_core.js)
+
+本轮补充数据准备：
+
+- 热点 SKU `2036361111032307713` 补库存到 `50000`
+- 普通 SKU 池每个补库存到 `10000`
+
+### 23.2 第十轮结果文件
+
+- [round10-order-core-smoke.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round10-order-core-smoke.json)
+- [round10-checkout-core-smoke.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round10-checkout-core-smoke.json)
+- [round10-order-hot-v10.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round10-order-hot-v10.json)
+- [round10-order-normal-v10.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round10-order-normal-v10.json)
+- [round10-order-hot-v40.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round10-order-hot-v40.json)
+- [round10-order-normal-v40.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round10-order-normal-v40.json)
+- [round10-checkout-v10.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round10-checkout-v10.json)
+
+### 23.3 冒烟结果
+
+#### `POST /api/v1/orders`
+
+- 场景：纯下单冒烟
+- 结果：业务失败率 `0%`
+- `order_create_duration p95`：约 `29.61ms`
+
+#### `创建订单 -> 创建支付 -> 模拟支付确认`
+
+- 场景：核心结算链路冒烟
+- 结果：业务失败率 `0%`
+- `checkout_duration p95`：约 `86.69ms`
+- `checkout_order_create_duration avg`：约 `20.76ms`
+- `checkout_payment_create_duration avg`：约 `12.05ms`
+- `checkout_payment_confirm_duration avg`：约 `26.02ms`
+
+结论：
+
+- 第十轮脚本和测试数据在小流量下是正确的
+- 本轮正式压测中的大量失败，不是脚本错误或基础数据错误导致
+
+### 23.4 第十轮关键结果
+
+#### `POST /api/v1/orders` 热点 SKU
+
+`10 VUs`：
+
+- 总请求数：`16839`
+- 吞吐：`830.20 req/s`
+- 业务失败率：`98.16%`
+- `order_create_duration avg`：`10.13ms`
+- `order_create_duration p95`：`11.30ms`
+- 最大耗时：`1092.45ms`
+
+`40 VUs`：
+
+- 总请求数：`45884`
+- 吞吐：`2236.67 req/s`
+- 业务失败率：`99.43%`
+- `order_create_duration avg`：`16.72ms`
+- `order_create_duration p95`：`5.13ms`
+- 最大耗时：`2036.91ms`
+
+#### `POST /api/v1/orders` 普通 SKU 池
+
+`10 VUs`：
+
+- 总请求数：`26166`
+- 吞吐：`1286.78 req/s`
+- 业务失败率：`98.41%`
+- `order_create_duration avg`：`6.13ms`
+- `order_create_duration p95`：`9.78ms`
+- 最大耗时：`834.76ms`
+
+`40 VUs`：
+
+- 总请求数：`64058`
+- 吞吐：`3126.81 req/s`
+- 业务失败率：`99.09%`
+- `order_create_duration avg`：`11.45ms`
+- `order_create_duration p95`：`5.55ms`
+- 最大耗时：`2025.78ms`
+
+#### `创建订单 -> 创建支付 -> 模拟支付确认`
+
+`10 VUs`：
+
+- 总请求数：`16615`
+- 吞吐：`792.12 req/s`
+- 业务失败率：`99.74%`
+- `checkout_duration avg`：`559.33ms`
+- `checkout_duration p95`：`1404ms`
+- `checkout_order_create_duration avg`：`11.03ms`
+- `checkout_payment_create_duration avg`：`18.95ms`
+- `checkout_payment_confirm_duration avg`：`117.34ms`
+
+### 23.5 第十轮现象
+
+本轮最关键的现象不是“热点 SKU 比普通 SKU 明显更差”，而是：
+
+- 热点和普通商品两组下单场景都在很低并发下出现接近 `100%` 的业务失败
+- 大部分失败是快速返回，只有一小部分请求拖长到秒级
+- checkout 失败主要由前置下单失败传导而来，不是支付服务单独先崩
+
+同时，`gateway` 日志中大量出现：
+
+- `order rpc create returned business error`
+- `rpc timeout: timeout=2s, to=meshcart.order, method=createOrder`
+
+这说明：
+
+- 第十轮的第一失稳点已经不是网关限流
+- 真实瓶颈已经前移到 `gateway -> order-service` 这一段同步下单路径
+
+### 23.6 第十轮结论
+
+第十轮最重要的结论：
+
+1. 当前系统的首要瓶颈已经明确落在订单创建主链路，而不是用户接口、库存热点或支付服务
+2. 热点 SKU 和普通 SKU 的失败率差异不大，说明系统在进入“库存热点竞争”之前，就先被订单主链路打满了
+3. checkout 场景的高失败率主要继承自订单创建失败，不是支付服务本身先成为首个失稳点
+4. 大量请求快速失败，说明当前系统里存在明显的同步拒绝或下游不可用返回；少量请求拖到秒级，则说明已经伴随真实 RPC 超时
+
+换句话说，第十轮确认了：
+
+- 当前不是“库存先扛不住”
+- 也不是“支付先扛不住”
+- 而是“订单前置编排和其依赖访问成本太高，导致订单服务先成为系统闸口”
+
+### 23.7 本轮对缓存、消息队列、连接池的判断
+
+#### 更适合优先加缓存的位置
+
+第一优先级是订单创建前置依赖里的商品和 SKU 数据。
+
+原因：
+
+- 下单链路里商品和 SKU 信息是高频重复读取的数据
+- 这些数据变化频率相对低，但读取频率远高于修改频率
+- 如果每次下单都同步查询商品信息，再逐商品补详情，会把订单服务和商品服务一起拖慢
+
+建议优先考虑：
+
+1. 商品快照缓存
+2. SKU 基础信息缓存
+3. 批量商品 / SKU 查询结果缓存
+
+目标：
+
+- 减少 `order-service -> product-service` 的同步访问次数
+- 把订单主链路从“多跳串行查数”收敛成“少量必要校验”
+
+#### 更适合引入消息队列的位置
+
+消息队列不是解决第十轮首要瓶颈的第一手段，但适合承接交易成功后的后置动作。
+
+更适合异步化的位置：
+
+1. 支付成功后的订单状态推进通知
+2. 库存确认扣减后的后续事件
+3. 营销、消息、积分、审计日志等非主交易关键步骤
+
+不建议把当前下单主路径里最核心的商品校验、库存预占、订单落库简单甩到 MQ 后面，否则会引入更复杂的一致性问题。
+
+#### 更应该先调大的连接池
+
+当前多个服务的 MySQL 连接池默认都只有 `20` 个连接：
+
+- [services/order-service/dal/db/db.go](/Users/ruitong/GolandProjects/MeshCart/services/order-service/dal/db/db.go#L21)
+- [services/product-service/dal/db/db.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/dal/db/db.go#L21)
+- [services/inventory-service/dal/db/db.go](/Users/ruitong/GolandProjects/MeshCart/services/inventory-service/dal/db/db.go#L21)
+- [services/payment-service/dal/db/db.go](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/dal/db/db.go#L34)
+
+结合第十轮现象，优先级建议如下：
+
+1. 先调大 `order-service` 数据库连接池
+2. 再调大 `product-service` 和 `inventory-service` 数据库连接池
+3. 补连接池等待、慢 SQL、事务时长、锁等待指标后再继续升压
+
+说明：
+
+- 连接池调大只能缓解“排队等待”问题
+- 如果订单链路自身同步步骤太多，单纯放大连接池不会从根本上解决问题
+
+### 23.8 第十轮后的优化优先级
+
+建议下一步按这个顺序推进：
+
+1. 先瘦身订单创建主链路，减少同步 RPC 和逐商品详情查询
+2. 优先给商品 / SKU 读路径加缓存，尤其是订单创建依赖的快照数据
+3. 调大 `order-service`、`product-service`、`inventory-service` 的数据库连接池
+4. 补齐数据库层和 RPC 层观测指标，再复跑一轮核心链路压测
+5. 最后再单独做库存热点专项，判断是否需要库存分片、排队或更激进的热点治理
+
+### 23.9 本轮停止原因
+
+第十轮没有继续把并发继续抬更高，原因是当前结果已经足够明确：
+
+1. 在关闭网关限流干扰后，系统仍然在核心交易链路上快速失稳
+2. 失稳点已经明确落在 `order-service` 主路径
+3. checkout 失败的根因主要来自订单创建前置失败
+4. 继续盲目升压只会重复确认同一个结论，暂时不会提供更高价值的信息
