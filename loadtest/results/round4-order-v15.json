@@ -1,0 +1,163 @@
+{
+    "metrics": {
+        "http_req_receiving": {
+            "max": 1.04,
+            "p(90)": 0.105,
+            "p(95)": 0.1325499999999999,
+            "avg": 0.06981415929203533,
+            "min": 0.011,
+            "med": 0.06
+        },
+        "http_req_waiting": {
+            "avg": 86.8679480088495,
+            "min": 19.513,
+            "med": 88.9645,
+            "max": 258.412,
+            "p(90)": 158.752,
+            "p(95)": 176.03869999999995
+        },
+        "vus": {
+            "value": 15,
+            "min": 15,
+            "max": 15
+        },
+        "http_req_duration": {
+            "p(95)": 176.09744999999992,
+            "avg": 86.97213384955737,
+            "min": 19.575,
+            "med": 89.044,
+            "max": 258.557,
+            "p(90)": 158.80530000000002
+        },
+        "iteration_duration": {
+            "avg": 677.5290350353985,
+            "min": 611.585417,
+            "med": 668.2332715,
+            "max": 804.451458,
+            "p(90)": 743.5699834,
+            "p(95)": 759.8656373499999
+        },
+        "checks": {
+            "passes": 2712,
+            "fails": 0,
+            "value": 1
+        },
+        "vus_max": {
+            "value": 15,
+            "min": 15,
+            "max": 15
+        },
+        "data_sent": {
+            "count": 372971,
+            "rate": 18097.927786273736
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "order_create_duration": {
+            "p(95)": 84.4405,
+            "avg": 42.48460619469028,
+            "min": 19.575,
+            "med": 35.0805,
+            "max": 190.33,
+            "p(90)": 67.98110000000001,
+            "thresholds": {
+                "p(95)<1500": false
+            }
+        },
+        "iterations": {
+            "count": 452,
+            "rate": 21.932706187332876
+        },
+        "order_create_failed": {
+            "passes": 0,
+            "fails": 452,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "http_req_duration{expected_response:true}": {
+            "max": 258.557,
+            "p(90)": 158.80530000000002,
+            "p(95)": 176.09744999999992,
+            "avg": 86.97213384955737,
+            "min": 19.575,
+            "med": 89.044
+        },
+        "http_req_connecting": {
+            "avg": 0.02145353982300885,
+            "min": 0,
+            "med": 0,
+            "max": 2.509,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 904,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "data_received": {
+            "count": 733596,
+            "rate": 35596.78214204126
+        },
+        "http_req_blocked": {
+            "p(95)": 0.013,
+            "avg": 0.03029314159292052,
+            "min": 0.001,
+            "med": 0.005,
+            "max": 2.653,
+            "p(90)": 0.008
+        },
+        "http_reqs": {
+            "count": 904,
+            "rate": 43.86541237466575
+        },
+        "http_req_sending": {
+            "med": 0.02,
+            "max": 3.899,
+            "p(90)": 0.038,
+            "p(95)": 0.05184999999999996,
+            "avg": 0.03437168141592909,
+            "min": 0.006
+        }
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "http status is 200": {
+                    "path": "::http status is 200",
+                    "id": "ea2fe6ab7eecb8c5b564c043a0723b30",
+                    "passes": 904,
+                    "fails": 0,
+                    "name": "http status is 200"
+                },
+                "response body is json": {
+                    "name": "response body is json",
+                    "path": "::response body is json",
+                    "id": "1478e8b405684c6d341a9699a4534bc6",
+                    "passes": 904,
+                    "fails": 0
+                },
+                "business code is 0": {
+                    "name": "business code is 0",
+                    "path": "::business code is 0",
+                    "id": "d8310cd321aa42577edcc8c02ffccb2d",
+                    "passes": 904,
+                    "fails": 0
+                }
+            }
+    }
+}

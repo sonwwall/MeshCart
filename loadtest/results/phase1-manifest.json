@@ -1,0 +1,136 @@
+{
+  "generated_at": "2026-03-24T16:34:57+08:00",
+  "base_url": "http://127.0.0.1:8080",
+  "phase": "phase1",
+  "admin": {
+    "username": "loadtest_superadmin",
+    "password": "Loadtest123456"
+  },
+  "buyer_password": "Loadtest123456",
+  "buyers": [
+    {
+      "username": "loadtest_user_01",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_02",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_03",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_04",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_05",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_06",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_07",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_08",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_09",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_10",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_11",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_12",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_13",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_14",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_15",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_16",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_17",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_18",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_19",
+      "password": "Loadtest123456"
+    },
+    {
+      "username": "loadtest_user_20",
+      "password": "Loadtest123456"
+    }
+  ],
+  "hot_product": {
+    "name": "Loadtest Hot Product",
+    "product_id": "2036361111032307712",
+    "sku_id": "2036361111032307713",
+    "sku_code": "LOADTEST-HOT-20260324-163448",
+    "stock": 5000
+  },
+  "normal_products": [
+    {
+      "name": "Loadtest Product 01",
+      "product_id": "2036361111363657728",
+      "sku_id": "2036361111363657729",
+      "sku_code": "LOADTEST-NORMAL-01-20260324-163448",
+      "stock": 200
+    },
+    {
+      "name": "Loadtest Product 02",
+      "product_id": "2036361111451738112",
+      "sku_id": "2036361111451738113",
+      "sku_code": "LOADTEST-NORMAL-02-20260324-163448",
+      "stock": 200
+    },
+    {
+      "name": "Loadtest Product 03",
+      "product_id": "2036361111531429888",
+      "sku_id": "2036361111531429889",
+      "sku_code": "LOADTEST-NORMAL-03-20260324-163448",
+      "stock": 200
+    },
+    {
+      "name": "Loadtest Product 04",
+      "product_id": "2036361111615315968",
+      "sku_id": "2036361111615315969",
+      "sku_code": "LOADTEST-NORMAL-04-20260324-163448",
+      "stock": 200
+    },
+    {
+      "name": "Loadtest Product 05",
+      "product_id": "2036361111690813440",
+      "sku_id": "2036361111690813441",
+      "sku_code": "LOADTEST-NORMAL-05-20260324-163448",
+      "stock": 200
+    }
+  ]
+}

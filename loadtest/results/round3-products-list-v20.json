@@ -1,0 +1,147 @@
+{
+    "metrics": {
+        "http_req_waiting": {
+            "p(95)": 19.47044999999999,
+            "avg": 7.855878645833325,
+            "min": 2.069,
+            "med": 6.0865,
+            "max": 62.175,
+            "p(90)": 11.873
+        },
+        "http_req_receiving": {
+            "avg": 0.03805729166666684,
+            "min": 0.007,
+            "med": 0.025,
+            "max": 2.211,
+            "p(90)": 0.06,
+            "p(95)": 0.075
+        },
+        "http_req_tls_handshaking": {
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0
+        },
+        "data_received": {
+            "rate": 163393.31130541908,
+            "count": 3281280
+        },
+        "data_sent": {
+            "count": 201600,
+            "rate": 10038.793263352256
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 1920,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "checks": {
+            "passes": 5760,
+            "fails": 0,
+            "value": 1
+        },
+        "iteration_duration": {
+            "avg": 208.8412464390625,
+            "min": 202.213542,
+            "med": 207.16841649999998,
+            "max": 262.448417,
+            "p(90)": 212.9659372,
+            "p(95)": 220.1600125
+        },
+        "iterations": {
+            "count": 1920,
+            "rate": 95.60755488906909
+        },
+        "http_req_duration{expected_response:true}": {
+            "min": 2.086,
+            "med": 6.1395,
+            "max": 62.207,
+            "p(90)": 11.9281,
+            "p(95)": 19.52074999999999,
+            "avg": 7.925977604166667
+        },
+        "vus_max": {
+            "min": 20,
+            "max": 20,
+            "value": 20
+        },
+        "http_req_duration": {
+            "p(90)": 11.9281,
+            "p(95)": 19.52074999999999,
+            "avg": 7.925977604166667,
+            "min": 2.086,
+            "med": 6.1395,
+            "max": 62.207,
+            "thresholds": {
+                "p(95)<1000": false
+            }
+        },
+        "http_req_sending": {
+            "avg": 0.03204166666666689,
+            "min": 0.002,
+            "med": 0.008,
+            "max": 3.896,
+            "p(90)": 0.017,
+            "p(95)": 0.027
+        },
+        "vus": {
+            "value": 20,
+            "min": 20,
+            "max": 20
+        },
+        "http_reqs": {
+            "rate": 95.60755488906909,
+            "count": 1920
+        },
+        "http_req_blocked": {
+            "p(90)": 0.006,
+            "p(95)": 0.007,
+            "avg": 0.027931770833333713,
+            "min": 0,
+            "med": 0.003,
+            "max": 5.097
+        },
+        "http_req_connecting": {
+            "avg": 0.016372395833333334,
+            "min": 0,
+            "med": 0,
+            "max": 4.468,
+            "p(90)": 0,
+            "p(95)": 0
+        }
+    },
+    "root_group": {
+        "checks": {
+            "http status is 200": {
+                "name": "http status is 200",
+                "path": "::http status is 200",
+                "id": "ea2fe6ab7eecb8c5b564c043a0723b30",
+                "passes": 1920,
+                "fails": 0
+            },
+            "response body is json": {
+                "passes": 1920,
+                "fails": 0,
+                "name": "response body is json",
+                "path": "::response body is json",
+                "id": "1478e8b405684c6d341a9699a4534bc6"
+            },
+            "business code is 0": {
+                "id": "d8310cd321aa42577edcc8c02ffccb2d",
+                "passes": 1920,
+                "fails": 0,
+                "name": "business code is 0",
+                "path": "::business code is 0"
+            }
+        },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {}
+    }
+}
