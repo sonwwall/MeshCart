@@ -2846,3 +2846,236 @@ go run ./loadtest/cmd/prepare_phase1_data \
 1. 订单链路已经给出了足够清晰的新瓶颈转移信号
 2. 当前最值得做的不是继续盲目升压，而是直接进入库存预占链路优化
 3. checkout 在支付创建阶段就失效，继续强行补跑不会形成高质量结论
+
+## 27. 第十四轮结果
+
+### 27.1 第十四轮前已落地优化
+
+在第十四轮之前，已经完成了两类直接面向第十三轮瓶颈的改动：
+
+1. `inventory-service` 预占路径补齐成功、业务失败、超时三类分桶，并增加热点 SKU 本地限并发
+2. `payment-service -> order-service` 增加服务发现失败时的直连回退，恢复 checkout 的可测性
+
+第十四轮的目标，不再是继续验证订单幂等或商品查询优化，而是确认：
+
+1. 库存预占是否已经从新的首瓶颈回落
+2. `checkout` 是否已经恢复为有效正式样本
+3. 本轮是否还能继续沿用第十三轮的“高失败率”判断
+
+### 27.2 第十四轮正式样本说明
+
+第十四轮开始后，首次正式样本并不干净。
+
+原因是：
+
+1. 网关限流仍然在生效
+2. 单纯设置 `GATEWAY_RATE_LIMIT_ENABLED=false` 并不能真正使所有规则失效
+3. 第一次正式 `order-hot-v10` 样本里仍大量出现 `1000005 / rate_limited`
+
+因此本轮正式结果采用的是“关闭所有网关限流规则之后重新跑”的第二次样本。
+
+本轮有效结果文件：
+
+- `loadtest/results/round14-order-hot-v10-clean.json`
+- `loadtest/results/round14-order-normal-v10.json`
+- `loadtest/results/round14-order-hot-v40.json`
+- `loadtest/results/round14-order-normal-v40.json`
+- `loadtest/results/round14-checkout-v10.json`
+
+补充文件：
+
+- `loadtest/results/round14-order-core-smoke.json`
+- `loadtest/results/round14-checkout-core-smoke.json`
+- `loadtest/results/round14-order-core-ratelimit-check.json`
+
+### 27.3 第十四轮冒烟结果
+
+#### order smoke
+
+第一次 smoke 通过，说明订单链路在当前版本下基本功能正常。
+
+重新关闭限流规则后的短 smoke 也通过：
+
+- `order_create_failed`：`0`
+- `order_create_duration avg`：`32.41ms`
+- `order_create_duration p95`：`60.60ms`
+
+#### checkout smoke
+
+第十四轮最重要的新变化之一，是 checkout smoke 恢复为有效样本：
+
+- `checkout_failed`：`0`
+- `checkout_duration avg`：`83.33ms`
+- `checkout_duration p95`：`151.90ms`
+- `checkout_payment_create_duration p95`：`31.52ms`
+- `checkout_payment_confirm_duration p95`：`79.49ms`
+
+这说明：
+
+1. `payment-service` 的 `service_unavailable` 已不再是 smoke 阶段阻塞点
+2. 第十四轮可以继续执行正式 `checkout-v10`
+
+### 27.4 第十四轮正式结果
+
+#### `POST /api/v1/orders` 热门 SKU 池
+
+`10 VUs`：
+
+- 吞吐：`42.40 req/s`
+- 成功请求数：`859`
+- 业务失败率：`0`
+- `order_create_duration avg`：`182.19ms`
+- `order_create_duration p95`：`514.50ms`
+
+`40 VUs`：
+
+- 吞吐：`154.74 req/s`
+- 成功请求数：`3134`
+- 业务失败率：`0`
+- `order_create_duration avg`：`205.46ms`
+- `order_create_duration p95`：`402.50ms`
+
+#### `POST /api/v1/orders` 普通 SKU 池
+
+`10 VUs`：
+
+- 吞吐：`87.99 req/s`
+- 成功请求数：`1771`
+- 业务失败率：`0`
+- `order_create_duration avg`：`61.64ms`
+- `order_create_duration p95`：`170.03ms`
+
+`40 VUs`：
+
+- 吞吐：`165.84 req/s`
+- 成功请求数：`3352`
+- 业务失败率：`0`
+- `order_create_duration avg`：`188.37ms`
+- `order_create_duration p95`：`388.98ms`
+
+#### checkout 核心链路
+
+`10 VUs`：
+
+- 吞吐：`81.64 req/s`
+- 成功请求数：`1659`
+- 业务失败率：`0`
+- `checkout_duration avg`：`313.92ms`
+- `checkout_duration p95`：`666.60ms`
+- `checkout_order_create_duration p95`：`193.05ms`
+- `checkout_payment_create_duration p95`：`136.02ms`
+- `checkout_payment_confirm_duration p95`：`365.43ms`
+
+### 27.5 第十三轮 vs 第十四轮对比
+
+#### 订单链路
+
+和第十三轮相比，第十四轮最显著的变化，不是吞吐更高，而是业务失败率从 `98%+` 直接下降到 `0`。
+
+热门 SKU 池：
+
+`10 VUs`：
+
+- 成功请求数：`572 -> 859`
+- 业务失败率：`98.91% -> 0`
+- `avg`：`2.65ms -> 182.19ms`
+- `p95`：`4.96ms -> 514.50ms`
+
+`40 VUs`：
+
+- 成功请求数：`380 -> 3134`
+- 业务失败率：`99.01% -> 0`
+- `avg`：`17.58ms -> 205.46ms`
+- `p95`：`28.91ms -> 402.50ms`
+
+普通 SKU 池：
+
+`10 VUs`：
+
+- 成功请求数：`566 -> 1771`
+- 业务失败率：`98.86% -> 0`
+- `avg`：`2.76ms -> 61.64ms`
+- `p95`：`5.46ms -> 170.03ms`
+
+`40 VUs`：
+
+- 成功请求数：`626 -> 3352`
+- 业务失败率：`98.64% -> 0`
+- `avg`：`13.52ms -> 188.37ms`
+- `p95`：`28.08ms -> 388.98ms`
+
+如何理解这一变化：
+
+1. 第十三轮的高吞吐，很大一部分来自“请求快速失败”
+2. 第十四轮开始，大量请求真正走完了商品校验、库存预占、落库，所以耗时明显上升
+3. 从压测结论角度，第十四轮比第十三轮更接近真实容量表现，因为它不再被高业务失败率扭曲
+
+#### checkout 链路
+
+第十三轮 checkout 只拿到了 smoke 且样本失效，第十四轮已经恢复为有效正式样本：
+
+1. `checkout-v10` 可以完整执行
+2. 支付创建和支付确认都不再被 `service_unavailable` 阻断
+3. 当前 `checkout` 全链路 `p95` 为 `666.60ms`，仍有继续优化空间，但已经能作为正式对比样本使用
+
+### 27.6 第十四轮库存观测
+
+第十四轮新补上的库存预占分桶也给出了非常明确的信号。
+
+当前 `inventory-service` 暴露的指标中：
+
+- `meshcart_inventory_reservation_requests_total{action="reserve", outcome="success", reason="ok"}`：`11925`
+
+同时，本轮采样时未观察到：
+
+1. `biz_failed` 分桶计数
+2. `timeout` 分桶计数
+
+从 `meshcart_inventory_reservation_duration_seconds` 直方图看：
+
+1. 大部分成功预占已经落在 `50ms` 到 `250ms` 以内
+2. 没有出现上一轮那种明显的超时型失败信号
+
+这说明第十四轮里：
+
+1. 库存预占已经不再表现为“显式业务失败或超时”的主要来源
+2. 之前针对库存预占链路的优化在这一轮是有效的
+
+### 27.7 第十四轮现象
+
+从 `order-service` 日志采样看，第十四轮的订单创建链路分段耗时已经比较稳定：
+
+1. `validation_duration` 仍然在几毫秒量级
+2. `reserve_duration` 多数落在十几毫秒到二十几毫秒
+3. `persist_duration` 也多数稳定在个位到十几毫秒
+
+同时，`checkout-v10` 的分段结果说明：
+
+1. 当前 `payment_confirm` 比 `payment_create` 更重
+2. 全链路最大的耗时段已经不是支付创建异常，而是成功链路本身的串行累计
+
+### 27.8 第十四轮结论
+
+第十四轮最重要的结论：
+
+1. 第十三轮后针对库存预占和支付服务发现的优化已经生效
+2. 订单四组正式样本的业务失败率已经从 `98%+` 降到 `0`
+3. `checkout-v10` 已恢复为有效正式样本，支付链路不再被 `service_unavailable` 阻断
+4. 当前系统已经从“高失败率阶段”进入“成功率恢复后重新评估真实容量”的阶段
+
+### 27.9 下一步建议
+
+基于第十四轮结果，建议下一步按这个顺序推进：
+
+1. 先把第十四轮结果同步到高并发优化优先级文档，调整问题判断
+2. 不要立刻用第十三轮那套失败导向结论继续优化，而是重新识别第十四轮下的真实容量瓶颈
+3. 第十五轮如果继续压测，应在当前干净配置下逐步升压，确认成功率恢复后的拐点在哪里
+4. 后续可专门增加更极端的热点 SKU 场景，验证库存热点治理是否仍有边界问题
+
+### 27.10 本轮停止原因
+
+第十四轮没有继续直接升到更高压力，原因是：
+
+1. 本轮已经确认订单和 checkout 链路都恢复成有效样本
+2. 当前最重要的不是继续堆更多样本，而是先重写对系统容量阶段的判断
+3. 第十四轮和第十三轮的性质已经不同，需要先在文档和优化优先级上完成结论切换
