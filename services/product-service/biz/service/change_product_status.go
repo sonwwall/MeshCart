@@ -30,6 +30,7 @@ func (s *ProductService) ChangeProductStatus(ctx context.Context, productID int6
 		)
 		return mapped
 	}
+	s.invalidateProductCache(ctx, productID, nil)
 	logx.L(ctx).Info("change product status completed",
 		zap.Int64("product_id", productID),
 		zap.Int32("status", status),

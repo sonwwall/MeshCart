@@ -29,6 +29,7 @@ import (
 	bizservice "meshcart/services/product-service/biz/service"
 	"meshcart/services/product-service/config"
 	"meshcart/services/product-service/dal/db"
+	productredis "meshcart/services/product-service/dal/redis"
 	rpchandler "meshcart/services/product-service/rpc/handler"
 
 	"go.uber.org/zap"
@@ -148,11 +149,29 @@ func initMySQL(cfg config.Config) *gorm.DB {
 
 func initService(mysqlDB *gorm.DB, cfg config.Config) *bizservice.ProductService {
 	repo := repository.NewMySQLProductRepository(mysqlDB, time.Duration(cfg.Timeout.DBQueryMS)*time.Millisecond)
+	var cache productredis.Cache
+	if cfg.Redis.Enabled {
+		redisCache, err := productredis.New(productredis.Config{
+			Address:     cfg.Redis.Address,
+			Password:    cfg.Redis.Password,
+			DB:          cfg.Redis.DB,
+			KeyPrefix:   cfg.Redis.KeyPrefix,
+			TTL:         time.Duration(cfg.Redis.TTLSeconds) * time.Second,
+			DialTimeout: time.Duration(cfg.Redis.DialTimeout) * time.Millisecond,
+			ReadTimeout: time.Duration(cfg.Redis.ReadTimeout) * time.Millisecond,
+		})
+		if err != nil {
+			logx.L(nil).Warn("init redis cache failed, fallback to db only", zap.Error(err))
+		} else {
+			cache = redisCache
+			logx.L(nil).Info("product-service redis cache enabled", zap.String("addr", cfg.Redis.Address), zap.Int("db", cfg.Redis.DB))
+		}
+	}
 	node, err := snowflake.NewNode(cfg.Snowflake.Node)
 	if err != nil {
 		logx.L(nil).Fatal("init snowflake node failed", zap.Error(err), zap.Int64("node", cfg.Snowflake.Node))
 	}
-	return bizservice.NewProductService(repo, node)
+	return bizservice.NewProductService(repo, node, cache)
 }
 
 func startAdminServer(sqlDB *sql.DB, draining *atomic.Bool) *http.Server {

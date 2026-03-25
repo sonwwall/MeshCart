@@ -644,7 +644,7 @@ func newTradeFlowEnv(t *testing.T) *tradeFlowEnv {
 		t.Fatalf("migrate payment schema: %v", err)
 	}
 
-	productSvc := productservice.NewProductService(productrepo.NewMySQLProductRepository(productDB, time.Second), newSnowflakeNode(t, 41))
+	productSvc := productservice.NewProductService(productrepo.NewMySQLProductRepository(productDB, time.Second), newSnowflakeNode(t, 41), nil)
 	inventoryRepo := inventoryrepo.NewMySQLInventoryRepository(inventoryDB, time.Second, func() int64 {
 		return time.Now().UnixNano()
 	})

@@ -54,6 +54,7 @@ func (s *ProductService) UpdateProduct(ctx context.Context, req *productpb.Updat
 		)
 		return nil, mapped
 	}
+	s.invalidateProductCache(ctx, productModel.ID, skuIDsFromModels(skuModels))
 	logx.L(ctx).Info("update product completed",
 		zap.Int64("product_id", productModel.ID),
 		zap.Int("sku_count", len(skuModels)),

@@ -164,21 +164,27 @@
 
 ### 当前状态
 
-这一项暂时没有继续扩张，而是先把更关键的“批量商品读取 RPC”补齐了。
+这一项现在已经按更合理的方式落地了第一版：缓存放在 `product-service` 内部，用 Redis 做 cache-aside，而不是让 `order-service` 直接依赖 Redis。
 
 当前判断是：
 
-1. 在订单主链路还没完全做薄之前，先把读取方式批量化，比先堆本地缓存更重要
-2. 当前已经有了更适合继续演进缓存的位置：
-   - 批量商品读取结果
-   - SKU 基础信息
-3. 下一步是否把缓存重新加回订单侧，要看下一轮压测里 `validation_duration` 的下降幅度
+1. `order-service` 继续只调用 `product-service`，不直接碰缓存中间件
+2. `product-service` 在 `BatchGetProducts` 和 `BatchGetSKU` 两条读路径里先查 Redis，未命中再回源数据库，并把结果回填 Redis
+3. 商品创建、更新、上下线时会主动删缓存，避免旧快照长期残留
+4. Redis 不可用时会自动降级回数据库，不会阻塞主流程
+
+对应代码：
+
+- 商品批量读取 cache-aside：[batch_get_products.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/biz/service/batch_get_products.go#L14)
+- SKU 批量读取 cache-aside：[batch_get_sku.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/biz/service/batch_get_sku.go#L14)
+- Redis 缓存封装：[redis.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/dal/redis/redis.go#L14)
+- 商品 / SKU 缓存失效：[cache_helpers.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/biz/service/cache_helpers.go#L12)
 
 ### 这一项后续更合理的演进方向
 
-1. 给批量商品读取结果加短 TTL 缓存
-2. 把 SKU 基础信息也纳入订单侧快照缓存
-3. 根据下一轮压测结果，再决定 TTL、淘汰策略和是否需要单飞合并
+1. 继续观察 `validation_duration`，确认 Redis 命中后下单校验耗时是否明显下降
+2. 视下一轮压测结果决定是否需要单飞合并，避免缓存击穿时的瞬时回源放大
+3. 根据商品更新频率和命中率，再调整 TTL、key 粒度和是否拆分更轻量的快照结构
 
 这里要强调边界：
 

@@ -4,6 +4,7 @@ import (
 	"github.com/bwmarrin/snowflake"
 
 	"meshcart/services/product-service/biz/repository"
+	productredis "meshcart/services/product-service/dal/redis"
 )
 
 const (
@@ -16,14 +17,16 @@ const (
 )
 
 type ProductService struct {
-	repo repository.ProductRepository
-	node *snowflake.Node
+	repo  repository.ProductRepository
+	node  *snowflake.Node
+	cache productredis.Cache
 }
 
-func NewProductService(repo repository.ProductRepository, node *snowflake.Node) *ProductService {
+func NewProductService(repo repository.ProductRepository, node *snowflake.Node, cache productredis.Cache) *ProductService {
 	return &ProductService{
-		repo: repo,
-		node: node,
+		repo:  repo,
+		node:  node,
+		cache: cache,
 	}
 }
 

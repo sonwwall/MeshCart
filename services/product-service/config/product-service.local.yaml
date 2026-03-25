@@ -7,6 +7,16 @@ mysql:
   parse_time: true
   loc: "Local"
 
+redis:
+  address: "127.0.0.1:6379"
+  password: ""
+  db: 0
+  enabled: true
+  key_prefix: "meshcart:product:"
+  ttl_seconds: 60
+  dial_timeout_ms: 500
+  read_timeout_ms: 500
+
 migration:
   enabled: true
   source: "file://services/product-service/migrations"

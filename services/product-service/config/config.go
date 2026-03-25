@@ -11,6 +11,7 @@ import (
 
 type Config struct {
 	MySQL     MySQLConfig     `mapstructure:"mysql"`
+	Redis     RedisConfig     `mapstructure:"redis"`
 	Migration MigrationConfig `mapstructure:"migration"`
 	Snowflake SnowflakeConfig `mapstructure:"snowflake"`
 	Timeout   TimeoutConfig   `mapstructure:"timeout"`
@@ -24,6 +25,17 @@ type MySQLConfig struct {
 	Charset   string `mapstructure:"charset"`
 	ParseTime bool   `mapstructure:"parse_time"`
 	Loc       string `mapstructure:"loc"`
+}
+
+type RedisConfig struct {
+	Address     string `mapstructure:"address"`
+	Password    string `mapstructure:"password"`
+	DB          int    `mapstructure:"db"`
+	Enabled     bool   `mapstructure:"enabled"`
+	KeyPrefix   string `mapstructure:"key_prefix"`
+	TTLSeconds  int    `mapstructure:"ttl_seconds"`
+	DialTimeout int    `mapstructure:"dial_timeout_ms"`
+	ReadTimeout int    `mapstructure:"read_timeout_ms"`
 }
 
 type MigrationConfig struct {
@@ -84,6 +96,14 @@ func Load() (Config, error) {
 	v.SetDefault("mysql.charset", "utf8mb4")
 	v.SetDefault("mysql.parse_time", true)
 	v.SetDefault("mysql.loc", "Local")
+	v.SetDefault("redis.address", "127.0.0.1:6379")
+	v.SetDefault("redis.password", "")
+	v.SetDefault("redis.db", 0)
+	v.SetDefault("redis.enabled", true)
+	v.SetDefault("redis.key_prefix", "meshcart:product:")
+	v.SetDefault("redis.ttl_seconds", 60)
+	v.SetDefault("redis.dial_timeout_ms", 500)
+	v.SetDefault("redis.read_timeout_ms", 500)
 	v.SetDefault("migration.enabled", true)
 	v.SetDefault("migration.source", "file://services/product-service/migrations")
 	v.SetDefault("snowflake.node", 2)

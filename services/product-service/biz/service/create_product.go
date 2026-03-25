@@ -49,6 +49,7 @@ func (s *ProductService) CreateProduct(ctx context.Context, req *productpb.Creat
 		)
 		return 0, nil, mapped
 	}
+	s.invalidateProductCache(ctx, productModel.ID, skuIDsFromModels(skuModels))
 	logx.L(ctx).Info("create product completed",
 		zap.Int64("product_id", productModel.ID),
 		zap.Int("sku_count", len(skuModels)),

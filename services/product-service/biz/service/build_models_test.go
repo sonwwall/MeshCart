@@ -69,5 +69,5 @@ func newTestProductService(t *testing.T, repo repository.ProductRepository) *Pro
 	if err != nil {
 		t.Fatalf("new snowflake node: %v", err)
 	}
-	return NewProductService(repo, node)
+	return NewProductService(repo, node, nil)
 }
