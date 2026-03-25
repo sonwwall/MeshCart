@@ -1,9 +1,9 @@
 import http from 'k6/http';
 import exec from 'k6/execution';
 import { sleep } from 'k6';
-import { Rate, Trend } from 'k6/metrics';
+import { Counter, Rate, Trend } from 'k6/metrics';
 
-import { getBaseURL, getManifest, parseEnvelope } from './lib.js';
+import { bizTagsOf, getBaseURL, getManifest, parseEnvelope } from './lib.js';
 
 const manifest = getManifest();
 const hotProduct = manifest.hot_product;
@@ -11,6 +11,7 @@ const normalProducts = manifest.normal_products || [];
 
 export const orderCreateDuration = new Trend('order_create_duration', true);
 export const orderCreateFailed = new Rate('order_create_failed');
+export const orderCreateFailedTotal = new Counter('order_create_failed_total');
 
 export const options = {
   vus: Number(__ENV.VUS || 20),
@@ -104,7 +105,13 @@ export default function (data) {
   const ok = !!(payload && payload.code === 0 && orderID);
   orderCreateFailed.add(!ok, { product_pool: target.mode });
   if (!ok) {
-    throw new Error(`create order failed in ${target.mode} mode`);
+    const tags = bizTagsOf(payload, 'unknown');
+    orderCreateFailedTotal.add(1, {
+      product_pool: target.mode,
+      code: tags.code,
+      reason: tags.reason,
+    });
+    throw new Error(`create order failed in ${target.mode} mode code=${tags.code} reason=${tags.reason}`);
   }
 
   sleep(Number(__ENV.SLEEP_SECONDS || 0.1));

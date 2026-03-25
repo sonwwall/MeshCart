@@ -6,6 +6,7 @@ import (
 
 	"meshcart/app/common"
 	logx "meshcart/app/log"
+	metricsx "meshcart/app/metrics"
 	tracex "meshcart/app/trace"
 	"meshcart/gateway/internal/logic/logicutil"
 	"meshcart/gateway/internal/svc"
@@ -62,9 +63,12 @@ func (l *CreateLogic) Create(userID int64, req *types.CreateOrderRequest) (*type
 	if err != nil {
 		span.RecordError(err)
 		logx.L(ctx).Error("order rpc create failed", zap.Error(err), zap.Int64("user_id", userID))
-		return nil, logicutil.MapRPCError(err)
+		bizErr := logicutil.MapRPCError(err)
+		metricsx.ObserveBizError("gateway", "order", "create", "rpc_error", bizErr.Code)
+		return nil, bizErr
 	}
 	if resp.Code != common.CodeOK {
+		metricsx.ObserveBizError("gateway", "order", "create", "rpc_biz", resp.Code)
 		logx.L(ctx).Warn("order rpc create returned business error",
 			zap.Int64("user_id", userID),
 			zap.String("request_id", rpcReq.GetRequestId()),

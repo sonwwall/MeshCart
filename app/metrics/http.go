@@ -57,6 +57,7 @@ func register() {
 		prometheus.MustRegister(dbMaxIdleClosedTotal)
 		prometheus.MustRegister(dbMaxIdleTimeClosedTotal)
 		prometheus.MustRegister(dbMaxLifetimeClosedTotal)
+		prometheus.MustRegister(bizErrorsTotal)
 	})
 }
 

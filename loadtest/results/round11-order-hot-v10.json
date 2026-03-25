@@ -1,0 +1,196 @@
+{
+    "metrics": {
+        "http_req_waiting": {
+            "p(95)": 1.206,
+            "avg": 1.47293849610508,
+            "min": 0.059,
+            "med": 0.261,
+            "max": 191.348,
+            "p(90)": 0.7388000000000018
+        },
+        "http_req_tls_handshaking": {
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0
+        },
+        "iterations": {
+            "count": 81002,
+            "rate": 4014.14171988742
+        },
+        "http_req_receiving": {
+            "avg": 0.029912558794114353,
+            "min": 0.006,
+            "med": 0.018,
+            "max": 34.634,
+            "p(90)": 0.039,
+            "p(95)": 0.056
+        },
+        "order_create_duration": {
+            "med": 0.294,
+            "max": 191.443,
+            "p(90)": 0.804,
+            "p(95)": 1.32,
+            "avg": 1.5147979556060414,
+            "min": 0.077,
+            "thresholds": {
+                "p(95)<1500": false
+            }
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 81003,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "http_req_duration": {
+            "avg": 1.516022394232319,
+            "min": 0.077,
+            "med": 0.294,
+            "max": 191.443,
+            "p(90)": 0.804,
+            "p(95)": 1.32
+        },
+        "data_received": {
+            "count": 20788795,
+            "rate": 1030211.2209042617
+        },
+        "data_sent": {
+            "count": 51839008,
+            "rate": 2568938.1093106065
+        },
+        "vus_max": {
+            "value": 10,
+            "min": 10,
+            "max": 10
+        },
+        "order_create_failed": {
+            "passes": 79903,
+            "fails": 1099,
+            "thresholds": {
+                "rate<0.05": true
+            },
+            "value": 0.9864324337670675
+        },
+        "http_req_connecting": {
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.000026357048504376383,
+            "min": 0,
+            "med": 0,
+            "max": 0.361
+        },
+        "http_req_blocked": {
+            "avg": 0.0028137723294209514,
+            "min": 0,
+            "med": 0.002,
+            "max": 1.058,
+            "p(90)": 0.004,
+            "p(95)": 0.005
+        },
+        "iteration_duration": {
+            "avg": 2.4223410750105043,
+            "min": 0.155958,
+            "med": 0.471459,
+            "max": 242.186584,
+            "p(90)": 1.1275378,
+            "p(95)": 1.793375
+        },
+        "http_reqs": {
+            "count": 81003,
+            "rate": 4014.191275968997
+        },
+        "http_req_duration{expected_response:true}": {
+            "avg": 1.516022394232319,
+            "min": 0.077,
+            "med": 0.294,
+            "max": 191.443,
+            "p(90)": 0.804,
+            "p(95)": 1.32
+        },
+        "checks": {
+            "passes": 163106,
+            "fails": 79903,
+            "value": 0.6711932479867001
+        },
+        "vus": {
+            "value": 10,
+            "min": 10,
+            "max": 10
+        },
+        "http_req_sending": {
+            "avg": 0.01317133933310523,
+            "min": 0.003,
+            "med": 0.007,
+            "max": 18.264,
+            "p(90)": 0.015,
+            "p(95)": 0.021
+        }
+    },
+    "setup_data": {
+        "token": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzQ0MzM1MzgsImlzcyI6Im1lc2hjYXJ0LmdhdGV3YXkiLCJvcmlnX2lhdCI6MTc3NDQyNjMzOCwicm9sZSI6InVzZXIiLCJzZXNzaW9uX2lkIjoiZGZiZDU0YzEtNzA5ZS00YTQ0LTg5Y2MtOGRjNTMwNWY0MmE5IiwidXNlcl9pZCI6MjAzNjM2MDA1NzMyNjY2OTgyNCwidXNlcm5hbWUiOiJsb2FkdGVzdF91c2VyXzAxIn0.QaCeIwoZ4SDm6LsjZeVdelvH1lytF48fpjXOz995CbE"
+    },
+    "root_group": {
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {
+            "setup": {
+                "checks": {
+                    "http status is 200": {
+                        "id": "3848a3865263de2b5f762cb94bd15b64",
+                        "passes": 1,
+                        "fails": 0,
+                        "name": "http status is 200",
+                        "path": "::setup::http status is 200"
+                    },
+                    "response body is json": {
+                        "id": "1fa74caf9501ef2899291647a50b3658",
+                        "passes": 1,
+                        "fails": 0,
+                        "name": "response body is json",
+                        "path": "::setup::response body is json"
+                    },
+                    "business code is 0": {
+                        "name": "business code is 0",
+                        "path": "::setup::business code is 0",
+                        "id": "ba765714ab8a5e0a4c45e510f529d4ed",
+                        "passes": 1,
+                        "fails": 0
+                    }
+                },
+                "name": "setup",
+                "path": "::setup",
+                "id": "5c0f8025f7e0b6654089e5b00e950f1a",
+                "groups": {}
+            }
+        },
+        "checks": {
+            "http status is 200": {
+                "id": "ea2fe6ab7eecb8c5b564c043a0723b30",
+                "passes": 81002,
+                "fails": 0,
+                "name": "http status is 200",
+                "path": "::http status is 200"
+            },
+            "response body is json": {
+                "id": "1478e8b405684c6d341a9699a4534bc6",
+                "passes": 81002,
+                "fails": 0,
+                "name": "response body is json",
+                "path": "::response body is json"
+            },
+            "business code is 0": {
+                "passes": 1099,
+                "fails": 79903,
+                "name": "business code is 0",
+                "path": "::business code is 0",
+                "id": "d8310cd321aa42577edcc8c02ffccb2d"
+            }
+        },
+        "name": ""
+    }
+}

@@ -1,9 +1,9 @@
 import http from 'k6/http';
 import exec from 'k6/execution';
 import { sleep } from 'k6';
-import { Rate, Trend } from 'k6/metrics';
+import { Counter, Rate, Trend } from 'k6/metrics';
 
-import { getBaseURL, getManifest, parseEnvelope } from './lib.js';
+import { bizTagsOf, getBaseURL, getManifest, parseEnvelope } from './lib.js';
 
 const manifest = getManifest();
 const hotProduct = manifest.hot_product;
@@ -13,6 +13,7 @@ export const orderCreateDuration = new Trend('checkout_order_create_duration', t
 export const paymentCreateDuration = new Trend('checkout_payment_create_duration', true);
 export const paymentConfirmDuration = new Trend('checkout_payment_confirm_duration', true);
 export const checkoutFailed = new Rate('checkout_failed');
+export const checkoutFailedTotal = new Counter('checkout_failed_total');
 
 export const options = {
   vus: Number(__ENV.VUS || 10),
@@ -80,8 +81,10 @@ export default function (data) {
   const orderPayload = parseEnvelope(orderResponse);
   const orderID = extractInt64(orderResponse.body, 'order_id');
   if (!(orderPayload && orderPayload.code === 0 && orderID)) {
+    const tags = bizTagsOf(orderPayload, 'unknown');
     checkoutFailed.add(true, { stage: 'create_order' });
-    throw new Error('checkout create order failed');
+    checkoutFailedTotal.add(1, { stage: 'create_order', code: tags.code, reason: tags.reason });
+    throw new Error(`checkout create order failed code=${tags.code} reason=${tags.reason}`);
   }
 
   const paymentResponse = http.post(
@@ -101,8 +104,10 @@ export default function (data) {
   const paymentPayload = parseEnvelope(paymentResponse);
   const paymentID = extractInt64(paymentResponse.body, 'payment_id');
   if (!(paymentPayload && paymentPayload.code === 0 && paymentID)) {
+    const tags = bizTagsOf(paymentPayload, 'unknown');
     checkoutFailed.add(true, { stage: 'create_payment' });
-    throw new Error('checkout create payment failed');
+    checkoutFailedTotal.add(1, { stage: 'create_payment', code: tags.code, reason: tags.reason });
+    throw new Error(`checkout create payment failed code=${tags.code} reason=${tags.reason}`);
   }
 
   const confirmResponse = http.post(
@@ -124,7 +129,9 @@ export default function (data) {
   checkoutFailed.add(!ok, { stage: 'confirm_payment' });
   checkoutDuration.add(Date.now() - startedAt);
   if (!ok) {
-    throw new Error('checkout confirm payment failed');
+    const tags = bizTagsOf(confirmPayload, 'unknown');
+    checkoutFailedTotal.add(1, { stage: 'confirm_payment', code: tags.code, reason: tags.reason });
+    throw new Error(`checkout confirm payment failed code=${tags.code} reason=${tags.reason}`);
   }
 
   sleep(Number(__ENV.SLEEP_SECONDS || 0.1));

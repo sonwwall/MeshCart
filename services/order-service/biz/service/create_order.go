@@ -7,6 +7,7 @@ import (
 
 	"meshcart/app/common"
 	logx "meshcart/app/log"
+	metricsx "meshcart/app/metrics"
 	"meshcart/kitex_gen/meshcart/inventory"
 	orderpb "meshcart/kitex_gen/meshcart/order"
 	"meshcart/services/order-service/biz/errno"
@@ -28,6 +29,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 			zap.Int64("user_id", userID),
 			zap.Int("item_count", itemCount),
 		)
+		metricsx.ObserveBizError("order-service", "order", "create", "request", common.CodeInvalidParam)
 		return nil, common.ErrInvalidParam
 	}
 
@@ -37,6 +39,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 			zap.Int64("user_id", req.GetUserId()),
 			zap.Int("item_count", len(req.GetItems())),
 		)
+		metricsx.ObserveBizError("order-service", "order", "create", "request", bizErr.Code)
 		return nil, bizErr
 	}
 	logx.L(ctx).Info("create order start",
@@ -47,6 +50,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 	if requestID != "" {
 		existing, bizErr := s.findActionRecord(ctx, actionTypeCreate, requestID)
 		if bizErr != nil {
+			metricsx.ObserveBizError("order-service", "order", "create", "idempotency_lookup", bizErr.Code)
 			return nil, bizErr
 		}
 		if existing != nil {
@@ -63,6 +67,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 					zap.String("request_id", requestID),
 					zap.Int64("user_id", req.GetUserId()),
 				)
+				metricsx.ObserveBizError("order-service", "order", "create", "idempotency_lookup", errno.CodeOrderIdempotencyBusy)
 				return nil, errno.ErrOrderIdempotencyBusy
 			default:
 				logx.L(ctx).Warn("create order rejected by failed action record",
@@ -70,11 +75,13 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 					zap.Int64("user_id", req.GetUserId()),
 					zap.String("status", existing.Status),
 				)
+				metricsx.ObserveBizError("order-service", "order", "create", "idempotency_lookup", errno.CodeOrderStateConflict)
 				return nil, errno.ErrOrderStateConflict
 			}
 		}
 		record, bizErr := s.createPendingActionRecord(ctx, actionTypeCreate, requestID, 0, req.GetUserId())
 		if bizErr != nil {
+			metricsx.ObserveBizError("order-service", "order", "create", "idempotency_create", bizErr.Code)
 			return nil, bizErr
 		}
 		if record != nil && record.Status != actionStatusPending {
@@ -91,6 +98,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 				zap.Int64("user_id", req.GetUserId()),
 				zap.String("status", record.Status),
 			)
+			metricsx.ObserveBizError("order-service", "order", "create", "idempotency_create", errno.CodeOrderIdempotencyBusy)
 			return nil, errno.ErrOrderIdempotencyBusy
 		}
 	}
@@ -100,6 +108,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 	validatedItems, reserveItems, totalAmount, bizErr := s.validateAndBuildSnapshots(ctx, req.GetItems())
 	validationDuration := s.now().Sub(validationStartedAt)
 	if bizErr != nil {
+		metricsx.ObserveBizError("order-service", "order", "create", "validation", bizErr.Code)
 		logx.L(ctx).Warn("create order validation failed",
 			zap.Int64("order_id", orderID),
 			zap.Int64("user_id", req.GetUserId()),
@@ -121,6 +130,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 	})
 	reserveDuration := s.now().Sub(reserveStartedAt)
 	if err != nil {
+		metricsx.ObserveBizError("order-service", "order", "create", "reserve_rpc", common.CodeInternalError)
 		logx.L(ctx).Error("reserve inventory failed",
 			zap.Error(err),
 			zap.Int64("order_id", orderID),
@@ -134,6 +144,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 	}
 	if reserveResp.Code != 0 {
 		bizErr = mapInventoryRPCError(reserveResp.Code)
+		metricsx.ObserveBizError("order-service", "order", "create", "reserve_biz", bizErr.Code)
 		logx.L(ctx).Warn("reserve inventory returned business error",
 			zap.Int64("order_id", orderID),
 			zap.Int64("user_id", req.GetUserId()),
@@ -189,6 +200,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 			logx.L(ctx).Error("release inventory after create order failure returned biz error", zap.Int32("code", releaseResp.Code), zap.String("message", releaseResp.Message), zap.Int64("order_id", orderID))
 		}
 		bizErr = mapRepositoryError(err)
+		metricsx.ObserveBizError("order-service", "order", "create", "persist", bizErr.Code)
 		logx.L(ctx).Error("create order persist failed",
 			zap.Error(err),
 			zap.Int64("order_id", orderID),
