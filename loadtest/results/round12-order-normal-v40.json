@@ -1,0 +1,200 @@
+{
+    "metrics": {
+        "http_req_waiting": {
+            "med": 0.645,
+            "max": 2024.043,
+            "p(90)": 2.956,
+            "p(95)": 5.587299999999984,
+            "avg": 19.3304282154162,
+            "min": 0.054
+        },
+        "http_req_sending": {
+            "min": 0.002,
+            "med": 0.007,
+            "max": 68.161,
+            "p(90)": 0.015,
+            "p(95)": 0.02,
+            "avg": 0.03537657936053573
+        },
+        "http_req_connecting": {
+            "min": 0,
+            "med": 0,
+            "max": 3.044,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.0006986567647718494
+        },
+        "http_reqs": {
+            "count": 40127,
+            "rate": 1876.8081063218085
+        },
+        "http_req_duration": {
+            "p(90)": 3.116400000000001,
+            "p(95)": 6.038399999999996,
+            "avg": 19.456176963141996,
+            "min": 0.062,
+            "med": 0.682,
+            "max": 2024.15
+        },
+        "iteration_duration": {
+            "p(90)": 4.083875000000002,
+            "p(95)": 9.547385249999992,
+            "avg": 20.40830163335513,
+            "min": 0.146291,
+            "med": 0.9193745,
+            "max": 2024.59225
+        },
+        "order_create_failed": {
+            "passes": 39851,
+            "fails": 275,
+            "thresholds": {
+                "rate<0.05": true
+            },
+            "value": 0.9931465882470218
+        },
+        "http_req_duration{expected_response:true}": {
+            "avg": 19.456176963141996,
+            "min": 0.062,
+            "med": 0.682,
+            "max": 2024.15,
+            "p(90)": 3.116400000000001,
+            "p(95)": 6.038399999999996
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 40127,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "order_create_failed_total": {
+            "count": 39851,
+            "rate": 1863.899116431091
+        },
+        "vus_max": {
+            "value": 40,
+            "min": 40,
+            "max": 40
+        },
+        "data_sent": {
+            "count": 25820054,
+            "rate": 1207647.884289053
+        },
+        "vus": {
+            "min": 10,
+            "max": 40,
+            "value": 10
+        },
+        "http_req_blocked": {
+            "min": 0,
+            "med": 0.002,
+            "max": 9.325,
+            "p(90)": 0.004,
+            "p(95)": 0.005,
+            "avg": 0.0043490168714336325
+        },
+        "http_req_receiving": {
+            "min": 0.005,
+            "med": 0.017,
+            "max": 207.327,
+            "p(90)": 0.037,
+            "p(95)": 0.059,
+            "avg": 0.09037216836544075
+        },
+        "checks": {
+            "passes": 80530,
+            "fails": 39851,
+            "value": 0.6689593872787234
+        },
+        "data_received": {
+            "count": 10160645,
+            "rate": 475230.66517452465
+        },
+        "iterations": {
+            "count": 40126,
+            "rate": 1876.761334619306
+        },
+        "order_create_duration": {
+            "p(90)": 3.1155000000000013,
+            "p(95)": 6.035749999999991,
+            "avg": 19.453595947764512,
+            "min": 0.062,
+            "med": 0.682,
+            "max": 2024.15,
+            "thresholds": {
+                "p(95)<1500": false
+            }
+        }
+    },
+    "setup_data": {
+        "token": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzQ0MzQ5NDAsImlzcyI6Im1lc2hjYXJ0LmdhdGV3YXkiLCJvcmlnX2lhdCI6MTc3NDQyNzc0MCwicm9sZSI6InVzZXIiLCJzZXNzaW9uX2lkIjoiYzUzNzhmNjQtM2RhYi00MjA4LTlhNjAtZmM2MTdhMGZmMTljIiwidXNlcl9pZCI6MjAzNjM2MDA1NzMyNjY2OTgyNCwidXNlcm5hbWUiOiJsb2FkdGVzdF91c2VyXzAxIn0.5buP199TMsqP3s6C1s_11hkXPTApfeionhIG7jyT_0M"
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {
+            "setup": {
+                "id": "5c0f8025f7e0b6654089e5b00e950f1a",
+                "groups": {},
+                "checks": {
+                        "http status is 200": {
+                            "passes": 1,
+                            "fails": 0,
+                            "name": "http status is 200",
+                            "path": "::setup::http status is 200",
+                            "id": "3848a3865263de2b5f762cb94bd15b64"
+                        },
+                        "response body is json": {
+                            "fails": 0,
+                            "name": "response body is json",
+                            "path": "::setup::response body is json",
+                            "id": "1fa74caf9501ef2899291647a50b3658",
+                            "passes": 1
+                        },
+                        "business code is 0": {
+                            "passes": 1,
+                            "fails": 0,
+                            "name": "business code is 0",
+                            "path": "::setup::business code is 0",
+                            "id": "ba765714ab8a5e0a4c45e510f529d4ed"
+                        }
+                    },
+                "name": "setup",
+                "path": "::setup"
+            }
+        },
+        "checks": {
+            "http status is 200": {
+                "fails": 0,
+                "name": "http status is 200",
+                "path": "::http status is 200",
+                "id": "ea2fe6ab7eecb8c5b564c043a0723b30",
+                "passes": 40126
+            },
+            "response body is json": {
+                "path": "::response body is json",
+                "id": "1478e8b405684c6d341a9699a4534bc6",
+                "passes": 40126,
+                "fails": 0,
+                "name": "response body is json"
+            },
+            "business code is 0": {
+                "name": "business code is 0",
+                "path": "::business code is 0",
+                "id": "d8310cd321aa42577edcc8c02ffccb2d",
+                "passes": 275,
+                "fails": 39851
+            }
+        }
+    }
+}

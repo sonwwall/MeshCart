@@ -2444,3 +2444,204 @@ go run ./loadtest/cmd/prepare_phase1_data \
 2. 本轮已经明确看到吞吐和下单阶段时延改善
 3. 当前最缺的不是更高并发样本，而是失败原因拆解能力
 4. 继续升压只能重复放大同一类“业务失败率很高”的现象，暂时无法提供更高价值的信息
+
+## 25. 第十二轮结果
+
+时间：
+
+- `2026-03-25`
+
+第十二轮目标：
+
+- 使用新增的失败原因分桶能力，继续复测核心订单场景
+- 确认第十一轮之后的高失败率主要集中在哪些业务阶段
+- 判断下一步该优先优化幂等路径、库存预占还是订单持久化
+
+### 25.1 第十二轮开始前的改动
+
+本轮是在以下观测增强落地后进行：
+
+1. `order-service` 的 `CreateOrder` 失败路径增加按阶段、按错误码统计的业务错误 metrics
+2. `gateway` 的下单入口增加 RPC 错误与 RPC 业务错误的业务分桶 metrics
+3. `k6` 订单脚本和 checkout 脚本增加失败分桶计数与错误码 / 原因输出
+
+本轮新增观测目标：
+
+- `request`
+- `idempotency_lookup`
+- `idempotency_create`
+- `validation`
+- `reserve_rpc`
+- `reserve_biz`
+- `persist`
+
+### 25.2 第十二轮结果文件
+
+有效结果：
+
+- [round12-order-core-smoke.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round12-order-core-smoke.json)
+- [round12-order-hot-v10.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round12-order-hot-v10.json)
+- [round12-order-normal-v10.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round12-order-normal-v10.json)
+- [round12-order-hot-v40.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round12-order-hot-v40.json)
+- [round12-order-normal-v40.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round12-order-normal-v40.json)
+
+无效样本：
+
+- [round12-checkout-core-smoke.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round12-checkout-core-smoke.json)
+- [round12-checkout-v10.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round12-checkout-v10.json)
+
+说明：
+
+- `checkout-v10` 在 setup 登录阶段就被 `user-service` 异常打断，不能作为有效交易链路样本参与结论统计
+
+### 25.3 冒烟结果
+
+#### `POST /api/v1/orders`
+
+- 场景：纯下单冒烟
+- 结果：业务失败率 `0%`
+- `order_create_duration avg`：约 `45.03ms`
+- `order_create_duration p95`：约 `101.01ms`
+
+#### `创建订单 -> 创建支付 -> 模拟支付确认`
+
+- 场景：核心结算链路冒烟
+- 结果：业务失败率 `0%`
+- `checkout_duration avg`：约 `145.31ms`
+- `checkout_duration p95`：约 `310ms`
+
+结论：
+
+- 低压下订单与 checkout 脚本仍然可运行
+- 第十二轮新增的失败分桶逻辑本身没有引入功能性错误
+
+### 25.4 第十二轮关键结果
+
+#### `POST /api/v1/orders` 热点 SKU
+
+`10 VUs`：
+
+- 总请求数：`34255`
+- 吞吐：`1690.75 req/s`
+- 业务失败率：`98.47%`
+- 成功请求数：`525`
+- `order_create_duration avg`：`4.73ms`
+- `order_create_duration p95`：`2.62ms`
+- 最大耗时：`777.25ms`
+
+`40 VUs`：
+
+- 总请求数：`27462`
+- 吞吐：`1274.02 req/s`
+- 业务失败率：`99.69%`
+- 成功请求数：`85`
+- `order_create_duration avg`：`29.79ms`
+- `order_create_duration p95`：`4.97ms`
+- 最大耗时：`2019.59ms`
+
+#### `POST /api/v1/orders` 普通 SKU 池
+
+`10 VUs`：
+
+- 总请求数：`37562`
+- 吞吐：`1853.76 req/s`
+- 业务失败率：`98.36%`
+- 成功请求数：`616`
+- `order_create_duration avg`：`4.11ms`
+- `order_create_duration p95`：`2.95ms`
+- 最大耗时：`794.28ms`
+
+`40 VUs`：
+
+- 总请求数：`40127`
+- 吞吐：`1876.81 req/s`
+- 业务失败率：`99.31%`
+- 成功请求数：`275`
+- `order_create_duration avg`：`19.45ms`
+- `order_create_duration p95`：`6.04ms`
+- 最大耗时：`2024.15ms`
+
+### 25.5 第十二轮失败分桶结果
+
+本轮最关键的新信息，不是单纯的吞吐和时延，而是失败开始具备可拆解的阶段信息。
+
+`order-service` 当前观测到的 `CreateOrder` 失败分布：
+
+- `idempotency_lookup`：`554`
+- `reserve_biz`：`185`
+- `persist`：`9`
+- `reserve_rpc`：`6`
+- `validation`：`6`
+- `idempotency_create`：`3`
+
+同时，`order-service` 的 RPC 业务错误里：
+
+- `meshcart_rpc_errors_total{method="create_order", code="1009999"}`：`763`
+
+这说明当前最主要的失败并不是均匀分布在各阶段，而是首先集中在：
+
+1. 订单幂等记录查询阶段
+2. 库存预占业务阶段
+
+### 25.6 第十二轮现象
+
+从日志和 metrics 结合看，本轮已经能把 `1009999` 进一步拆开成更具体的问题：
+
+1. `order_action_records` 相关路径出现超时，导致 `idempotency_lookup` 成为失败最多的阶段
+2. `CreateWithItems` 落库出现长时间阻塞，`persist_duration` 出现 `31s+`
+3. `product-service` 的 `batchGetSku` 出现超时，最终在订单侧表现为“下游服务暂不可用”
+4. 库存预占阶段既有业务失败，也有 RPC 失败
+
+日志里可见的典型问题包括：
+
+- `batch get sku failed`
+- `create order validation failed`，消息为 `下游服务暂不可用，请稍后重试`
+- `create order persist failed`，并伴随 `context deadline exceeded`
+- `mark order action failed failed`
+
+这意味着：
+
+- 第十二轮的失败不再只是“高失败率”这个泛化现象
+- 当前已经能确认幂等记录路径和订单持久化路径是非常可疑的热点
+
+### 25.7 checkout 样本失效说明
+
+本轮 `checkout-v10` 未形成有效样本，原因不是 checkout 脚本本身错误，而是依赖服务异常：
+
+1. `user-service` 在登录阶段开始返回 `1009999`
+2. `gateway` 日志显示 `user rpc login failed`
+3. `user-service` 日志显示 `get user by username failed: context deadline exceeded`
+4. 重新拉起 `user-service` 时又出现 `run migrations failed: can't acquire lock`
+
+因此：
+
+- 第十二轮不能基于 `checkout-v10` 得出支付链路层面的新结论
+- 后续如果要继续交易链路压测，必须先清理 `user-service` 的迁移锁和登录超时问题
+
+### 25.8 第十二轮结论
+
+第十二轮最重要的结论：
+
+1. 第十一轮之后剩下的高失败率，已经不再是“看不清原因”的黑盒现象
+2. 当前订单失败首先集中在幂等记录查询路径，其次是库存预占业务失败
+3. 订单持久化路径也存在严重长尾，部分请求在 `persist` 阶段阻塞到 `30s+`
+4. `product-service` 的 `batchGetSku` 仍会在高压下超时，说明商品读链路虽然被削弱，但还没有完全稳定
+
+### 25.9 下一步优化优先级
+
+基于第十二轮结果，建议下一步按这个顺序推进：
+
+1. 优先优化 `order_action_records` 幂等路径，减少 `lookup / create / mark failed` 的超时与额外往返
+2. 排查 `CreateWithItems` 持久化长尾，重点看事务时长、慢 SQL、锁等待
+3. 继续排查 `product-service` 的 `batchGetSku` 超时来源
+4. 在库存侧补更细的失败原因和热点观测，再决定是否需要更激进的库存治理
+5. 单独修复 `user-service` 的迁移锁与登录超时问题，再恢复 checkout 压测
+
+### 25.10 本轮停止原因
+
+第十二轮没有继续扩展更多链路场景，原因是当前结果已经给出足够明确的下一步方向：
+
+1. 订单场景已经拿到了有效的失败分桶
+2. 当前最有价值的工作是直接针对幂等与持久化路径做代码优化
+3. checkout 依赖 `user-service` 异常，继续强行补跑不会形成高质量样本
+4. 在修复这些问题之前，继续升压不会比现有结果提供更多高价值信息
