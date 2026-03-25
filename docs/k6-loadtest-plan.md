@@ -2211,3 +2211,236 @@ go run ./loadtest/cmd/prepare_phase1_data \
 2. 失稳点已经明确落在 `order-service` 主路径
 3. checkout 失败的根因主要来自订单创建前置失败
 4. 继续盲目升压只会重复确认同一个结论，暂时不会提供更高价值的信息
+
+## 24. 第十一轮结果
+
+时间：
+
+- `2026-03-25`
+
+第十一轮目标：
+
+- 在已完成一部分 P0 优化后，复跑核心订单与 checkout 场景
+- 与第十轮做直接对比，判断订单主链路瘦身是否已经产生收益
+- 区分“吞吐和时延改善”与“整体业务成功率仍然偏低”这两件事
+
+### 24.1 第十一轮开始前的改动
+
+本轮是在以下优化落地后进行复测：
+
+1. `order-service` 下单校验不再逐个调用商品详情接口，而是改成批量商品读取
+2. `product-service` 内部给 `BatchGetProducts` 和 `BatchGetSKU` 加了 Redis cache-aside
+3. `order-service` 的 `CreateOrder` 增加了 `validation / reserve / persist / total` 分阶段耗时日志
+4. `order-service`、`product-service`、`inventory-service` 增加了可配置数据库连接池与 DB pool metrics
+
+说明：
+
+- 本轮仍然保持关闭 `gateway` 限流，避免策略性拒绝继续干扰判断
+- 本轮重点不是再找“是否会失败”，而是判断“第十轮的首瓶颈是否已经被削弱”
+
+### 24.2 第十一轮结果文件
+
+- [round11-order-core-smoke.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round11-order-core-smoke.json)
+- [round11-checkout-core-smoke.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round11-checkout-core-smoke.json)
+- [round11-order-hot-v10.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round11-order-hot-v10.json)
+- [round11-order-normal-v10.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round11-order-normal-v10.json)
+- [round11-order-hot-v40.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round11-order-hot-v40.json)
+- [round11-order-normal-v40.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round11-order-normal-v40.json)
+- [round11-checkout-v10.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round11-checkout-v10.json)
+
+### 24.3 冒烟结果
+
+#### `POST /api/v1/orders`
+
+- 场景：纯下单冒烟
+- 结果：业务失败率 `0%`
+- `order_create_duration avg`：约 `23.22ms`
+- `order_create_duration p95`：约 `42.82ms`
+
+#### `创建订单 -> 创建支付 -> 模拟支付确认`
+
+- 场景：核心结算链路冒烟
+- 结果：业务失败率 `0%`
+- `checkout_duration avg`：约 `68.22ms`
+- `checkout_duration p95`：约 `103.35ms`
+- `checkout_order_create_duration avg`：约 `24.85ms`
+- `checkout_payment_create_duration avg`：约 `13.35ms`
+- `checkout_payment_confirm_duration avg`：约 `28.92ms`
+
+结论：
+
+- 第十一轮脚本与测试数据在低压下仍然可用
+- 优化改动没有引入新的功能性回归
+
+### 24.4 第十一轮关键结果
+
+#### `POST /api/v1/orders` 热点 SKU
+
+`10 VUs`：
+
+- 总请求数：`81003`
+- 吞吐：`4014.19 req/s`
+- 业务失败率：`98.64%`
+- 成功请求数：`1099`
+- `order_create_duration avg`：`1.51ms`
+- `order_create_duration p95`：`1.32ms`
+- 最大耗时：`191.44ms`
+
+`40 VUs`：
+
+- 总请求数：`90985`
+- 吞吐：`4353.73 req/s`
+- 业务失败率：`98.85%`
+- 成功请求数：`1044`
+- `order_create_duration avg`：`7.59ms`
+- `order_create_duration p95`：`7.37ms`
+- 最大耗时：`1730ms`
+
+#### `POST /api/v1/orders` 普通 SKU 池
+
+`10 VUs`：
+
+- 总请求数：`25749`
+- 吞吐：`1270.96 req/s`
+- 业务失败率：`95.73%`
+- 成功请求数：`1100`
+- `order_create_duration avg`：`5.26ms`
+- `order_create_duration p95`：`10.01ms`
+- 最大耗时：`433.3ms`
+
+`40 VUs`：
+
+- 总请求数：`138673`
+- 吞吐：`6847.73 req/s`
+- 业务失败率：`99.21%`
+- 成功请求数：`1099`
+- `order_create_duration avg`：`4.53ms`
+- `order_create_duration p95`：`6.13ms`
+- 最大耗时：`513.15ms`
+
+#### `创建订单 -> 创建支付 -> 模拟支付确认`
+
+`10 VUs`：
+
+- 总请求数：`89193`
+- 吞吐：`4320.95 req/s`
+- 业务失败率：`99.92%`
+- 成功请求数：`71`
+- `checkout_duration avg`：`301.46ms`
+- `checkout_duration p95`：`703.05ms`
+- `checkout_order_create_duration avg`：`1.78ms`
+- `checkout_payment_create_duration avg`：`7.22ms`
+- `checkout_payment_confirm_duration avg`：`91.47ms`
+
+### 24.5 第十一轮与第十轮对比
+
+#### 订单热点场景
+
+`order-hot-v10` 对比第十轮：
+
+- 吞吐：`830.20 -> 4014.19 req/s`
+- `order_create_duration p95`：`11.30ms -> 1.32ms`
+- `order_create_duration avg`：`10.13ms -> 1.51ms`
+- 成功请求数：`309 -> 1099`
+- 业务失败率：`98.16% -> 98.64%`
+
+`order-hot-v40` 对比第十轮：
+
+- 吞吐：`2236.67 -> 4353.73 req/s`
+- `order_create_duration avg`：`16.72ms -> 7.59ms`
+- `order_create_duration p95`：`5.13ms -> 7.37ms`
+- 成功请求数：`263 -> 1044`
+- 业务失败率：`99.43% -> 98.85%`
+
+#### 订单普通场景
+
+`order-normal-v10` 对比第十轮：
+
+- 吞吐：`1286.78 -> 1270.96 req/s`
+- `order_create_duration avg`：`6.13ms -> 5.26ms`
+- `order_create_duration p95`：`9.78ms -> 10.01ms`
+- 成功请求数：`415 -> 1100`
+- 业务失败率：`98.41% -> 95.73%`
+
+`order-normal-v40` 对比第十轮：
+
+- 吞吐：`3126.81 -> 6847.73 req/s`
+- `order_create_duration avg`：`11.45ms -> 4.53ms`
+- `order_create_duration p95`：`5.55ms -> 6.13ms`
+- 成功请求数：`580 -> 1099`
+- 业务失败率：`99.09% -> 99.21%`
+
+#### checkout 场景
+
+`checkout-v10` 对比第十轮：
+
+- 吞吐：`792.12 -> 4320.95 req/s`
+- `checkout_duration avg`：`559.33ms -> 301.46ms`
+- `checkout_duration p95`：`1404ms -> 703.05ms`
+- `checkout_order_create_duration p95`：`11.21ms -> 1.72ms`
+- `checkout_payment_create_duration p95`：`101.26ms -> 54.47ms`
+- `checkout_payment_confirm_duration p95`：`362.7ms -> 297.17ms`
+- 成功请求数：`43 -> 71`
+- 业务失败率：`99.74% -> 99.92%`
+
+### 24.6 第十一轮现象
+
+本轮最重要的现象，不是“系统已经稳定”，而是“第十轮识别出的第一瓶颈被明显削弱了”。
+
+从结果看：
+
+1. 订单热点场景和 checkout 场景的吞吐都有明显提升
+2. 下单阶段时延显著下降，尤其是热点 `v10` 和 checkout 里的下单子阶段
+3. 成功请求数在所有核心场景里都比第十轮更多
+4. 但大多数正式场景的业务失败率依然维持在 `95% ~ 99%`
+
+这说明：
+
+- 本轮对订单主链路的瘦身是有效的
+- 之前 `order-service -> product-service` 那段同步读取放大效应已经被压下去一部分
+- 当前系统已经能更快地走到业务判定点
+- 但新的主要问题已经不是“商品读取太慢”，而是“请求更快地失败在后续业务阶段”
+
+### 24.7 本轮对数据库连接池与观测的判断
+
+第十一轮压测后抽查了 DB pool metrics：
+
+- `product-service`：`meshcart_db_wait_count_total = 0`
+- `inventory-service`：`meshcart_db_wait_count_total = 0`
+- `order-service`：`meshcart_db_wait_count_total = 0`
+
+当前结论是：
+
+1. 这轮看到的收益，主要来自订单主链路瘦身和商品 / SKU 读缓存
+2. 还没有观察到明显的数据库连接池等待信号
+3. 连接池调优仍然是必要动作，但不是第十一轮结果改善的主要解释变量
+
+### 24.8 第十一轮结论
+
+第十一轮最重要的结论：
+
+1. 第十轮识别出的首瓶颈，也就是订单创建前置读取链路，已经被明显削弱
+2. 订单创建主链路瘦身后，系统吞吐和阶段时延都有实质改善
+3. 当前业务高失败率仍然存在，但主因很可能已经转移到库存、幂等、状态校验或其他业务拒绝，而不是单纯的商品读取编排
+4. 现在继续盲目加缓存或继续盲目升压，价值都不高；更有价值的是先把失败原因分桶
+
+### 24.9 下一轮前的必做项
+
+在继续第十二轮之前，建议先补两类能力：
+
+1. 在 `k6` 脚本里统计非 `code=0` 的业务错误码和错误消息
+2. 在 `gateway` 或 `order-service` 增加 `CreateOrder` 按错误码分桶的日志或 metrics
+
+目标：
+
+- 区分库存不足、幂等冲突、状态非法、下游超时、服务不可用等不同失败来源
+- 避免下一轮仍然只能看到“失败率很高”，却看不出真正失败原因
+
+### 24.10 本轮停止原因
+
+第十一轮没有继续往更高并发推进，原因是当前信息已经足够支撑下一步优化判断：
+
+1. 第十轮确认的首瓶颈已经被优化并复测验证
+2. 本轮已经明确看到吞吐和下单阶段时延改善
+3. 当前最缺的不是更高并发样本，而是失败原因拆解能力
+4. 继续升压只能重复放大同一类“业务失败率很高”的现象，暂时无法提供更高价值的信息
