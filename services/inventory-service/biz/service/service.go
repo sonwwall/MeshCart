@@ -8,11 +8,26 @@ const (
 )
 
 type InventoryService struct {
-	repo repository.InventoryRepository
+	repo         repository.InventoryRepository
+	reserveGuard *skuGuard
 }
 
-func NewInventoryService(repo repository.InventoryRepository) *InventoryService {
-	return &InventoryService{repo: repo}
+type Option func(*InventoryService)
+
+func WithReserveMaxConcurrencyPerSKU(limit int) Option {
+	return func(s *InventoryService) {
+		s.reserveGuard = newSKUGuard(limit)
+	}
+}
+
+func NewInventoryService(repo repository.InventoryRepository, opts ...Option) *InventoryService {
+	svc := &InventoryService{repo: repo, reserveGuard: newSKUGuard(0)}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(svc)
+		}
+	}
+	return svc
 }
 
 func isValidStockStatus(status int32) bool {

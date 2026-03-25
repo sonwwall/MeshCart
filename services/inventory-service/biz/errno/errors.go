@@ -10,6 +10,7 @@ const (
 	CodeStockFrozen            int32 = 2050005
 	CodeReservationConflict    int32 = 2050006
 	CodeReservationNotFound    int32 = 2050007
+	CodeReservationTimeout     int32 = 2050008
 )
 
 var (
@@ -20,4 +21,5 @@ var (
 	ErrStockFrozen            = common.NewBizError(CodeStockFrozen, "库存已冻结")
 	ErrReservationConflict    = common.NewBizError(CodeReservationConflict, "库存预占状态冲突")
 	ErrReservationNotFound    = common.NewBizError(CodeReservationNotFound, "库存预占记录不存在")
+	ErrReservationTimeout     = common.NewBizError(CodeReservationTimeout, "库存预占超时，请稍后重试")
 )

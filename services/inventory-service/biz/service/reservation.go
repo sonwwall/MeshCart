@@ -3,18 +3,23 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
 	"meshcart/app/common"
 	logx "meshcart/app/log"
+	metricsx "meshcart/app/metrics"
 	inventorypb "meshcart/kitex_gen/meshcart/inventory"
+	"meshcart/services/inventory-service/biz/errno"
 	"meshcart/services/inventory-service/biz/repository"
 
 	"go.uber.org/zap"
 )
 
 func (s *InventoryService) ReserveSkuStocks(ctx context.Context, req *inventorypb.ReserveSkuStocksRequest) ([]*inventorypb.SkuStock, *common.BizError) {
+	start := time.Now()
 	items, bizErr := parseReservationItems(req.GetBizType(), req.GetBizId(), req.GetItems())
 	if bizErr != nil {
+		metricsx.ObserveInventoryReservation("inventory-service", "reserve", "biz_failed", reserveReasonOf(bizErr), time.Since(start))
 		logx.L(ctx).Warn("inventory reserve rejected by invalid request",
 			zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
 			zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
@@ -24,6 +29,19 @@ func (s *InventoryService) ReserveSkuStocks(ctx context.Context, req *inventoryp
 		)
 		return nil, bizErr
 	}
+	skuIDs := reservationSKUIds(items)
+	releaseGuard, err := s.reserveGuard.Acquire(ctx, skuIDs)
+	if err != nil {
+		metricsx.ObserveInventoryReservation("inventory-service", "reserve", "timeout", "hotspot_guard_timeout", time.Since(start))
+		logx.L(ctx).Warn("inventory reserve blocked by hotspot guard",
+			zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
+			zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
+			zap.Int64s("sku_ids", skuIDs),
+			zap.Error(err),
+		)
+		return nil, errno.ErrReservationTimeout
+	}
+	defer releaseGuard()
 	logx.L(ctx).Info("inventory reserve start",
 		zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
 		zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
@@ -33,6 +51,12 @@ func (s *InventoryService) ReserveSkuStocks(ctx context.Context, req *inventoryp
 	stocks, err := s.repo.Reserve(ctx, strings.TrimSpace(req.GetBizType()), strings.TrimSpace(req.GetBizId()), items)
 	if err != nil {
 		mapped := mapRepositoryError(err)
+		outcome := "biz_failed"
+		if mapped == errno.ErrReservationTimeout {
+			outcome = "timeout"
+		}
+		metricsx.ObserveInventoryReservation("inventory-service", "reserve", outcome, reserveReasonOf(mapped), time.Since(start))
+		metricsx.ObserveBizError("inventory-service", "inventory", "reserve", outcome, mapped.Code)
 		logx.L(ctx).Error("inventory reserve repository failed",
 			zap.Error(err),
 			zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
@@ -43,6 +67,7 @@ func (s *InventoryService) ReserveSkuStocks(ctx context.Context, req *inventoryp
 		)
 		return nil, mapped
 	}
+	metricsx.ObserveInventoryReservation("inventory-service", "reserve", "success", "ok", time.Since(start))
 	logx.L(ctx).Info("inventory reserve completed",
 		zap.String("biz_type", strings.TrimSpace(req.GetBizType())),
 		zap.String("biz_id", strings.TrimSpace(req.GetBizId())),
@@ -150,4 +175,34 @@ func parseReservationItems(bizType, bizID string, rawItems []*inventorypb.StockR
 		})
 	}
 	return items, nil
+}
+
+func reservationSKUIds(items []repository.ReservationItem) []int64 {
+	result := make([]int64, 0, len(items))
+	for _, item := range items {
+		result = append(result, item.SKUID)
+	}
+	return result
+}
+
+func reserveReasonOf(bizErr *common.BizError) string {
+	if bizErr == nil {
+		return "ok"
+	}
+	switch bizErr {
+	case common.ErrInvalidParam:
+		return "invalid_param"
+	case errno.ErrInsufficientStock:
+		return "insufficient_stock"
+	case errno.ErrStockFrozen:
+		return "stock_frozen"
+	case errno.ErrReservationConflict:
+		return "reservation_conflict"
+	case errno.ErrReservationNotFound:
+		return "reservation_not_found"
+	case errno.ErrReservationTimeout:
+		return "reservation_timeout"
+	default:
+		return "internal_error"
+	}
 }

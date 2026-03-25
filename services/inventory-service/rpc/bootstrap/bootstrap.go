@@ -154,7 +154,10 @@ func initService(mysqlDB *gorm.DB, cfg config.Config) *bizservice.InventoryServi
 	repo := repository.NewMySQLInventoryRepository(mysqlDB, time.Duration(cfg.Timeout.DBQueryMS)*time.Millisecond, func() int64 {
 		return node.Generate().Int64()
 	})
-	return bizservice.NewInventoryService(repo)
+	return bizservice.NewInventoryService(
+		repo,
+		bizservice.WithReserveMaxConcurrencyPerSKU(cfg.Hotspot.ReserveMaxConcurrencyPerSKU),
+	)
 }
 
 func startAdminServer(sqlDB *sql.DB, draining *atomic.Bool, statsInterval time.Duration) *http.Server {

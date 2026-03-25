@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ var (
 	ErrReservationConflict      = errors.New("inventory reservation conflict")
 	ErrReservationNotFound      = errors.New("inventory reservation not found")
 	ErrReservationStateConflict = errors.New("inventory reservation state conflict")
+	ErrReservationTimeout       = errors.New("inventory reservation timeout")
 )
 
 type ReservationItem struct {
@@ -421,7 +423,8 @@ func (r *MySQLInventoryRepository) Reserve(ctx context.Context, bizType, bizID s
 	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
 	defer cancel()
 
-	skuIDs, err := validateReservationItems(items)
+	orderedItems := sortReservationItems(items)
+	skuIDs, err := validateReservationItems(orderedItems)
 	if err != nil {
 		return nil, err
 	}
@@ -431,7 +434,7 @@ func (r *MySQLInventoryRepository) Reserve(ctx context.Context, bizType, bizID s
 		if err != nil {
 			return err
 		}
-		for _, item := range items {
+		for _, item := range orderedItems {
 			reservation := existing[item.SKUID]
 			if reservation != nil {
 				if reservation.Quantity != item.Quantity {
@@ -500,7 +503,7 @@ func (r *MySQLInventoryRepository) Reserve(ctx context.Context, bizType, bizID s
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, normalizeReservationError(err)
 	}
 	return r.ListBySKUIDs(ctx, skuIDs)
 }
@@ -720,6 +723,20 @@ func validateReservationItems(items []ReservationItem) ([]int64, error) {
 	return skuIDs, nil
 }
 
+func sortReservationItems(items []ReservationItem) []ReservationItem {
+	if len(items) <= 1 {
+		copied := make([]ReservationItem, len(items))
+		copy(copied, items)
+		return copied
+	}
+	copied := make([]ReservationItem, len(items))
+	copy(copied, items)
+	sort.Slice(copied, func(i, j int) bool {
+		return copied[i].SKUID < copied[j].SKUID
+	})
+	return copied
+}
+
 func loadReservations(tx *gorm.DB, bizType, bizID string, skuIDs []int64) (map[int64]*dalmodel.InventoryReservation, error) {
 	result := make(map[int64]*dalmodel.InventoryReservation, len(skuIDs))
 	if len(skuIDs) == 0 {
@@ -738,6 +755,9 @@ func loadReservations(tx *gorm.DB, bizType, bizID string, skuIDs []int64) (map[i
 func classifyReserveFailure(tx *gorm.DB, item ReservationItem) error {
 	var stock dalmodel.InventoryStock
 	if err := tx.Where("sku_id = ?", item.SKUID).Take(&stock).Error; err != nil {
+		if isReservationTimeoutErr(err) {
+			return ErrReservationTimeout
+		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrStockNotFound
 		}
@@ -761,6 +781,26 @@ func normalizeDuplicateError(err error) error {
 		return ErrReservationConflict
 	}
 	return err
+}
+
+func normalizeReservationError(err error) error {
+	if isReservationTimeoutErr(err) {
+		return ErrReservationTimeout
+	}
+	return normalizeDuplicateError(err)
+}
+
+func isReservationTimeoutErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	lowerErr := strings.ToLower(err.Error())
+	return strings.Contains(lowerErr, "context deadline exceeded") ||
+		strings.Contains(lowerErr, "lock wait timeout exceeded") ||
+		strings.Contains(lowerErr, "deadlock found when trying to get lock")
 }
 
 func buildReservationPayload(bizType, bizID string, item ReservationItem) string {

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"meshcart/app/common"
 	inventorypb "meshcart/kitex_gen/meshcart/inventory"
@@ -375,6 +376,65 @@ func TestInventoryService_ReserveSkuStocks_Success(t *testing.T) {
 	if len(stocks) != 1 || stocks[0].GetReservedStock() != 2 || stocks[0].GetAvailableStock() != 8 {
 		t.Fatalf("unexpected stocks: %+v", stocks)
 	}
+}
+
+func TestInventoryService_ReserveSkuStocks_Timeout(t *testing.T) {
+	svc := NewInventoryService(&stubInventoryRepository{
+		reserveFn: func(context.Context, string, string, []repository.ReservationItem) ([]*dalmodel.InventoryStock, error) {
+			return nil, context.DeadlineExceeded
+		},
+	})
+
+	stocks, bizErr := svc.ReserveSkuStocks(context.Background(), &inventorypb.ReserveSkuStocksRequest{
+		BizType: "order",
+		BizId:   "order-timeout",
+		Items:   []*inventorypb.StockReservationItem{{SkuId: 3001, Quantity: 1}},
+	})
+	if stocks != nil {
+		t.Fatalf("expected nil stocks, got %+v", stocks)
+	}
+	if bizErr != errno.ErrReservationTimeout {
+		t.Fatalf("expected ErrReservationTimeout, got %+v", bizErr)
+	}
+}
+
+func TestInventoryService_ReserveSkuStocks_HotspotGuardTimeout(t *testing.T) {
+	svc := NewInventoryService(&stubInventoryRepository{
+		reserveFn: func(context.Context, string, string, []repository.ReservationItem) ([]*dalmodel.InventoryStock, error) {
+			time.Sleep(50 * time.Millisecond)
+			return []*dalmodel.InventoryStock{
+				{SKUID: 3001, TotalStock: 10, ReservedStock: 1, AvailableStock: 9, Status: StockStatusActive},
+			}, nil
+		},
+	}, WithReserveMaxConcurrencyPerSKU(1))
+
+	firstCtx, firstCancel := context.WithCancel(context.Background())
+	defer firstCancel()
+	firstDone := make(chan struct{})
+	go func() {
+		defer close(firstDone)
+		_, _ = svc.ReserveSkuStocks(firstCtx, &inventorypb.ReserveSkuStocksRequest{
+			BizType: "order",
+			BizId:   "order-guard-1",
+			Items:   []*inventorypb.StockReservationItem{{SkuId: 3001, Quantity: 1}},
+		})
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	stocks, bizErr := svc.ReserveSkuStocks(timeoutCtx, &inventorypb.ReserveSkuStocksRequest{
+		BizType: "order",
+		BizId:   "order-guard-2",
+		Items:   []*inventorypb.StockReservationItem{{SkuId: 3001, Quantity: 1}},
+	})
+	if stocks != nil {
+		t.Fatalf("expected nil stocks, got %+v", stocks)
+	}
+	if bizErr != errno.ErrReservationTimeout {
+		t.Fatalf("expected ErrReservationTimeout, got %+v", bizErr)
+	}
+	<-firstDone
 }
 
 func TestInventoryService_ReleaseReservedSkuStocks_Conflict(t *testing.T) {

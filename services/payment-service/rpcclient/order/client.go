@@ -41,8 +41,10 @@ type Client interface {
 }
 
 type kitexClient struct {
-	readCli  orderservice.Client
-	writeCli orderservice.Client
+	readCli          orderservice.Client
+	writeCli         orderservice.Client
+	fallbackReadCli  orderservice.Client
+	fallbackWriteCli orderservice.Client
 }
 
 func NewClient(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration) (Client, error) {
@@ -54,7 +56,20 @@ func NewClient(serviceName, hostPort, discoveryType, consulAddress string, conne
 	if err != nil {
 		return nil, err
 	}
-	return &kitexClient{readCli: readCli, writeCli: writeCli}, nil
+	result := &kitexClient{readCli: readCli, writeCli: writeCli}
+	if shouldBuildDirectFallback(discoveryType, hostPort) {
+		fallbackReadCli, err := newRawClient(serviceName, hostPort, "direct", consulAddress, connectTimeout, rpcTimeout, client.WithFailureRetry(commonx.NewReadFailureRetryPolicy(rpcTimeout)))
+		if err != nil {
+			return nil, err
+		}
+		fallbackWriteCli, err := newRawClient(serviceName, hostPort, "direct", consulAddress, connectTimeout, rpcTimeout)
+		if err != nil {
+			return nil, err
+		}
+		result.fallbackReadCli = fallbackReadCli
+		result.fallbackWriteCli = fallbackWriteCli
+	}
+	return result, nil
 }
 
 func newRawClient(serviceName, hostPort, discoveryType, consulAddress string, connectTimeout, rpcTimeout time.Duration, extraOpts ...client.Option) (orderservice.Client, error) {
@@ -88,6 +103,9 @@ func newRawClient(serviceName, hostPort, discoveryType, consulAddress string, co
 
 func (c *kitexClient) GetOrder(ctx context.Context, userID, orderID int64) (*GetOrderResponse, error) {
 	resp, err := c.readCli.GetOrder(ctx, &orderpb.GetOrderRequest{UserId: userID, OrderId: orderID})
+	if err != nil && shouldFallbackToDirect(err) && c.fallbackReadCli != nil {
+		resp, err = c.fallbackReadCli.GetOrder(ctx, &orderpb.GetOrderRequest{UserId: userID, OrderId: orderID})
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +118,9 @@ func (c *kitexClient) GetOrder(ctx context.Context, userID, orderID int64) (*Get
 
 func (c *kitexClient) ConfirmOrderPaid(ctx context.Context, req *orderpb.ConfirmOrderPaidRequest) (*ConfirmOrderPaidResponse, error) {
 	resp, err := c.writeCli.ConfirmOrderPaid(ctx, req)
+	if err != nil && shouldFallbackToDirect(err) && c.fallbackWriteCli != nil {
+		resp, err = c.fallbackWriteCli.ConfirmOrderPaid(ctx, req)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -115,4 +136,16 @@ func baseCodeMessage(base *basepb.BaseResponse) (int32, string) {
 		return 0, ""
 	}
 	return base.GetCode(), base.GetMessage()
+}
+
+func shouldBuildDirectFallback(discoveryType, hostPort string) bool {
+	return strings.EqualFold(discoveryType, "consul") && strings.TrimSpace(hostPort) != ""
+}
+
+func shouldFallbackToDirect(err error) bool {
+	if err == nil {
+		return false
+	}
+	lowerErr := strings.ToLower(err.Error())
+	return strings.Contains(lowerErr, "no service found") || strings.Contains(lowerErr, "service discovery error")
 }

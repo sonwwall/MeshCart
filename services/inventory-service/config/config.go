@@ -13,6 +13,7 @@ type Config struct {
 	Migration MigrationConfig `mapstructure:"migration"`
 	Snowflake SnowflakeConfig `mapstructure:"snowflake"`
 	DBPool    DBPoolConfig    `mapstructure:"db_pool"`
+	Hotspot   HotspotConfig   `mapstructure:"hotspot"`
 	Timeout   TimeoutConfig   `mapstructure:"timeout"`
 }
 
@@ -40,6 +41,10 @@ type DBPoolConfig struct {
 	MaxIdleConns    int `mapstructure:"max_idle_conns"`
 	ConnMaxLifetime int `mapstructure:"conn_max_lifetime_minutes"`
 	StatsIntervalMS int `mapstructure:"stats_interval_ms"`
+}
+
+type HotspotConfig struct {
+	ReserveMaxConcurrencyPerSKU int `mapstructure:"reserve_max_concurrency_per_sku"`
 }
 
 type TimeoutConfig struct {
@@ -75,6 +80,7 @@ func Load() (Config, error) {
 	v.SetDefault("db_pool.max_idle_conns", 20)
 	v.SetDefault("db_pool.conn_max_lifetime_minutes", 30)
 	v.SetDefault("db_pool.stats_interval_ms", 5000)
+	v.SetDefault("hotspot.reserve_max_concurrency_per_sku", 8)
 	v.SetDefault("timeout.db_query_ms", 1500)
 
 	if err := v.ReadInConfig(); err != nil {

@@ -2645,3 +2645,204 @@ go run ./loadtest/cmd/prepare_phase1_data \
 2. 当前最有价值的工作是直接针对幂等与持久化路径做代码优化
 3. checkout 依赖 `user-service` 异常，继续强行补跑不会形成高质量样本
 4. 在修复这些问题之前，继续升压不会比现有结果提供更多高价值信息
+
+## 26. 第十三轮结果
+
+### 26.1 第十三轮前已落地优化
+
+在第十三轮之前，已经针对第十二轮暴露出来的几个热点做了连续优化：
+
+1. 收缩 `order-service` 的幂等路径，不再默认先查 `order_action_records`，而是优先尝试创建 `pending` 记录，仅在唯一键冲突时回查已有记录
+2. 将幂等状态回写从按 `(action_type, action_key)` 更新，收缩为优先按 `order_action_records.id` 更新，减少一次唯一索引查找
+3. 优化订单持久化路径，`CreateWithItems` 改为批量插入订单项，并去掉提交后的额外回库查询
+4. 优化 `product-service` 的 `BatchGetSKU`，先对 `sku_ids` 去重，再用轻量查询替代带 `Attrs` 预加载的重查询
+
+这一轮的目标，不再是验证商品读取链路，而是确认：
+
+1. 幂等路径优化是否能降低失败率和平均时延
+2. `persist` 长尾是否已经明显收敛
+3. 剩余主瓶颈是否已经转移到库存预占链路
+
+### 26.2 第十三轮结果文件
+
+有效样本：
+
+- `loadtest/results/round13-order-core-smoke.json`
+- `loadtest/results/round13-order-hot-v10.json`
+- `loadtest/results/round13-order-normal-v10.json`
+- `loadtest/results/round13-order-hot-v40.json`
+- `loadtest/results/round13-order-normal-v40.json`
+
+无效样本：
+
+- `loadtest/results/round13-checkout-core-smoke.json`
+
+说明：
+
+1. 本轮 `checkout` 没有继续形成正式对比样本
+2. 原因不是订单链路本身，而是支付创建阶段在 `1 VU` 的 smoke 下就返回 `1009999 / service_unavailable`
+3. 因此第十三轮仍然以订单核心链路为主
+
+### 26.3 第十三轮冒烟结果
+
+#### order smoke
+
+- `order_create_failed`：`0`
+- `order_create_duration avg`：`30.73ms`
+- `order_create_duration p95`：`71.01ms`
+
+这说明新一轮代码优化没有破坏下单基本功能，订单核心场景可以继续正式压测。
+
+#### checkout smoke
+
+- `checkout_failed`：`100%`
+- `checkout create payment failed code=1009999`
+- `reason=service_unavailable`
+
+这说明当前 `checkout` 的首个阻塞点已经不是下单，而是支付创建依赖不可用，因此本轮没有继续执行正式 `checkout-v10` 样本。
+
+### 26.4 第十三轮正式结果
+
+#### `POST /api/v1/orders` 热门 SKU 池
+
+`10 VUs`：
+
+- 总请求数：`52295`
+- 吞吐：`2594.50 req/s`
+- 业务失败率：`98.91%`
+- 成功请求数：`572`
+- `order_create_duration avg`：`2.65ms`
+- `order_create_duration p95`：`4.96ms`
+
+`40 VUs`：
+
+- 总请求数：`38427`
+- 吞吐：`1888.35 req/s`
+- 业务失败率：`99.01%`
+- 成功请求数：`380`
+- `order_create_duration avg`：`17.58ms`
+- `order_create_duration p95`：`28.91ms`
+
+#### `POST /api/v1/orders` 普通 SKU 池
+
+`10 VUs`：
+
+- 总请求数：`49473`
+- 吞吐：`2459.78 req/s`
+- 业务失败率：`98.86%`
+- 成功请求数：`566`
+- `order_create_duration avg`：`2.76ms`
+- `order_create_duration p95`：`5.46ms`
+
+`40 VUs`：
+
+- 总请求数：`46045`
+- 吞吐：`2250.80 req/s`
+- 业务失败率：`98.64%`
+- 成功请求数：`626`
+- `order_create_duration avg`：`13.52ms`
+- `order_create_duration p95`：`28.08ms`
+
+### 26.5 第十二轮 vs 第十三轮对比
+
+#### 热门 SKU 池
+
+`10 VUs`：
+
+- 吞吐：`1690.75 req/s -> 2594.50 req/s`
+- 业务失败率：`98.47% -> 98.91%`
+- 成功请求数：`525 -> 572`
+- `avg`：`4.73ms -> 2.65ms`
+- `p95`：`2.62ms -> 4.96ms`
+
+`40 VUs`：
+
+- 吞吐：`1274.02 req/s -> 1888.35 req/s`
+- 业务失败率：`99.69% -> 99.01%`
+- 成功请求数：`85 -> 380`
+- `avg`：`29.79ms -> 17.58ms`
+- `p95`：`4.97ms -> 28.91ms`
+
+#### 普通 SKU 池
+
+`10 VUs`：
+
+- 吞吐：`1853.76 req/s -> 2459.78 req/s`
+- 业务失败率：`98.36% -> 98.86%`
+- 成功请求数：`616 -> 566`
+- `avg`：`4.11ms -> 2.76ms`
+- `p95`：`2.95ms -> 5.46ms`
+
+`40 VUs`：
+
+- 吞吐：`1876.81 req/s -> 2250.80 req/s`
+- 业务失败率：`99.31% -> 98.64%`
+- 成功请求数：`275 -> 626`
+- `avg`：`19.45ms -> 13.52ms`
+- `p95`：`6.04ms -> 28.08ms`
+
+如何解读：
+
+1. 在高并发场景下，第十三轮明显优于第十二轮，尤其是 `40 VUs` 成功数提升很明显
+2. 平均时延整体继续下降，说明幂等路径、订单持久化路径和 SKU 读取路径优化是有效的
+3. `p95` 在部分场景上升，说明主瓶颈虽然转移了，但高并发长尾还没有被清掉
+
+### 26.6 第十三轮现象
+
+这一轮最关键的变化，不是简单的吞吐上升，而是失败热点已经发生转移。
+
+从 `order-service` 日志看：
+
+1. `validation_duration` 普遍已经下降到几毫秒到十几毫秒
+2. `persist_duration` 也不再出现第十二轮那种 `31s+` 的极端长尾，常见值已经落在几十毫秒量级
+3. `batchGetSku` 在本轮采样日志里没有再出现明显超时
+4. 当前最重的一段已经变成 `reserve_duration`
+
+本轮日志里，`reserve_duration` 典型分布大致是：
+
+- 常见：`200ms ~ 350ms`
+- 热点压力下部分请求：`1s+`
+
+这意味着：
+
+1. 前面针对订单幂等、持久化、SKU 查询的优化已经起效
+2. 当前订单主链路的主瓶颈已经基本转移到库存预占阶段
+
+### 26.7 checkout 样本失效说明
+
+第十三轮没有继续给出 `checkout-v10` 正式对比结果，原因很明确：
+
+1. `checkout` smoke 在支付创建阶段就已经失败
+2. 错误表现为 `create payment failed code=1009999`
+3. 失败原因标签为 `service_unavailable`
+
+因此：
+
+1. 第十三轮不适合基于 checkout 样本对支付链路做进一步结论
+2. 在恢复有效 checkout 压测之前，需要先单独修复 `payment-service` 或其依赖问题
+
+### 26.8 第十三轮结论
+
+第十三轮最重要的结论：
+
+1. 第十二轮后实施的几项优化是有效的，订单链路整体吞吐和成功数都有改善
+2. 订单幂等路径已经不再像第十二轮那样成为最突出的首瓶颈
+3. 订单持久化长尾明显收敛，`persist` 已不再是最显眼的问题
+4. 当前新的首瓶颈已经转移到库存预占链路，尤其是在高并发和热点 SKU 场景下
+
+### 26.9 下一步优化优先级
+
+基于第十三轮结果，建议下一步按这个顺序推进：
+
+1. 优先优化 `inventory-service` 的库存预占路径，补齐成功、业务失败、超时三类分桶
+2. 检查库存预占 SQL、事务范围、索引和锁等待，确认是否存在热点行竞争
+3. 针对热点 SKU 评估更激进的治理手段，例如限并发、分片或排队
+4. 单独修复 `payment-service` 的 `service_unavailable` 问题，恢复有效 checkout 压测
+
+### 26.10 本轮停止原因
+
+第十三轮没有继续扩展更多订单压力和 checkout 正式样本，原因是：
+
+1. 订单链路已经给出了足够清晰的新瓶颈转移信号
+2. 当前最值得做的不是继续盲目升压，而是直接进入库存预占链路优化
+3. checkout 在支付创建阶段就失效，继续强行补跑不会形成高质量结论

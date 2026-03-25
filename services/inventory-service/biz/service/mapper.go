@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 
 	"meshcart/app/common"
@@ -28,6 +29,8 @@ func mapRepositoryError(err error) *common.BizError {
 		return errno.ErrReservationConflict
 	case errors.Is(err, repository.ErrReservationNotFound):
 		return errno.ErrReservationNotFound
+	case errors.Is(err, repository.ErrReservationTimeout), errors.Is(err, context.DeadlineExceeded):
+		return errno.ErrReservationTimeout
 	default:
 		return common.ErrInternalError
 	}
