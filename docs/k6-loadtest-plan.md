@@ -1691,3 +1691,298 @@ go run ./loadtest/cmd/prepare_phase1_data \
 4. 如果后续要继续找瓶颈，重点不应该只是继续堆 `VUs`，而应该补：
    - 数据库层证据
    - 更严格的压测前数据重置
+
+## 22. 第九轮结果
+
+时间：
+
+- `2026-03-24`
+
+第九轮目标：
+
+- 提升到更高强度，逼近系统失稳点
+- 找出首先出现业务错误或明显 RT 放大的链路
+- 观察是网关、登录、订单、库存还是支付服务先进入异常区
+
+### 22.1 第九轮准备动作
+
+本轮开始前，先把压测 SKU 库存抬高，避免样本过早耗尽：
+
+- 热点 SKU `2036361111032307713`
+  - `total_stock=50000`
+  - `reserved_stock=6661`
+  - `saleable_stock=43339`
+
+- 普通 SKU `2036361111363657729`
+  - `total_stock=30000`
+  - `reserved_stock=1264`
+  - `saleable_stock=28736`
+
+### 22.2 第九轮结果文件
+
+- [round9-products-list-v50.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round9-products-list-v50.json)
+- [round9-product-detail-v50.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round9-product-detail-v50.json)
+- [round9-login-rate30.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round9-login-rate30.json)
+- [round9-order-v50.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round9-order-v50.json)
+- [round9-payment-v20.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round9-payment-v20.json)
+
+### 22.3 读链路极限压测
+
+#### `GET /api/v1/products`
+
+场景：
+
+- `50 VUs`
+- `20s`
+- `sleep=0.1s`
+
+结果：
+
+- 迭代数：`17095`
+- 吞吐：约 `842.56 req/s`
+- HTTP `avg`：`22.98ms`
+- HTTP `p95`：`104.89ms`
+- HTTP 失败率：`0%`
+- checks 失败：`11099 / 51285`
+
+现象：
+
+- 大量请求仍然返回 `200`
+- 但业务校验失败，占比约 `21.64%`
+- 表现为“response body 是 JSON，但 products 数据缺失”
+
+判断：
+
+- 读链路在 `50 VUs` 下已出现明显业务拒绝
+- 失稳形式不是 HTTP 层失败，而是业务层先返回非成功结果
+
+#### `GET /api/v1/products/detail/:product_id`
+
+场景：
+
+- `50 VUs`
+- `20s`
+- `sleep=0.1s`
+
+结果：
+
+- 迭代数：`9742`
+- 吞吐：约 `474.55 req/s`
+- HTTP `avg`：`73.80ms`
+- HTTP `p95`：`192.76ms`
+- HTTP 失败率：`0%`
+- checks 失败：`6733 / 29226`
+
+现象：
+
+- 同样出现大量 `200` 响应但业务失败
+- 表现为“product detail response missing product”
+- 业务失败占比约 `23.03%`
+
+判断：
+
+- 商品详情链路在第九轮强度下也进入业务级失稳区
+- 商品详情比商品列表更早出现更高 RT，但两者都还没表现成 TCP/HTTP 层崩溃
+
+### 22.4 登录链路极限压测
+
+#### `POST /api/v1/user/login`
+
+场景：
+
+- `30 req/s`
+- `20s`
+- `preAllocatedVUs=30`
+- `maxVUs=60`
+
+结果：
+
+- 完成请求数：`567`
+- 丢弃迭代：`34`
+- HTTP `avg`：`1396.62ms`
+- HTTP `p95`：`2009.84ms`
+- HTTP 失败率：`0%`
+- checks 失败：`345 / 1701`
+
+现象：
+
+- 业务失败占比约 `20.28%`
+- 开始出现 dropped iterations
+- 虽然 HTTP 层仍为 `200`，但大量登录响应不再返回 token
+
+判断：
+
+- 登录链路在 `30 req/s` 已明显到达压力拐点
+- 当前系统入口的首个清晰瓶颈之一就是登录链路
+
+### 22.5 订单链路极限压测
+
+#### `POST /api/v1/orders`
+
+场景：
+
+- `50 VUs`
+- `20s`
+- `sleep=0.2s`
+
+结果：
+
+- 迭代数：`3603`
+- HTTP 请求数：`4243`
+- 自定义指标 `order_create_duration avg`：`804.25ms`
+- 自定义指标 `order_create_duration p95`：`1352.64ms`
+- HTTP `avg`：`209.82ms`
+- HTTP `p95`：`1035.99ms`
+- 自定义指标 `order_create_failed`：`1.25%`
+- checks 失败：`2971 / 12729`
+
+现象：
+
+- 业务失败占比约 `23.34%`
+- 出现两类失败：
+  - `create order response missing order_id`
+  - `login failed`
+
+服务侧指标：
+
+- `order-service create_order`
+  - 成功：`9154`
+  - 错误码 `2040005`：`476`
+  - 错误码 `2040006`：`1`
+  - 错误码 `1009999`：`1`
+
+- `inventory-service reserve_sku_stocks`
+  - 成功：`9154`
+  - 错误码 `2050002`：`476`
+  - 错误码 `2050006`：`1`
+  - 错误码 `1009999`：`1`
+
+判断：
+
+- 订单链路在 `50 VUs` 已明显进入高延迟区
+- 服务侧错误码显示，订单失败主要映射到了库存不足链路：
+  - `2040005` = 订单侧库存不足
+  - `2050002` = 库存侧库存不足
+- 这说明极限压测下，订单链路的首个明确出错点是库存预占相关业务路径
+
+### 22.6 支付链路极限压测
+
+说明：
+
+- 当前支付压测脚本会串行执行：
+  1. 登录
+  2. 创建订单
+  3. 创建支付单
+- 因此它本质上是一个短交易链路压测，不只是单独压 `payment-service`
+
+#### `POST /api/v1/payments`
+
+场景：
+
+- `20 VUs`
+- `20s`
+- `sleep=0.2s`
+
+结果：
+
+- 迭代数：`19276`
+- HTTP 请求数：`20507`
+- 自定义指标 `payment_create_duration avg`：`46.64ms`
+- 自定义指标 `payment_create_duration p95`：`92.94ms`
+- HTTP `avg`：`14.09ms`
+- HTTP `p95`：`73.44ms`
+- 自定义指标 `payment_create_failed`：`5.37%`
+- checks 失败：`18712 / 61521`
+
+现象：
+
+- checks 失败占比约 `30.41%`
+- 主要失败表现仍然是：
+  - 登录失败
+  - 上游订单创建阶段失败
+
+服务侧指标：
+
+- `payment-service create_payment`
+  - 成功：`1805`
+  - 当前未观察到业务错误码累计增长
+
+判断：
+
+- 在第九轮强度下，支付服务本身还没有先成为首个失稳点
+- 支付链路的失败主要发生在登录和订单前置阶段
+- 也就是说，当前“更复杂链路先崩”的责任主要仍在入口和订单前置写链路，而不是支付服务自身
+
+### 22.7 Gateway 指标补充
+
+第九轮结束后，gateway 指标累计如下：
+
+- `POST /api/v1/user/login`
+  - count：`31999`
+  - sum：`3003494980 us`
+  - 平均约：`93.86ms`
+
+- `GET /api/v1/products`
+  - count：`20143`
+  - sum：`401268564 us`
+  - 平均约：`19.92ms`
+
+- `GET /api/v1/products/detail/:product_id`
+  - count：`14071`
+  - sum：`738531070 us`
+  - 平均约：`52.48ms`
+
+- `POST /api/v1/orders`
+  - count：`9624`
+  - sum：`1410294992 us`
+  - 平均约：`146.54ms`
+
+- `POST /api/v1/payments`
+  - count：`1811`
+  - sum：`104421962 us`
+  - 平均约：`57.66ms`
+
+说明：
+
+- gateway 侧累计平均耗时依然显示订单写链路明显重于读链路和支付接口
+- 登录累计成本也明显高于读链路
+
+### 22.8 第九轮结论
+
+第九轮最重要的结论：
+
+1. 在更高强度下，首先明显失稳的不是 HTTP 层，而是业务层
+2. 读链路在 `50 VUs` 就出现约 `20%+` 的业务失败
+3. 登录链路在 `30 req/s` 已出现：
+   - `p95` 接近 `2s`
+   - dropped iterations
+   - 约 `20%` 的业务失败
+4. 订单链路在 `50 VUs` 已进入明显高延迟区：
+   - `order_create_duration p95=1352.64ms`
+   - 业务失败约 `23%`
+5. 服务侧最明确的错误归因是：
+   - `order-service 2040005`
+   - `inventory-service 2050002`
+   - 即库存不足相关业务失败
+6. 支付服务本身在本轮没有先成为首个失稳点
+7. 当前系统在高强度压测下，最先暴露的薄弱点是：
+   - 入口登录链路
+   - 订单创建前置链路
+   - 库存预占相关业务路径
+
+### 22.9 本轮停止原因
+
+第九轮没有继续把并发继续翻到更高档位，原因是当前结果已经足够明确：
+
+1. 读链路在 `50 VUs` 已经进入业务级失稳区
+2. 登录在 `30 req/s` 已经明显掉队
+3. 订单在 `50 VUs` 已经进入高延迟区
+4. 支付链路失败主要是被前置链路拖累，不需要再继续单纯提高并发才能得出结论
+
+继续粗暴升压的收益已经不高，下一步更有价值的是：
+
+1. 复核网关业务拒绝来源
+2. 补数据库层观测
+3. 进一步区分：
+   - 限流导致的业务失败
+   - 真实服务处理不过来的业务失败
