@@ -92,16 +92,51 @@
 
 在高并发下，这条链路非常容易先把 `order-service` 自己压垮。
 
-建议立即着手的改进项：
+### 当前已完成的改动
 
-1. 把商品校验尽量收敛成单次批量查询，不要保留逐商品详情 RPC
-2. 明确主链路最小同步集合，只保留必要校验、库存预占、订单入库和返回订单号
-3. 把非关键日志扩展、统计、通知类逻辑从主链路移出去
-4. 给订单链路补分阶段耗时埋点，至少拆出：
-   - 幂等检查耗时
-   - 商品 / SKU 校验耗时
-   - 库存预占耗时
-   - 订单落库耗时
+这一项已经连续落了两刀，当前目标是先把下单校验里的同步放大点真正收缩掉。
+
+已经完成的改动：
+
+1. 给 `product-service` 增加了真正的批量商品读取 RPC：`batchGetProducts`
+2. 把 `order-service` 里的商品校验从“逐商品详情 RPC”进一步收敛成“单次批量商品读取 RPC”
+3. 保留了 `BatchGetSKU`，但商品侧已经不再逐个 `GetProductDetail`
+4. 给 `CreateOrder` 增加了分阶段耗时日志，至少拆出了：
+   - `validation_duration`
+   - `reserve_duration`
+   - `persist_duration`
+   - `total_duration`
+
+对应代码：
+
+- `product-service` 批量商品读取能力：[batch_get_products.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/biz/service/batch_get_products.go#L14)
+- `product-service` 批量商品 RPC handler：[batch_get_products.go](/Users/ruitong/GolandProjects/MeshCart/services/product-service/rpc/handler/batch_get_products.go#L15)
+- 订单侧商品批量校验接入：[helpers.go](/Users/ruitong/GolandProjects/MeshCart/services/order-service/biz/service/helpers.go#L171)
+- 订单侧产品 RPC client 新增批量接口：[client.go](/Users/ruitong/GolandProjects/MeshCart/services/order-service/rpcclient/product/client.go#L45)
+- 订单创建分阶段耗时日志：[create_order.go](/Users/ruitong/GolandProjects/MeshCart/services/order-service/biz/service/create_order.go#L18)
+
+这一步带来的直接收益是：
+
+1. 把“1 次 SKU 批量 RPC + N 次商品详情 RPC”收敛成“1 次 SKU 批量 RPC + 1 次商品批量 RPC”
+2. 明显减少订单校验阶段的 RPC 次数和串行放大风险
+3. 为下一轮压测提供更细粒度的主链路证据，不再只能看总 RT
+
+### 这一项还没有结束
+
+当前这版已经达到“商品读取改成批量化”的目标，但 P0 这一项还没有完全结束。
+
+还剩下的核心优化项：
+
+1. 继续明确主链路最小同步集合，只保留必要校验、库存预占、订单入库和返回订单号
+2. 把非关键日志扩展、统计、通知类逻辑从主链路移出去
+3. 继续细化分阶段观测，把幂等检查耗时也单独拆出来
+4. 评估幂等记录路径是否还能减少一次 DB 往返
+
+建议下一步按下面顺序继续：
+
+1. 继续盘点 `CreateOrder` 主路径里是否还有非必要同步动作
+2. 把幂等检查和动作记录路径再做一轮收缩
+3. 在下一轮压测里重点验证 `validation_duration` 是否明显下降
 
 如果不先把主链路做瘦，单纯调大连接池或加 MQ，都只是缓解，不会真正解决第十轮暴露出来的问题。
 
@@ -126,6 +161,24 @@
 - 优先让订单服务拿到构建快照所需的只读数据
 - 减少同步 RPC 次数
 - 缩短订单主链路的前置校验时间
+
+### 当前状态
+
+这一项暂时没有继续扩张，而是先把更关键的“批量商品读取 RPC”补齐了。
+
+当前判断是：
+
+1. 在订单主链路还没完全做薄之前，先把读取方式批量化，比先堆本地缓存更重要
+2. 当前已经有了更适合继续演进缓存的位置：
+   - 批量商品读取结果
+   - SKU 基础信息
+3. 下一步是否把缓存重新加回订单侧，要看下一轮压测里 `validation_duration` 的下降幅度
+
+### 这一项后续更合理的演进方向
+
+1. 给批量商品读取结果加短 TTL 缓存
+2. 把 SKU 基础信息也纳入订单侧快照缓存
+3. 根据下一轮压测结果，再决定 TTL、淘汰策略和是否需要单飞合并
 
 这里要强调边界：
 

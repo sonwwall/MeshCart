@@ -114,8 +114,9 @@ func (s *stubOrderRepository) MarkActionRecordFailed(ctx context.Context, action
 }
 
 type stubProductClient struct {
-	batchGetSKUFn      func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error)
-	getProductDetailFn func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error)
+	batchGetSKUFn       func(context.Context, *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error)
+	batchGetProductsFn  func(context.Context, *productpb.BatchGetProductsRequest) (*productrpc.BatchGetProductsResponse, error)
+	getProductDetailFn  func(context.Context, *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error)
 }
 
 func (s *stubProductClient) BatchGetSKU(ctx context.Context, req *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
@@ -130,6 +131,13 @@ func (s *stubProductClient) GetProductDetail(ctx context.Context, req *productpb
 		return s.getProductDetailFn(ctx, req)
 	}
 	return &productrpc.GetProductDetailResponse{}, nil
+}
+
+func (s *stubProductClient) BatchGetProducts(ctx context.Context, req *productpb.BatchGetProductsRequest) (*productrpc.BatchGetProductsResponse, error) {
+	if s.batchGetProductsFn != nil {
+		return s.batchGetProductsFn(ctx, req)
+	}
+	return &productrpc.BatchGetProductsResponse{}, nil
 }
 
 type stubInventoryClient struct {
@@ -195,11 +203,11 @@ func TestOrderService_CreateOrder_Success(t *testing.T) {
 			}
 			return &productrpc.BatchGetSKUResponse{Code: 0, Skus: []*productpb.ProductSku{{Id: 3001, SpuId: 2001, Title: "Blue XL", SalePrice: 1999, Status: 1}}}, nil
 		},
-		getProductDetailFn: func(_ context.Context, req *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
-			if req.GetProductId() != 2001 {
+		batchGetProductsFn: func(_ context.Context, req *productpb.BatchGetProductsRequest) (*productrpc.BatchGetProductsResponse, error) {
+			if len(req.GetProductIds()) != 1 || req.GetProductIds()[0] != 2001 {
 				t.Fatalf("unexpected product detail req: %+v", req)
 			}
-			return &productrpc.GetProductDetailResponse{Code: 0, Product: &productpb.Product{Id: 2001, Title: "MeshCart Tee", Status: 2}}, nil
+			return &productrpc.BatchGetProductsResponse{Code: 0, Products: []*productpb.Product{{Id: 2001, Title: "MeshCart Tee", Status: 2}}}, nil
 		},
 	}, &stubInventoryClient{
 		reserveFn: func(_ context.Context, req *inventorypb.ReserveSkuStocksRequest) (*inventoryrpc.ReserveSkuStocksResponse, error) {
@@ -227,6 +235,64 @@ func TestOrderService_CreateOrder_Success(t *testing.T) {
 	}
 	if order.GetStatus() != OrderStatusReserved || order.GetItems()[0].GetProductTitleSnapshot() != "MeshCart Tee" {
 		t.Fatalf("unexpected reserved order: %+v", order)
+	}
+}
+
+func TestOrderService_CreateOrder_UsesBatchGetProducts(t *testing.T) {
+	batchProductCalls := 0
+	svc := newOrderService(t, &stubOrderRepository{
+		createWithItemsFn: func(_ context.Context, order *dalmodel.Order, items []*dalmodel.OrderItem) (*dalmodel.Order, error) {
+			return &dalmodel.Order{
+				OrderID:      order.OrderID,
+				UserID:       order.UserID,
+				Status:       order.Status,
+				TotalAmount:  order.TotalAmount,
+				PayAmount:    order.PayAmount,
+				ExpireAt:     order.ExpireAt,
+				CancelReason: order.CancelReason,
+				Items:        []dalmodel.OrderItem{*items[0]},
+			}, nil
+		},
+	}, &stubProductClient{
+		batchGetSKUFn: func(_ context.Context, req *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
+			return &productrpc.BatchGetSKUResponse{
+				Code: 0,
+				Skus: []*productpb.ProductSku{{Id: 3001, SpuId: 2001, Title: "Blue XL", SalePrice: 1999, Status: 1}},
+			}, nil
+		},
+		batchGetProductsFn: func(_ context.Context, req *productpb.BatchGetProductsRequest) (*productrpc.BatchGetProductsResponse, error) {
+			batchProductCalls++
+			if len(req.GetProductIds()) != 1 || req.GetProductIds()[0] != 2001 {
+				t.Fatalf("unexpected batch get products req: %+v", req)
+			}
+			return &productrpc.BatchGetProductsResponse{
+				Code:     0,
+				Products: []*productpb.Product{{Id: 2001, Title: "MeshCart Tee", Status: 2}},
+			}, nil
+		},
+	}, &stubInventoryClient{
+		reserveFn: func(_ context.Context, req *inventorypb.ReserveSkuStocksRequest) (*inventoryrpc.ReserveSkuStocksResponse, error) {
+			return &inventoryrpc.ReserveSkuStocksResponse{Code: 0}, nil
+		},
+	})
+
+	order, bizErr := svc.CreateOrder(context.Background(), &orderpb.CreateOrderRequest{
+		UserId:    101,
+		RequestId: ptrString("create-batch-products-1"),
+		Items: []*orderpb.OrderItemInput{{
+			ProductId: 2001,
+			SkuId:     3001,
+			Quantity:  1,
+		}},
+	})
+	if bizErr != nil {
+		t.Fatalf("expected nil error, got %+v", bizErr)
+	}
+	if order == nil {
+		t.Fatalf("expected order, got nil")
+	}
+	if batchProductCalls != 1 {
+		t.Fatalf("expected batch get products to be called once, got %d", batchProductCalls)
 	}
 }
 
@@ -259,8 +325,8 @@ func TestOrderService_CreateOrder_ReserveFailed(t *testing.T) {
 		batchGetSKUFn: func(_ context.Context, _ *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
 			return &productrpc.BatchGetSKUResponse{Code: 0, Skus: []*productpb.ProductSku{{Id: 3001, SpuId: 2001, Title: "Blue XL", SalePrice: 1999, Status: 1}}}, nil
 		},
-		getProductDetailFn: func(_ context.Context, _ *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
-			return &productrpc.GetProductDetailResponse{Code: 0, Product: &productpb.Product{Id: 2001, Title: "MeshCart Tee", Status: 2}}, nil
+		batchGetProductsFn: func(_ context.Context, _ *productpb.BatchGetProductsRequest) (*productrpc.BatchGetProductsResponse, error) {
+			return &productrpc.BatchGetProductsResponse{Code: 0, Products: []*productpb.Product{{Id: 2001, Title: "MeshCart Tee", Status: 2}}}, nil
 		},
 	}, &stubInventoryClient{
 		reserveFn: func(_ context.Context, _ *inventorypb.ReserveSkuStocksRequest) (*inventoryrpc.ReserveSkuStocksResponse, error) {
@@ -291,8 +357,8 @@ func TestOrderService_CreateOrder_CreateFailedReleaseReserved(t *testing.T) {
 		batchGetSKUFn: func(_ context.Context, _ *productpb.BatchGetSkuRequest) (*productrpc.BatchGetSKUResponse, error) {
 			return &productrpc.BatchGetSKUResponse{Code: 0, Skus: []*productpb.ProductSku{{Id: 3001, SpuId: 2001, Title: "Blue XL", SalePrice: 1999, Status: 1}}}, nil
 		},
-		getProductDetailFn: func(_ context.Context, _ *productpb.GetProductDetailRequest) (*productrpc.GetProductDetailResponse, error) {
-			return &productrpc.GetProductDetailResponse{Code: 0, Product: &productpb.Product{Id: 2001, Title: "MeshCart Tee", Status: 2}}, nil
+		batchGetProductsFn: func(_ context.Context, _ *productpb.BatchGetProductsRequest) (*productrpc.BatchGetProductsResponse, error) {
+			return &productrpc.BatchGetProductsResponse{Code: 0, Products: []*productpb.Product{{Id: 2001, Title: "MeshCart Tee", Status: 2}}}, nil
 		},
 	}, &stubInventoryClient{
 		reserveFn: func(_ context.Context, _ *inventorypb.ReserveSkuStocksRequest) (*inventoryrpc.ReserveSkuStocksResponse, error) {

@@ -16,6 +16,7 @@ import (
 )
 
 func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrderRequest) (*orderpb.Order, *common.BizError) {
+	startedAt := s.now()
 	if req == nil || req.GetUserId() <= 0 || len(req.GetItems()) == 0 {
 		userID := int64(0)
 		itemCount := 0
@@ -95,13 +96,16 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 	}
 
 	orderID := s.node.Generate().Int64()
+	validationStartedAt := s.now()
 	validatedItems, reserveItems, totalAmount, bizErr := s.validateAndBuildSnapshots(ctx, req.GetItems())
+	validationDuration := s.now().Sub(validationStartedAt)
 	if bizErr != nil {
 		logx.L(ctx).Warn("create order validation failed",
 			zap.Int64("order_id", orderID),
 			zap.Int64("user_id", req.GetUserId()),
 			zap.Int32("code", bizErr.Code),
 			zap.String("message", bizErr.Msg),
+			zap.Duration("validation_duration", validationDuration),
 		)
 		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
@@ -109,17 +113,21 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 	sort.SliceStable(reserveItems, func(i, j int) bool { return reserveItems[i].GetSkuId() < reserveItems[j].GetSkuId() })
 
 	bizID := s.reserveBizID(orderID)
+	reserveStartedAt := s.now()
 	reserveResp, err := s.inventoryClient.ReserveSkuStocks(ctx, &inventory.ReserveSkuStocksRequest{
 		BizType: orderReserveBizType,
 		BizId:   bizID,
 		Items:   reserveItems,
 	})
+	reserveDuration := s.now().Sub(reserveStartedAt)
 	if err != nil {
 		logx.L(ctx).Error("reserve inventory failed",
 			zap.Error(err),
 			zap.Int64("order_id", orderID),
 			zap.Int64("user_id", req.GetUserId()),
 			zap.String("biz_id", bizID),
+			zap.Duration("validation_duration", validationDuration),
+			zap.Duration("reserve_duration", reserveDuration),
 		)
 		s.markActionFailed(ctx, actionTypeCreate, requestID, common.ErrServiceUnavailable)
 		return nil, common.ErrServiceUnavailable
@@ -134,6 +142,8 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 			zap.String("inventory_rpc_message", reserveResp.Message),
 			zap.Int32("mapped_code", bizErr.Code),
 			zap.String("mapped_message", bizErr.Msg),
+			zap.Duration("validation_duration", validationDuration),
+			zap.Duration("reserve_duration", reserveDuration),
 		)
 		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
@@ -164,7 +174,9 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 		CancelReason: "",
 	}
 
+	persistStartedAt := s.now()
 	order, err := s.repo.CreateWithItems(ctx, orderModel, items)
+	persistDuration := s.now().Sub(persistStartedAt)
 	if err != nil {
 		releaseResp, releaseErr := s.inventoryClient.ReleaseReservedSkuStocks(ctx, &inventory.ReleaseReservedSkuStocksRequest{
 			BizType: orderReserveBizType,
@@ -183,6 +195,9 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 			zap.Int64("user_id", req.GetUserId()),
 			zap.Int32("mapped_code", bizErr.Code),
 			zap.String("mapped_message", bizErr.Msg),
+			zap.Duration("validation_duration", validationDuration),
+			zap.Duration("reserve_duration", reserveDuration),
+			zap.Duration("persist_duration", persistDuration),
 		)
 		s.markActionFailed(ctx, actionTypeCreate, requestID, bizErr)
 		return nil, bizErr
@@ -193,6 +208,10 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 		zap.Int32("status", order.Status),
 		zap.Int64("pay_amount", order.PayAmount),
 		zap.Time("expire_at", order.ExpireAt),
+		zap.Duration("validation_duration", validationDuration),
+		zap.Duration("reserve_duration", reserveDuration),
+		zap.Duration("persist_duration", persistDuration),
+		zap.Duration("total_duration", s.now().Sub(startedAt)),
 	)
 	s.markActionSucceeded(ctx, actionTypeCreate, requestID, order.OrderID)
 	return toRPCOrder(order), nil

@@ -20,6 +20,7 @@ import (
 
 var (
 	errNilDetailResponse      = errors.New("product rpc returned nil detail response")
+	errNilBatchProductsResp   = errors.New("product rpc returned nil batch get products response")
 	errNilBatchGetSKUResponse = errors.New("product rpc returned nil batch get sku response")
 )
 
@@ -35,8 +36,15 @@ type BatchGetSKUResponse struct {
 	Skus    []*productpb.ProductSku
 }
 
+type BatchGetProductsResponse struct {
+	Code     int32
+	Message  string
+	Products []*productpb.Product
+}
+
 type Client interface {
 	GetProductDetail(ctx context.Context, req *productpb.GetProductDetailRequest) (*GetProductDetailResponse, error)
+	BatchGetProducts(ctx context.Context, req *productpb.BatchGetProductsRequest) (*BatchGetProductsResponse, error)
 	BatchGetSKU(ctx context.Context, req *productpb.BatchGetSkuRequest) (*BatchGetSKUResponse, error)
 }
 
@@ -95,6 +103,18 @@ func (c *kitexClient) GetProductDetail(ctx context.Context, req *productpb.GetPr
 	}
 	code, message := baseCodeMessage(resp.Base)
 	return &GetProductDetailResponse{Code: code, Message: message, Product: resp.Product}, nil
+}
+
+func (c *kitexClient) BatchGetProducts(ctx context.Context, req *productpb.BatchGetProductsRequest) (*BatchGetProductsResponse, error) {
+	resp, err := c.readCli.BatchGetProducts(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errNilBatchProductsResp
+	}
+	code, message := baseCodeMessage(resp.Base)
+	return &BatchGetProductsResponse{Code: code, Message: message, Products: resp.Products}, nil
 }
 
 func (c *kitexClient) BatchGetSKU(ctx context.Context, req *productpb.BatchGetSkuRequest) (*BatchGetSKUResponse, error) {

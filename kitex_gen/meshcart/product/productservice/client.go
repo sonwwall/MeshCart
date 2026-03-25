@@ -17,6 +17,7 @@ type Client interface {
 	UpdateProduct(ctx context.Context, request *product.UpdateProductRequest, callOptions ...callopt.Option) (r *product.UpdateProductResponse, err error)
 	ChangeProductStatus(ctx context.Context, request *product.ChangeProductStatusRequest, callOptions ...callopt.Option) (r *product.ChangeProductStatusResponse, err error)
 	GetProductDetail(ctx context.Context, request *product.GetProductDetailRequest, callOptions ...callopt.Option) (r *product.GetProductDetailResponse, err error)
+	BatchGetProducts(ctx context.Context, request *product.BatchGetProductsRequest, callOptions ...callopt.Option) (r *product.BatchGetProductsResponse, err error)
 	ListProducts(ctx context.Context, request *product.ListProductsRequest, callOptions ...callopt.Option) (r *product.ListProductsResponse, err error)
 	BatchGetSku(ctx context.Context, request *product.BatchGetSkuRequest, callOptions ...callopt.Option) (r *product.BatchGetSkuResponse, err error)
 }
@@ -78,6 +79,11 @@ func (p *kProductServiceClient) ChangeProductStatus(ctx context.Context, request
 func (p *kProductServiceClient) GetProductDetail(ctx context.Context, request *product.GetProductDetailRequest, callOptions ...callopt.Option) (r *product.GetProductDetailResponse, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.GetProductDetail(ctx, request)
+}
+
+func (p *kProductServiceClient) BatchGetProducts(ctx context.Context, request *product.BatchGetProductsRequest, callOptions ...callopt.Option) (r *product.BatchGetProductsResponse, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.BatchGetProducts(ctx, request)
 }
 
 func (p *kProductServiceClient) ListProducts(ctx context.Context, request *product.ListProductsRequest, callOptions ...callopt.Option) (r *product.ListProductsResponse, err error) {

@@ -1194,6 +1194,82 @@ var fieldIDToName_GetProductDetailResponse = map[int16]string{
 	255: "base",
 }
 
+type BatchGetProductsRequest struct {
+	ProductIds []int64 `thrift:"product_ids,1" frugal:"1,default,list<i64>" json:"product_ids"`
+}
+
+func NewBatchGetProductsRequest() *BatchGetProductsRequest {
+	return &BatchGetProductsRequest{}
+}
+
+func (p *BatchGetProductsRequest) InitDefault() {
+}
+
+func (p *BatchGetProductsRequest) GetProductIds() (v []int64) {
+	return p.ProductIds
+}
+func (p *BatchGetProductsRequest) SetProductIds(val []int64) {
+	p.ProductIds = val
+}
+
+func (p *BatchGetProductsRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BatchGetProductsRequest(%+v)", *p)
+}
+
+var fieldIDToName_BatchGetProductsRequest = map[int16]string{
+	1: "product_ids",
+}
+
+type BatchGetProductsResponse struct {
+	Products []*Product         `thrift:"products,1" frugal:"1,default,list<Product>" json:"products"`
+	Base     *base.BaseResponse `thrift:"base,255" frugal:"255,default,base.BaseResponse" json:"base"`
+}
+
+func NewBatchGetProductsResponse() *BatchGetProductsResponse {
+	return &BatchGetProductsResponse{}
+}
+
+func (p *BatchGetProductsResponse) InitDefault() {
+}
+
+func (p *BatchGetProductsResponse) GetProducts() (v []*Product) {
+	return p.Products
+}
+
+var BatchGetProductsResponse_Base_DEFAULT *base.BaseResponse
+
+func (p *BatchGetProductsResponse) GetBase() (v *base.BaseResponse) {
+	if !p.IsSetBase() {
+		return BatchGetProductsResponse_Base_DEFAULT
+	}
+	return p.Base
+}
+func (p *BatchGetProductsResponse) SetProducts(val []*Product) {
+	p.Products = val
+}
+func (p *BatchGetProductsResponse) SetBase(val *base.BaseResponse) {
+	p.Base = val
+}
+
+func (p *BatchGetProductsResponse) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *BatchGetProductsResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BatchGetProductsResponse(%+v)", *p)
+}
+
+var fieldIDToName_BatchGetProductsResponse = map[int16]string{
+	1:   "products",
+	255: "base",
+}
+
 type ListProductsRequest struct {
 	Page       int32   `thrift:"page,1" frugal:"1,default,i32" json:"page"`
 	PageSize   int32   `thrift:"page_size,2" frugal:"2,default,i32" json:"page_size"`
@@ -1448,6 +1524,8 @@ type ProductService interface {
 	ChangeProductStatus(ctx context.Context, request *ChangeProductStatusRequest) (r *ChangeProductStatusResponse, err error)
 
 	GetProductDetail(ctx context.Context, request *GetProductDetailRequest) (r *GetProductDetailResponse, err error)
+
+	BatchGetProducts(ctx context.Context, request *BatchGetProductsRequest) (r *BatchGetProductsResponse, err error)
 
 	ListProducts(ctx context.Context, request *ListProductsRequest) (r *ListProductsResponse, err error)
 
@@ -1907,6 +1985,82 @@ func (p *ProductServiceGetProductDetailResult) String() string {
 }
 
 var fieldIDToName_ProductServiceGetProductDetailResult = map[int16]string{
+	0: "success",
+}
+
+type ProductServiceBatchGetProductsArgs struct {
+	Request *BatchGetProductsRequest `thrift:"request,1" frugal:"1,default,BatchGetProductsRequest" json:"request"`
+}
+
+func NewProductServiceBatchGetProductsArgs() *ProductServiceBatchGetProductsArgs {
+	return &ProductServiceBatchGetProductsArgs{}
+}
+
+func (p *ProductServiceBatchGetProductsArgs) InitDefault() {
+}
+
+var ProductServiceBatchGetProductsArgs_Request_DEFAULT *BatchGetProductsRequest
+
+func (p *ProductServiceBatchGetProductsArgs) GetRequest() (v *BatchGetProductsRequest) {
+	if !p.IsSetRequest() {
+		return ProductServiceBatchGetProductsArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+func (p *ProductServiceBatchGetProductsArgs) SetRequest(val *BatchGetProductsRequest) {
+	p.Request = val
+}
+
+func (p *ProductServiceBatchGetProductsArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *ProductServiceBatchGetProductsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ProductServiceBatchGetProductsArgs(%+v)", *p)
+}
+
+var fieldIDToName_ProductServiceBatchGetProductsArgs = map[int16]string{
+	1: "request",
+}
+
+type ProductServiceBatchGetProductsResult struct {
+	Success *BatchGetProductsResponse `thrift:"success,0,optional" frugal:"0,optional,BatchGetProductsResponse" json:"success,omitempty"`
+}
+
+func NewProductServiceBatchGetProductsResult() *ProductServiceBatchGetProductsResult {
+	return &ProductServiceBatchGetProductsResult{}
+}
+
+func (p *ProductServiceBatchGetProductsResult) InitDefault() {
+}
+
+var ProductServiceBatchGetProductsResult_Success_DEFAULT *BatchGetProductsResponse
+
+func (p *ProductServiceBatchGetProductsResult) GetSuccess() (v *BatchGetProductsResponse) {
+	if !p.IsSetSuccess() {
+		return ProductServiceBatchGetProductsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *ProductServiceBatchGetProductsResult) SetSuccess(x interface{}) {
+	p.Success = x.(*BatchGetProductsResponse)
+}
+
+func (p *ProductServiceBatchGetProductsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ProductServiceBatchGetProductsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ProductServiceBatchGetProductsResult(%+v)", *p)
+}
+
+var fieldIDToName_ProductServiceBatchGetProductsResult = map[int16]string{
 	0: "success",
 }
 

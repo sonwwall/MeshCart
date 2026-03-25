@@ -55,6 +55,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"batchGetProducts": kitex.NewMethodInfo(
+		batchGetProductsHandler,
+		newProductServiceBatchGetProductsArgs,
+		newProductServiceBatchGetProductsResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"listProducts": kitex.NewMethodInfo(
 		listProductsHandler,
 		newProductServiceListProductsArgs,
@@ -243,6 +250,24 @@ func newProductServiceGetProductDetailResult() interface{} {
 	return product.NewProductServiceGetProductDetailResult()
 }
 
+func batchGetProductsHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*product.ProductServiceBatchGetProductsArgs)
+	realResult := result.(*product.ProductServiceBatchGetProductsResult)
+	success, err := handler.(product.ProductService).BatchGetProducts(ctx, realArg.Request)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newProductServiceBatchGetProductsArgs() interface{} {
+	return product.NewProductServiceBatchGetProductsArgs()
+}
+
+func newProductServiceBatchGetProductsResult() interface{} {
+	return product.NewProductServiceBatchGetProductsResult()
+}
+
 func listProductsHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*product.ProductServiceListProductsArgs)
 	realResult := result.(*product.ProductServiceListProductsResult)
@@ -344,6 +369,16 @@ func (p *kClient) GetProductDetail(ctx context.Context, request *product.GetProd
 	_args.Request = request
 	var _result product.ProductServiceGetProductDetailResult
 	if err = p.c.Call(ctx, "getProductDetail", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) BatchGetProducts(ctx context.Context, request *product.BatchGetProductsRequest) (r *product.BatchGetProductsResponse, err error) {
+	var _args product.ProductServiceBatchGetProductsArgs
+	_args.Request = request
+	var _result product.ProductServiceBatchGetProductsResult
+	if err = p.c.Call(ctx, "batchGetProducts", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

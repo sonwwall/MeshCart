@@ -140,6 +140,15 @@ struct GetProductDetailResponse {
     255: base.BaseResponse base
 }
 
+struct BatchGetProductsRequest {
+    1: list<i64> product_ids
+}
+
+struct BatchGetProductsResponse {
+    1: list<Product> products
+    255: base.BaseResponse base
+}
+
 struct ListProductsRequest {
     1: i32 page
     2: i32 page_size
@@ -171,6 +180,7 @@ service ProductService {
     UpdateProductResponse updateProduct(1: UpdateProductRequest request)
     ChangeProductStatusResponse changeProductStatus(1: ChangeProductStatusRequest request)
     GetProductDetailResponse getProductDetail(1: GetProductDetailRequest request)
+    BatchGetProductsResponse batchGetProducts(1: BatchGetProductsRequest request)
     ListProductsResponse listProducts(1: ListProductsRequest request)
     BatchGetSkuResponse batchGetSku(1: BatchGetSkuRequest request)
 }

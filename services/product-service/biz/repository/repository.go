@@ -63,6 +63,7 @@ type ProductRepository interface {
 	Update(ctx context.Context, product *dalmodel.Product, skus []*dalmodel.ProductSKU) error
 	ChangeStatus(ctx context.Context, productID int64, status int32, operatorID int64) error
 	GetByID(ctx context.Context, productID int64) (*dalmodel.Product, error)
+	GetByIDs(ctx context.Context, productIDs []int64) ([]*dalmodel.Product, error)
 	List(ctx context.Context, filter ListFilter) ([]*dalmodel.Product, int64, error)
 	ListSKUsByProductIDs(ctx context.Context, productIDs []int64) ([]*dalmodel.ProductSKU, error)
 	GetSKUsByIDs(ctx context.Context, skuIDs []int64) ([]*dalmodel.ProductSKU, error)
@@ -322,6 +323,30 @@ func (r *MySQLProductRepository) GetByID(ctx context.Context, productID int64) (
 		return nil, err
 	}
 	return &product, nil
+}
+
+func (r *MySQLProductRepository) GetByIDs(ctx context.Context, productIDs []int64) ([]*dalmodel.Product, error) {
+	if len(productIDs) == 0 {
+		return []*dalmodel.Product{}, nil
+	}
+
+	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	var products []*dalmodel.Product
+	err := r.db.WithContext(ctx).
+		Preload("Skus", func(db *gorm.DB) *gorm.DB {
+			return db.Order("id ASC")
+		}).
+		Preload("Skus.Attrs", func(db *gorm.DB) *gorm.DB {
+			return db.Order("sort ASC, id ASC")
+		}).
+		Where("id IN ?", productIDs).
+		Find(&products).Error
+	if err != nil {
+		return nil, err
+	}
+	return products, nil
 }
 
 func (r *MySQLProductRepository) List(ctx context.Context, filter ListFilter) ([]*dalmodel.Product, int64, error) {

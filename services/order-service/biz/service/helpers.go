@@ -135,20 +135,9 @@ func (s *OrderService) validateAndBuildSnapshots(ctx context.Context, reqItems [
 		return nil, nil, 0, errno.ErrOrderSKUUnavailable
 	}
 
-	productMap := make(map[int64]*productpb.Product, len(productIDs))
-	for _, productID := range productIDs {
-		resp, rpcErr := s.productClient.GetProductDetail(ctx, &productpb.GetProductDetailRequest{ProductId: productID})
-		if rpcErr != nil {
-			logx.L(ctx).Error("get product detail failed", zap.Error(rpcErr), zap.Int64("product_id", productID))
-			return nil, nil, 0, common.ErrServiceUnavailable
-		}
-		if resp.Code != 0 {
-			return nil, nil, 0, mapProductRPCError(resp.Code)
-		}
-		if resp.Product == nil || resp.Product.GetStatus() != productStatusOnline {
-			return nil, nil, 0, errno.ErrOrderProductUnavailable
-		}
-		productMap[productID] = resp.Product
+	productMap, bizErr := s.batchGetActiveProducts(ctx, productIDs)
+	if bizErr != nil {
+		return nil, nil, 0, bizErr
 	}
 
 	items := make([]validatedOrderItem, 0, len(reqItems))
@@ -177,6 +166,33 @@ func (s *OrderService) validateAndBuildSnapshots(ctx context.Context, reqItems [
 		reserveItems = append(reserveItems, &inventory.StockReservationItem{SkuId: skuID, Quantity: quantity})
 	}
 	return items, reserveItems, totalAmount, nil
+}
+
+func (s *OrderService) batchGetActiveProducts(ctx context.Context, productIDs []int64) (map[int64]*productpb.Product, *common.BizError) {
+	productMap := make(map[int64]*productpb.Product, len(productIDs))
+	if len(productIDs) == 0 {
+		return productMap, nil
+	}
+
+	resp, err := s.productClient.BatchGetProducts(ctx, &productpb.BatchGetProductsRequest{ProductIds: productIDs})
+	if err != nil {
+		logx.L(ctx).Error("batch get products failed", zap.Error(err), zap.Int64s("product_ids", productIDs))
+		return nil, common.ErrServiceUnavailable
+	}
+	if resp.Code != 0 {
+		return nil, mapProductRPCError(resp.Code)
+	}
+	if len(resp.Products) != len(productIDs) {
+		return nil, errno.ErrOrderProductUnavailable
+	}
+
+	for _, product := range resp.Products {
+		if product == nil || product.GetStatus() != productStatusOnline {
+			return nil, errno.ErrOrderProductUnavailable
+		}
+		productMap[product.GetId()] = product
+	}
+	return productMap, nil
 }
 
 func buildReleaseItems(order *dalmodel.Order) []*inventory.StockReservationItem {
