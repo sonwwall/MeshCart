@@ -1163,4 +1163,531 @@ go run ./loadtest/cmd/prepare_phase1_data \
 3. 检查 MySQL 锁等待、慢查询、事务耗时
 4. 对比 `gateway`、RPC、DB 三层 RT，确认抬升主要发生在哪一层
 
+## 18. 第五轮结果
+
+时间：
+
+- `2026-03-24`
+
+第五轮目标：
+
+- 不再盲目升压
+- 固定在敏感点 `create order 20 VUs`
+- 同时采集 `gateway`、`order-service`、`inventory-service`、`product-service` 指标
+
+### 18.1 第五轮结果文件
+
+- [round5-order-v20-metrics.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round5-order-v20-metrics.json)
+
+### 18.2 压测结果
+
+场景：
+
+- `POST /api/v1/orders`
+- `20 VUs`
+- `20s`
+- `sleep=0.5s`
+
+结果：
+
+- 迭代数：`289`
+- 错误率：`0%`
+- 自定义指标 `order_create_duration avg`：`571.86ms`
+- 自定义指标 `order_create_duration p95`：`1.03s`
+- HTTP `avg`：`461.93ms`
+- HTTP `p95`：`940.19ms`
+
+结论：
+
+- 第五轮复测再次确认：订单写链路在 `20 VUs` 下 RT 明显放大
+- 这不是第四轮偶发抖动，而是可复现趋势
+
+### 18.3 指标采样结果
+
+第五轮压测前后，对关键指标做了快照对比。
+
+#### Gateway
+
+压测前：
+
+- `POST /api/v1/orders count`：`2611`
+- `POST /api/v1/orders sum`：`252741081 us`
+
+压测后：
+
+- `POST /api/v1/orders count`：`2900`
+- `POST /api/v1/orders sum`：`417154227 us`
+
+增量：
+
+- 请求数增量：`289`
+- 耗时总和增量：`164413146 us`
+- 该轮 gateway 侧平均单请求耗时约：`568.9ms`
+
+#### Order Service
+
+压测前：
+
+- `create_order count`：`2664`
+- `create_order sum`：`250.602931333 s`
+
+压测后：
+
+- `create_order count`：`2953`
+- `create_order sum`：`413.551995584 s`
+
+增量：
+
+- 请求数增量：`289`
+- 耗时总和增量：`162.949064251 s`
+- 该轮 order-service 平均单请求耗时约：`563.8ms`
+
+#### Inventory Service
+
+压测前：
+
+- `reserve_sku_stocks count`：`2664`
+- `reserve_sku_stocks sum`：`82.396639821 s`
+
+压测后：
+
+- `reserve_sku_stocks count`：`2953`
+- `reserve_sku_stocks sum`：`155.267083959 s`
+
+增量：
+
+- 请求数增量：`289`
+- 耗时总和增量：`72.870444138 s`
+- 该轮 inventory-service 平均单请求耗时约：`252.1ms`
+
+#### Product Service
+
+`batch_get_sku`：
+
+- 增量请求数：`289`
+- 增量耗时总和：`8.030671334 s`
+- 平均单请求耗时约：`27.8ms`
+
+`get_product_detail`：
+
+- 增量请求数：`289`
+- 增量耗时总和：`11.745840091 s`
+- 平均单请求耗时约：`40.6ms`
+
+### 18.4 第五轮结论
+
+第五轮最重要的结论：
+
+1. 订单链路在 `20 VUs` 下的 RT 放大是稳定复现的
+2. `gateway` 与 `order-service` 的平均耗时增量几乎同步，说明抬升主要不是 gateway 自身逻辑，而是下游订单编排链路
+3. 在订单编排链路中，`inventory-service reserve_sku_stocks` 占用了相当可观的耗时
+4. `product-service` 的 `batch_get_sku` 和 `get_product_detail` 也有贡献，但量级明显低于库存预占
+5. 当前最值得优先排查的是：
+   - `order-service -> inventory-service reserve_sku_stocks`
+   - 订单创建过程中的库存预占和相关数据库操作
+
+### 18.5 下一步建议
+
+如果继续第六轮，我建议改成“定位型压测”，而不是继续简单升 `VUs`：
+
+1. 复测 `create order 20 VUs`
+2. 同时抓：
+   - `inventory-service` 更细粒度指标
+   - MySQL 锁等待
+   - MySQL 慢查询
+   - `order-service` / `inventory-service` 日志
+3. 如果有条件，再做热点 SKU 与非热点 SKU 对比
+
+当前阶段，最有价值的工作已经从“继续抬压”切换到“确认库存预占与订单编排的耗时来源”。
+
 如果现在要继续，我建议第五轮优先做“带指标观察的订单写链路复测”，而不是先把 `VUs` 再翻倍。
+
+## 19. 第六轮结果
+
+时间：
+
+- `2026-03-24`
+
+第六轮目标：
+
+- 做“定位型压测”
+- 对比热点 SKU 和普通 SKU 在相同 `20 VUs` 下的订单创建表现
+- 判断第五轮的 RT 放大更像是热点竞争，还是更广义的订单链路波动
+
+### 19.1 第六轮场景说明
+
+本轮围绕 `POST /api/v1/orders` 做两组对照：
+
+1. 热点 SKU：固定打热点商品对应的 `sku_id`
+2. 普通 SKU：固定打普通商品对应的 `sku_id`
+
+压测参数保持一致：
+
+- `20 VUs`
+- `20s`
+- `sleep=0.5s`
+
+### 19.2 第六轮结果文件
+
+- [round6-order-hot-v20.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round6-order-hot-v20.json)
+- [round6-order-normal-v20.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round6-order-normal-v20.json)
+- [round6-order-normal-v20-restocked.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round6-order-normal-v20-restocked.json)
+
+说明：
+
+- [round6-order-normal-v20.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round6-order-normal-v20.json) 是一次失效样本
+- 这次普通 SKU 对照跑到中途时库存被耗尽，出现了大量业务失败，不能拿来做性能结论
+- 为了保证对照有效，已把普通 SKU 总库存调高到 `5000`，并重新执行了 [round6-order-normal-v20-restocked.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round6-order-normal-v20-restocked.json)
+
+### 19.3 热点 SKU 结果
+
+场景：
+
+- `POST /api/v1/orders`
+- 固定热点 `sku_id`
+- `20 VUs`
+- `20s`
+
+结果：
+
+- 迭代数：`510`
+- 错误率：`0%`
+- 自定义指标 `order_create_duration avg`：`88.52ms`
+- 自定义指标 `order_create_duration p95`：`175.74ms`
+- HTTP `p95`：`302.77ms`
+
+### 19.4 普通 SKU 失效样本
+
+场景：
+
+- `POST /api/v1/orders`
+- 固定普通 `sku_id`
+- `20 VUs`
+- `20s`
+
+失效样本结果：
+
+- 迭代数：`608`
+- 自定义指标 `order_create_failed`：`67.10%`
+- 自定义指标 `order_create_duration p95`：`219.34ms`
+
+失效原因：
+
+- 普通 SKU 初始库存只有 `200`
+- 本轮压测请求数明显超过库存承载能力
+- 大量失败是库存耗尽导致的业务拒绝，不是性能瓶颈
+
+因此：
+
+- 这组数据仅用于说明“库存因素会污染对照组”
+- 不纳入热点 / 非热点性能结论
+
+### 19.5 普通 SKU 补库存后的有效结果
+
+修正动作：
+
+- 通过管理员接口将普通 SKU `2036361111363657729` 的总库存调整到 `5000`
+
+场景：
+
+- `POST /api/v1/orders`
+- 固定普通 `sku_id`
+- `20 VUs`
+- `20s`
+
+结果：
+
+- 迭代数：`514`
+- 错误率：`0%`
+- 自定义指标 `order_create_duration avg`：`85.41ms`
+- 自定义指标 `order_create_duration p95`：`183.97ms`
+- HTTP `p95`：`323.59ms`
+
+### 19.6 指标采样对比
+
+为了对比热点和普通 SKU，本轮继续对关键 RPC 指标做了前后快照。
+
+#### 热点 SKU
+
+`order-service create_order`：
+
+- 增量请求数：`510`
+- 平均单请求耗时约：`85.16ms`
+
+`inventory-service reserve_sku_stocks`：
+
+- 增量请求数：`510`
+- 平均单请求耗时约：`22.43ms`
+
+#### 普通 SKU
+
+`order-service create_order`：
+
+- 增量请求数：`514`
+- 平均单请求耗时约：`82.44ms`
+
+`inventory-service reserve_sku_stocks`：
+
+- 增量请求数：`514`
+- 平均单请求耗时约：`23.50ms`
+
+`product-service batch_get_sku`：
+
+- 增量请求数：`514`
+- 平均单请求耗时约：`4.82ms`
+
+`product-service get_product_detail`：
+
+- 增量请求数：`514`
+- 平均单请求耗时约：`6.93ms`
+
+### 19.7 第六轮结论
+
+第六轮最重要的结论：
+
+1. 第五轮里 `20 VUs` 订单 RT 抬升到 `p95 1s` 以上的现象，这一轮没有稳定复现
+2. 在同样的 `20 VUs` 下，热点 SKU 和补库存后的普通 SKU 表现非常接近
+3. 目前没有证据表明“热点 SKU 竞争”本身就是订单链路 RT 异常放大的主要原因
+4. 上一轮的极高 RT 更像是阶段性波动、环境抖动，或者库存/状态因素叠加，而不是稳定的热点争用瓶颈
+5. `inventory-service reserve_sku_stocks` 仍然是订单链路里需要持续观察的一段，但在本轮对照里没有出现热点显著劣化
+
+### 19.8 下一步建议
+
+如果继续第七轮，我建议不要立刻继续加 `VUs`，而是做下面两类验证：
+
+1. 对 `create order 20 VUs` 做多次重复复测，确认第五轮的高 RT 是偶发还是周期性抖动
+2. 开始补数据库层观测：
+   - MySQL 锁等待
+   - MySQL 慢查询
+   - 订单表和库存表相关 SQL 耗时
+
+当前阶段，更像是需要“稳定性复测 + 底层观测”，而不是继续单纯提高并发。
+
+## 20. 第七轮结果
+
+时间：
+
+- `2026-03-24`
+
+第七轮目标：
+
+- 在相同压测参数下重复执行 `POST /api/v1/orders`
+- 判断第五轮的高 RT 是否能稳定复现
+- 识别“性能波动”和“测试数据耗尽”这两类不同问题
+
+### 20.1 第七轮场景
+
+固定场景：
+
+- `POST /api/v1/orders`
+- 热点 `sku_id`
+- `20 VUs`
+- `20s`
+- `sleep=0.5s`
+
+### 20.2 第七轮结果文件
+
+- [round7-order-v20-run1.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round7-order-v20-run1.json)
+- [round7-order-v20-run2-retry.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round7-order-v20-run2-retry.json)
+- [round7-order-v20-run3.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round7-order-v20-run3.json)
+- [round7-order-v20-run3-restocked.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round7-order-v20-run3-restocked.json)
+
+说明：
+
+- 第二次复测第一次尝试受到本地沙箱网络限制污染，没有纳入结果
+- [round7-order-v20-run3.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round7-order-v20-run3.json) 是一组“库存耗尽样本”
+- 为了得到干净的第三组数据，已补库存后重新执行 [round7-order-v20-run3-restocked.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round7-order-v20-run3-restocked.json)
+
+### 20.3 有效复测结果
+
+#### 第 1 次
+
+- 迭代数：`499`
+- 错误率：`0%`
+- 自定义指标 `order_create_duration avg`：`106.84ms`
+- 自定义指标 `order_create_duration p95`：`329.14ms`
+- HTTP `p95`：`399.88ms`
+
+#### 第 2 次
+
+- 迭代数：`544`
+- 错误率：`0%`
+- 自定义指标 `order_create_duration avg`：`68.19ms`
+- 自定义指标 `order_create_duration p95`：`142.64ms`
+- HTTP `p95`：`256.88ms`
+
+#### 第 3 次（补库存后）
+
+- 迭代数：`552`
+- 错误率：`0%`
+- 自定义指标 `order_create_duration avg`：`63.87ms`
+- 自定义指标 `order_create_duration p95`：`137.82ms`
+- HTTP `p95`：`244.46ms`
+
+### 20.4 失效样本
+
+`[round7-order-v20-run3.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round7-order-v20-run3.json)` 的现象：
+
+- 迭代数：`563`
+- 自定义指标 `order_create_failed`：`12.25%`
+- 自定义指标 `order_create_duration p95`：`184.07ms`
+
+这组样本起初在 `k6` 侧表现为“business code is 0 失败”以及“response missing order_id”，但继续排查后确认不是接口格式问题，而是库存用尽。
+
+证据：
+
+1. `order-service` 暴露了业务错误码 `2040005`
+2. `inventory-service` 暴露了业务错误码 `2050002`
+3. 错误码定义分别对应“库存不足”
+4. 管理员接口查询热点 SKU 现状时，返回：
+   - `total_stock=5000`
+   - `reserved_stock=5000`
+   - `saleable_stock=0`
+
+因此：
+
+- 这组失败不是新的逻辑异常
+- 而是连续多轮压测后，热点 SKU 被逐步打空
+
+### 20.5 第七轮结论
+
+第七轮最重要的结论：
+
+1. 在补足库存的前提下，`create order 20 VUs` 的高 RT 没有稳定复现
+2. 三组有效样本的 `order_create_duration p95` 分别是：
+   - `329.14ms`
+   - `142.64ms`
+   - `137.82ms`
+3. 这说明第五轮 `p95 1.03s` 更像是阶段性波动，而不是当前环境下稳定可复现的瓶颈
+4. 连续压测时，测试数据本身会成为强干扰因素，尤其是热点 SKU 库存
+5. 当前最需要控制的是：
+   - 每轮前确认热点 SKU 可售库存
+   - 区分“性能退化”和“库存耗尽”两类现象
+
+### 20.6 当前限制
+
+本轮原本计划补数据库层观测，但当前环境里没有可直接调用的 `mysql` 客户端，因此未能抓到：
+
+- MySQL 锁等待
+- MySQL 慢查询
+- InnoDB 行锁细节
+
+目前仍然可以依赖：
+
+- `k6` 摘要
+- `gateway` metrics
+- `order-service` metrics
+- `inventory-service` metrics
+
+### 20.7 下一步建议
+
+如果继续第八轮，我建议优先做两件事：
+
+1. 给压测脚本增加“压测前库存检查”或“自动补库存”步骤，避免样本再次被库存耗尽污染
+2. 开始引入数据库层观测工具，再做一次 `create order 20 VUs` 复测
+
+当前阶段，系统表现更像是“整体可用但对测试数据状态敏感”，而不是已经稳定暴露出单一性能瓶颈。
+
+## 21. 第八轮结果
+
+时间：
+
+- `2026-03-24`
+
+第八轮目标：
+
+- 做一轮“控制变量复测”
+- 在固定库存前提下比较热点 SKU 与普通 SKU 的订单创建表现
+- 再次确认 `create order 20 VUs` 是否存在稳定高延迟
+
+### 21.1 第八轮准备动作
+
+本轮开始前，先统一补库存，避免样本再次被库存耗尽污染：
+
+- 热点 SKU `2036361111032307713`
+  - 调整后：`total_stock=10000`
+  - 当时库存状态：`reserved_stock=5552`，`saleable_stock=4448`
+
+- 普通 SKU `2036361111363657729`
+  - 调整后：`total_stock=10000`
+  - 当时库存状态：`reserved_stock=714`，`saleable_stock=9286`
+
+说明：
+
+- 当前环境里的“补库存”是调高 `total_stock`
+- 历史预占记录不会自动清空，因此准备动作的重点是保证 `saleable_stock` 足够支撑本轮样本
+
+### 21.2 第八轮场景
+
+统一参数：
+
+- `POST /api/v1/orders`
+- `20 VUs`
+- `20s`
+- `sleep=0.5s`
+
+执行顺序：
+
+1. 热点 SKU，第 1 次
+2. 热点 SKU，第 2 次
+3. 普通 SKU，对照组
+
+### 21.3 第八轮结果文件
+
+- [round8-order-hot-v20-run1.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round8-order-hot-v20-run1.json)
+- [round8-order-hot-v20-run2.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round8-order-hot-v20-run2.json)
+- [round8-order-normal-v20.json](/Users/ruitong/GolandProjects/MeshCart/loadtest/results/round8-order-normal-v20.json)
+
+### 21.4 热点 SKU，第 1 次
+
+- 迭代数：`548`
+- 错误率：`0%`
+- 自定义指标 `order_create_duration avg`：`69.42ms`
+- 自定义指标 `order_create_duration p95`：`154.02ms`
+- HTTP `p95`：`236.39ms`
+
+### 21.5 热点 SKU，第 2 次
+
+- 迭代数：`561`
+- 错误率：`0%`
+- 自定义指标 `order_create_duration avg`：`59.05ms`
+- 自定义指标 `order_create_duration p95`：`128.94ms`
+- HTTP `p95`：`239.76ms`
+
+### 21.6 普通 SKU，对照组
+
+- 迭代数：`550`
+- 错误率：`0%`
+- 自定义指标 `order_create_duration avg`：`71.39ms`
+- 自定义指标 `order_create_duration p95`：`190.29ms`
+- HTTP `p95`：`260.67ms`
+
+### 21.7 第八轮结论
+
+第八轮最重要的结论：
+
+1. 在统一补库存之后，三组样本全部稳定通过，没有出现业务失败
+2. `create order 20 VUs` 在本轮没有复现第五轮的高 RT
+3. 两次热点 SKU 结果分别为：
+   - `p95=154.02ms`
+   - `p95=128.94ms`
+4. 普通 SKU 对照组结果为：
+   - `p95=190.29ms`
+5. 本轮没有出现“热点 SKU 明显慢于普通 SKU”的现象，反而热点组略快于普通组
+6. 这进一步说明：
+   - 第五轮 `p95 1.03s` 不是当前环境下稳定可复现的常态
+   - 热点争用目前仍然不是已被证明的主瓶颈
+   - 库存状态控制对压测结论影响非常大
+
+### 21.8 当前判断更新
+
+经过第八轮之后，可以进一步收敛为：
+
+1. `20 VUs` 下的订单创建链路整体是可用且相对稳定的
+2. 订单链路依然是当前最敏感的写路径，但还没有被证明在该强度下存在稳定的性能崩点
+3. 当前更像是：
+   - 订单链路对环境波动敏感
+   - 压测结果对库存状态敏感
+4. 如果后续要继续找瓶颈，重点不应该只是继续堆 `VUs`，而应该补：
+   - 数据库层证据
+   - 更严格的压测前数据重置

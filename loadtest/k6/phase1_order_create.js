@@ -6,7 +6,8 @@ import { Rate, Trend } from 'k6/metrics';
 import { getBaseURL, getManifest, parseEnvelope, pickBuyer } from './lib.js';
 
 const manifest = getManifest();
-const hotProduct = manifest.hot_product;
+const defaultProduct = manifest.hot_product;
+const normalProduct = manifest.normal_products && manifest.normal_products.length > 0 ? manifest.normal_products[0] : null;
 
 export const orderCreateDuration = new Trend('order_create_duration', true);
 export const orderCreateFailed = new Rate('order_create_failed');
@@ -20,6 +21,27 @@ export const options = {
     order_create_duration: ['p(95)<1500'],
   },
 };
+
+function resolveTargetProduct() {
+  const productID = __ENV.PRODUCT_ID;
+  const skuID = __ENV.SKU_ID;
+  if (productID && skuID) {
+    return { product_id: productID, sku_id: skuID };
+  }
+  if (__ENV.USE_NORMAL_PRODUCT === '1') {
+    if (!normalProduct) {
+      throw new Error('normal product not found in manifest');
+    }
+    return {
+      product_id: normalProduct.product_id,
+      sku_id: normalProduct.sku_id,
+    };
+  }
+  return {
+    product_id: defaultProduct.product_id,
+    sku_id: defaultProduct.sku_id,
+  };
+}
 
 function extractInt64(body, field) {
   const matched = body.match(new RegExp(`"${field}"\\s*:\\s*(\\d+)`));
@@ -49,7 +71,8 @@ export default function () {
   const user = pickBuyer(exec);
   const token = login(user);
   const requestID = `order-${exec.vu.idInTest}-${exec.scenario.iterationInTest}-${Date.now()}`;
-  const orderBody = `{"request_id":"${requestID}","items":[{"product_id":${hotProduct.product_id},"sku_id":${hotProduct.sku_id},"quantity":1}]}`;
+  const target = resolveTargetProduct();
+  const orderBody = `{"request_id":"${requestID}","items":[{"product_id":${target.product_id},"sku_id":${target.sku_id},"quantity":1}]}`;
   const response = http.post(
     `${getBaseURL()}/api/v1/orders`,
     orderBody,
