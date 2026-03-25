@@ -21,7 +21,7 @@ db_pool:
   stats_interval_ms: 5000
 
 hotspot:
-  reserve_max_concurrency_per_sku: 2
+  reserve_max_concurrency_per_sku: 4
 
 timeout:
   db_query_ms: 1500

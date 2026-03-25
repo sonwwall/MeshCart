@@ -80,7 +80,7 @@ func Load() (Config, error) {
 	v.SetDefault("db_pool.max_idle_conns", 20)
 	v.SetDefault("db_pool.conn_max_lifetime_minutes", 30)
 	v.SetDefault("db_pool.stats_interval_ms", 5000)
-	v.SetDefault("hotspot.reserve_max_concurrency_per_sku", 2)
+	v.SetDefault("hotspot.reserve_max_concurrency_per_sku", 4)
 	v.SetDefault("timeout.db_query_ms", 1500)
 
 	if err := v.ReadInConfig(); err != nil {
