@@ -429,34 +429,65 @@ func (r *MySQLInventoryRepository) Reserve(ctx context.Context, bizType, bizID s
 		return nil, err
 	}
 
+	var finalStocks []*dalmodel.InventoryStock
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		existing, err := loadReservations(tx, bizType, bizID, skuIDs)
-		if err != nil {
-			return err
-		}
+		var existing map[int64]*dalmodel.InventoryReservation
 		for _, item := range orderedItems {
-			reservation := existing[item.SKUID]
-			if reservation != nil {
-				if reservation.Quantity != item.Quantity {
-					logx.L(ctx).Warn("inventory reserve rejected by quantity mismatch",
+			payload := buildReservationPayload(bizType, bizID, item)
+			if err := tx.Create(&dalmodel.InventoryReservation{
+				ID:              r.nextID(),
+				BizType:         bizType,
+				BizID:           bizID,
+				SKUID:           item.SKUID,
+				Quantity:        item.Quantity,
+				Status:          reservationStatusReserved,
+				PayloadSnapshot: payload,
+			}).Error; err != nil {
+				if normalizeDuplicateError(err) == ErrReservationConflict {
+					if existing == nil {
+						existing, err = loadReservations(tx, bizType, bizID, skuIDs)
+						if err != nil {
+							return err
+						}
+					}
+					reservation := existing[item.SKUID]
+					if reservation == nil {
+						logx.L(ctx).Warn("inventory reserve duplicate key without existing reservation",
+							zap.String("biz_type", bizType),
+							zap.String("biz_id", bizID),
+							zap.Int64("sku_id", item.SKUID),
+						)
+						return ErrReservationConflict
+					}
+					if reservation.Quantity != item.Quantity {
+						logx.L(ctx).Warn("inventory reserve rejected by quantity mismatch",
+							zap.String("biz_type", bizType),
+							zap.String("biz_id", bizID),
+							zap.Int64("sku_id", item.SKUID),
+							zap.Int64("expected_quantity", reservation.Quantity),
+							zap.Int64("actual_quantity", item.Quantity),
+						)
+						return ErrReservationConflict
+					}
+					if reservation.Status == reservationStatusReserved {
+						continue
+					}
+					logx.L(ctx).Warn("inventory reserve rejected by reservation state",
 						zap.String("biz_type", bizType),
 						zap.String("biz_id", bizID),
 						zap.Int64("sku_id", item.SKUID),
-						zap.Int64("expected_quantity", reservation.Quantity),
-						zap.Int64("actual_quantity", item.Quantity),
+						zap.String("reservation_status", reservation.Status),
 					)
-					return ErrReservationConflict
+					return ErrReservationStateConflict
 				}
-				if reservation.Status == reservationStatusReserved {
-					continue
-				}
-				logx.L(ctx).Warn("inventory reserve rejected by reservation state",
+				logx.L(ctx).Error("create inventory reservation for reserve failed",
+					zap.Error(err),
 					zap.String("biz_type", bizType),
 					zap.String("biz_id", bizID),
 					zap.Int64("sku_id", item.SKUID),
-					zap.String("reservation_status", reservation.Status),
+					zap.Int64("quantity", item.Quantity),
 				)
-				return ErrReservationStateConflict
+				return err
 			}
 
 			result := tx.Model(&dalmodel.InventoryStock{}).
@@ -479,50 +510,33 @@ func (r *MySQLInventoryRepository) Reserve(ctx context.Context, bizType, bizID s
 			if result.RowsAffected == 0 {
 				return classifyReserveFailure(tx, item)
 			}
-
-			payload := buildReservationPayload(bizType, bizID, item)
-			if err := tx.Create(&dalmodel.InventoryReservation{
-				ID:              r.nextID(),
-				BizType:         bizType,
-				BizID:           bizID,
-				SKUID:           item.SKUID,
-				Quantity:        item.Quantity,
-				Status:          reservationStatusReserved,
-				PayloadSnapshot: payload,
-			}).Error; err != nil {
-				logx.L(ctx).Error("create inventory reservation for reserve failed",
-					zap.Error(err),
-					zap.String("biz_type", bizType),
-					zap.String("biz_id", bizID),
-					zap.Int64("sku_id", item.SKUID),
-					zap.Int64("quantity", item.Quantity),
-				)
-				return normalizeDuplicateError(err)
-			}
 		}
-		return nil
+		finalStocks, err = loadStocksBySKUIDs(tx, skuIDs)
+		return err
 	})
 	if err != nil {
 		return nil, normalizeReservationError(err)
 	}
-	return r.ListBySKUIDs(ctx, skuIDs)
+	return finalStocks, nil
 }
 
 func (r *MySQLInventoryRepository) Release(ctx context.Context, bizType, bizID string, items []ReservationItem) ([]*dalmodel.InventoryStock, error) {
 	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
 	defer cancel()
 
-	skuIDs, err := validateReservationItems(items)
+	orderedItems := sortReservationItems(items)
+	skuIDs, err := validateReservationItems(orderedItems)
 	if err != nil {
 		return nil, err
 	}
 
+	var finalStocks []*dalmodel.InventoryStock
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		existing, err := loadReservations(tx, bizType, bizID, skuIDs)
 		if err != nil {
 			return err
 		}
-		for _, item := range items {
+		for _, item := range orderedItems {
 			reservation := existing[item.SKUID]
 			if reservation == nil {
 				payload := buildReservationPayload(bizType, bizID, item)
@@ -605,29 +619,32 @@ func (r *MySQLInventoryRepository) Release(ctx context.Context, bizType, bizID s
 				return ErrReservationStateConflict
 			}
 		}
-		return nil
+		finalStocks, err = loadStocksBySKUIDs(tx, skuIDs)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	return r.ListBySKUIDs(ctx, skuIDs)
+	return finalStocks, nil
 }
 
 func (r *MySQLInventoryRepository) ConfirmDeduct(ctx context.Context, bizType, bizID string, items []ReservationItem) ([]*dalmodel.InventoryStock, error) {
 	ctx, cancel := withQueryTimeout(ctx, r.queryTimeout)
 	defer cancel()
 
-	skuIDs, err := validateReservationItems(items)
+	orderedItems := sortReservationItems(items)
+	skuIDs, err := validateReservationItems(orderedItems)
 	if err != nil {
 		return nil, err
 	}
 
+	var finalStocks []*dalmodel.InventoryStock
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		existing, err := loadReservations(tx, bizType, bizID, skuIDs)
 		if err != nil {
 			return err
 		}
-		for _, item := range items {
+		for _, item := range orderedItems {
 			reservation := existing[item.SKUID]
 			if reservation == nil {
 				logx.L(ctx).Warn("inventory confirm deduct rejected by missing reservation",
@@ -696,12 +713,13 @@ func (r *MySQLInventoryRepository) ConfirmDeduct(ctx context.Context, bizType, b
 				return ErrReservationStateConflict
 			}
 		}
-		return nil
+		finalStocks, err = loadStocksBySKUIDs(tx, skuIDs)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	return r.ListBySKUIDs(ctx, skuIDs)
+	return finalStocks, nil
 }
 
 func validateReservationItems(items []ReservationItem) ([]int64, error) {
@@ -750,6 +768,17 @@ func loadReservations(tx *gorm.DB, bizType, bizID string, skuIDs []int64) (map[i
 		result[reservation.SKUID] = reservation
 	}
 	return result, nil
+}
+
+func loadStocksBySKUIDs(tx *gorm.DB, skuIDs []int64) ([]*dalmodel.InventoryStock, error) {
+	if len(skuIDs) == 0 {
+		return []*dalmodel.InventoryStock{}, nil
+	}
+	var stocks []*dalmodel.InventoryStock
+	if err := tx.Where("sku_id IN ?", skuIDs).Order("sku_id ASC").Find(&stocks).Error; err != nil {
+		return nil, err
+	}
+	return stocks, nil
 }
 
 func classifyReserveFailure(tx *gorm.DB, item ReservationItem) error {

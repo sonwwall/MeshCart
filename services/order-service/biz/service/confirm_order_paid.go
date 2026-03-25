@@ -184,6 +184,9 @@ func (s *OrderService) ConfirmOrderPaid(ctx context.Context, req *orderpb.Confir
 		s.markActionFailed(ctx, actionRecord, actionTypePay, actionKey, bizErr)
 		return nil, bizErr
 	}
+	if len(updated.Items) == 0 {
+		updated.Items = order.Items
+	}
 	var paidAtLog any
 	if updated.PaidAt != nil {
 		paidAtLog = *updated.PaidAt

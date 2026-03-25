@@ -15,8 +15,8 @@ snowflake:
   node: 5
 
 db_pool:
-  max_open_conns: 60
-  max_idle_conns: 20
+  max_open_conns: 120
+  max_idle_conns: 40
   conn_max_lifetime_minutes: 30
   stats_interval_ms: 5000
 

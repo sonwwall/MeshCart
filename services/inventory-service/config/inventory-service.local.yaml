@@ -20,5 +20,8 @@ db_pool:
   conn_max_lifetime_minutes: 30
   stats_interval_ms: 5000
 
+hotspot:
+  reserve_max_concurrency_per_sku: 2
+
 timeout:
   db_query_ms: 1500

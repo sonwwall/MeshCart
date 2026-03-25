@@ -216,6 +216,7 @@ func (r *MySQLOrderRepository) TransitionStatus(ctx context.Context, transition 
 		return nil, ErrInvalidOrder
 	}
 
+	var updatedOrder *dalmodel.Order
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var order dalmodel.Order
 		if err := tx.Where("order_id = ? AND status IN ?", transition.OrderID, transition.FromStatuses).Take(&order).Error; err != nil {
@@ -282,12 +283,27 @@ func (r *MySQLOrderRepository) TransitionStatus(ctx context.Context, transition 
 			)
 			return err
 		}
+		order.Status = transition.ToStatus
+		order.CancelReason = transition.CancelReason
+		if transition.PaymentID != "" {
+			order.PaymentID = transition.PaymentID
+		}
+		if transition.PaymentMethod != "" {
+			order.PaymentMethod = transition.PaymentMethod
+		}
+		if transition.PaymentTradeNo != "" {
+			order.PaymentTradeNo = transition.PaymentTradeNo
+		}
+		if transition.PaidAt != nil {
+			order.PaidAt = transition.PaidAt
+		}
+		updatedOrder = &order
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return r.GetByID(ctx, transition.OrderID)
+	return updatedOrder, nil
 }
 
 func (r *MySQLOrderRepository) ListExpiredOrders(ctx context.Context, now time.Time, limit int) ([]*dalmodel.Order, error) {

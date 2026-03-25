@@ -144,6 +144,9 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderpb.CancelOrder
 		Reason:       cancelReason,
 	})
 	if updateErr == nil {
+		if len(updated.Items) == 0 {
+			updated.Items = order.Items
+		}
 		logx.L(ctx).Info("cancel order completed",
 			zap.Int64("order_id", updated.OrderID),
 			zap.Int64("user_id", updated.UserID),
