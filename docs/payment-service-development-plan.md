@@ -37,6 +37,9 @@
 - 支付主表 `payments`
 - 支付动作幂等表 `payment_action_records`
 - 支付状态流转日志表 `payment_status_logs`
+- `payment_outbox`
+  - 作为后续支付领域事件投递的本地消息表预留
+  - 当前已完成模型和迁移，尚未开始写入真实事件
 - `CreatePayment`
   - 订单状态校验
   - 同一订单有效支付单复用
@@ -232,6 +235,22 @@
   - 记录原始 DB 错误
   - 记录支付状态迁移冲突、动作记录失败、重复键冲突
 
+### 4.6 支付事件基础设施
+
+为了支持后续支付成功后的后置动作异步化，当前已经补了第一版事件基础设施，但还没有开始发布真实支付事件。
+
+当前已完成：
+
+1. `payment_outbox` 表模型和数据库迁移
+2. 共享 `app/mq` 基础件接入前置准备
+3. 支付域后续事件的可靠落表载体已经具备
+
+当前未完成：
+
+1. 在 `CreatePayment`、`ConfirmPaymentSuccess` 等事务里写入 `outbox`
+2. 真正发布 `payment.created`、`payment.succeeded`
+3. 支付事件投递指标、重试和死信闭环
+
 ## 5. 数据库设计
 
 ### 5.1 支付主表 `payments`
@@ -258,6 +277,18 @@
   - 支付金额，来自订单 `pay_amount`
 - `currency`
   - 币种，当前固定为 `CNY`
+
+### 5.5 支付本地消息表 `payment_outbox`
+
+定义见：
+
+- [outbox.go](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/dal/model/outbox.go)
+- [000010_create_payment_outbox.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/migrations/000010_create_payment_outbox.up.sql)
+
+用途：
+
+- 作为支付域本地 `Outbox` 表，为后续 `payment.created`、`payment.succeeded` 等事件提供可靠落表载体
+- 当前阶段只完成表结构和模型，不承载真实业务事件写入
 - `payment_trade_no`
   - 外部渠道流水号；`mock` 场景在支付确认时生成
 - `request_id`

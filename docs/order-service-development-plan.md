@@ -37,6 +37,9 @@
 - 订单项表 `order_items`
 - 动作幂等表 `order_action_records`
 - 状态流转日志表 `order_status_logs`
+- `order_outbox`
+  - 作为后续订单领域事件投递的本地消息表预留
+  - 当前已完成模型和迁移，尚未开始写入真实事件
 - `CreateOrder`
   - 商品/SKU 实时校验
   - 订单快照生成
@@ -94,12 +97,12 @@
 
 1. 校验请求和幂等键
 2. 调 `product-service.BatchGetSku`
-   - 校验 `sku_id` 是否存在
-   - 校验 `sku_id -> product_id` 归属关系
-   - 校验 SKU 是否可售
-3. 调 `product-service.GetProductDetail`
-   - 校验商品是否在线
-   - 获取商品标题
+  - 校验 `sku_id` 是否存在
+  - 校验 `sku_id -> product_id` 归属关系
+  - 校验 SKU 是否可售
+3. 调 `product-service.BatchGetProducts`
+   - 批量校验商品是否在线
+   - 批量获取商品标题
 4. 生成订单项快照
    - `product_title_snapshot`
    - `sku_title_snapshot`
@@ -116,6 +119,22 @@
 9. 订单成功创建后直接进入 `reserved`
 
 这条链路当前采用的是“订单服务内同步编排 + 最小补偿”方案，还没有升级成独立 Saga/TCC。
+
+### 4.6 订单事件基础设施
+
+为了支持后续订单后置动作异步化，当前已经补了第一版事件基础设施，但还没有接入真实业务事件。
+
+当前已完成：
+
+1. `order_outbox` 表模型和数据库迁移
+2. 共享 `app/mq` 基础件接入前置准备
+3. 订单域后续事件的落表载体已经具备
+
+当前未完成：
+
+1. 在 `CreateOrder`、`CancelOrder`、`ConfirmOrderPaid` 等事务里写入 `outbox`
+2. 真正发布 `order.created`、`order.cancelled`、`order.paid`
+3. 订单事件投递指标、重试和死信闭环
 
 ### 4.3 取消订单与超时关闭
 
@@ -258,6 +277,18 @@
 定义见：
 
 - [model.go](/Users/ruitong/GolandProjects/MeshCart/services/order-service/dal/model/model.go)
+
+### 5.5 订单本地消息表 `order_outbox`
+
+定义见：
+
+- [outbox.go](/Users/ruitong/GolandProjects/MeshCart/services/order-service/dal/model/outbox.go)
+- [000008_create_order_outbox.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/order-service/migrations/000008_create_order_outbox.up.sql)
+
+用途：
+
+- 作为订单域本地 `Outbox` 表，为后续 `order.created`、`order.cancelled`、`order.paid` 等事件提供可靠落表载体
+- 当前阶段只完成表结构和模型，不承载真实业务事件写入
 - [000001_create_orders.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/order-service/migrations/000001_create_orders.up.sql)
 - [000003_add_order_cancel_reason.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/order-service/migrations/000003_add_order_cancel_reason.up.sql)
 - [000004_add_order_payment_fields.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/order-service/migrations/000004_add_order_payment_fields.up.sql)

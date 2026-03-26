@@ -113,6 +113,29 @@
 3. 最后再评估是否要做热点 SKU 的局部排队
 4. 热点订单局部异步受理只作为更后续的预备选项
 
+### 2.6 当前已完成到哪里
+
+截至当前版本，`P0` 基础设施已经落地了第一版骨架，但还没有开始写入真实业务事件。
+
+已经完成的部分：
+
+1. `docker-compose` 已补 Kafka，本地环境可以和 MySQL、Redis 一起启动
+2. `app/mq` 已补共享基础件：
+   - 通用消息 `envelope`
+   - 通用 `outbox` 状态定义
+   - 通用后台投递器 `dispatcher`
+   - 基于 Gorm 的通用 `outbox` store
+3. `order-service` 已增加 `order_outbox` 表模型和数据库迁移
+4. `payment-service` 已增加 `payment_outbox` 表模型和数据库迁移
+5. 新增基础件和订单、支付服务现有测试已通过，没有破坏当前主链路
+
+当前还没有做的部分：
+
+1. 业务事务内真实写入 `outbox`
+2. Kafka producer 真正投递
+3. 第一批领域事件发布
+4. 下游消费者与死信处理闭环
+
 ## 3. 库存削峰的 MQ 化推进方案
 
 ## 3.1 当前库存削峰现状
@@ -359,6 +382,13 @@
 2. 增加通用投递器
 3. 增加通用消息 envelope
 4. 增加消息投递 / 重试 / 死信指标
+
+当前进度：
+
+1. `outbox` 表已在 `order-service`、`payment-service` 落地
+2. 通用消息 envelope 已落地
+3. 通用投递器和 Gorm store 骨架已落地
+4. Kafka producer、指标打点、真实业务事件写入仍待继续推进
 
 ### P1：先做订单后置动作事件化
 

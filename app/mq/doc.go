@@ -1,3 +1,3 @@
 package mq
 
-// TODO: shared mq utilities.
+// Package mq provides shared event envelope, outbox, and dispatcher helpers.
