@@ -114,7 +114,7 @@ func newHandlerService(t *testing.T, repo repository.PaymentRepository, orderCli
 	if err != nil {
 		t.Fatalf("new node: %v", err)
 	}
-	svc := bizservice.NewPaymentService(repo, node, orderClient)
+	svc := bizservice.NewPaymentService(repo, node, orderClient, "payment.events")
 	svcTestNow := time.Unix(1710000000, 0)
 	_ = svcTestNow
 	return svc

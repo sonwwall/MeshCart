@@ -47,6 +47,7 @@ type PaymentTransition struct {
 	ActionType     string
 	Reason         string
 	ExternalRef    string
+	OutboxRecords  []*dalmodel.PaymentOutbox
 }
 
 type MySQLPaymentRepository struct {
@@ -274,6 +275,21 @@ func (r *MySQLPaymentRepository) TransitionStatus(ctx context.Context, transitio
 				zap.String("action_type", transition.ActionType),
 			)
 			return err
+		}
+		for _, record := range transition.OutboxRecords {
+			if record == nil || record.ID <= 0 || strings.TrimSpace(record.Topic) == "" || strings.TrimSpace(record.EventName) == "" || strings.TrimSpace(record.Producer) == "" || len(record.Body) == 0 {
+				return ErrInvalidPayment
+			}
+			if err := tx.Create(record).Error; err != nil {
+				logx.L(ctx).Error("create payment outbox failed",
+					zap.Error(err),
+					zap.Int64("payment_id", transition.PaymentID),
+					zap.Int64("outbox_id", record.ID),
+					zap.String("topic", record.Topic),
+					zap.String("event_name", record.EventName),
+				)
+				return err
+			}
 		}
 		return nil
 	})

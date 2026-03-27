@@ -24,3 +24,11 @@ order_rpc:
   consul_address: 127.0.0.1:8500
   connect_timeout_ms: 500
   rpc_timeout_ms: 2000
+
+mq:
+  enabled: true
+  brokers:
+    - 127.0.0.1:9092
+  payment_succeeded_topic: payment.events
+  dispatcher_interval_ms: 1000
+  dispatcher_batch_size: 100

@@ -5,6 +5,7 @@ import (
 
 	"github.com/bwmarrin/snowflake"
 
+	mqx "meshcart/app/mq"
 	"meshcart/services/payment-service/biz/repository"
 	orderrpc "meshcart/services/payment-service/rpcclient/order"
 )
@@ -20,14 +21,17 @@ type PaymentService struct {
 	repo        repository.PaymentRepository
 	node        *snowflake.Node
 	orderClient orderrpc.Client
+	mqTopic     string
+	dispatcher  *mqx.Dispatcher
 	nowFunc     func() time.Time
 }
 
-func NewPaymentService(repo repository.PaymentRepository, node *snowflake.Node, orderClient orderrpc.Client) *PaymentService {
+func NewPaymentService(repo repository.PaymentRepository, node *snowflake.Node, orderClient orderrpc.Client, mqTopic string) *PaymentService {
 	return &PaymentService{
 		repo:        repo,
 		node:        node,
 		orderClient: orderClient,
+		mqTopic:     mqTopic,
 		nowFunc:     time.Now,
 	}
 }

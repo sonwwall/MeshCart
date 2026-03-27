@@ -14,6 +14,7 @@ type Config struct {
 	Snowflake SnowflakeConfig     `mapstructure:"snowflake"`
 	Timeout   TimeoutConfig       `mapstructure:"timeout"`
 	OrderRPC  DownstreamRPCConfig `mapstructure:"order_rpc"`
+	MQ        MQConfig            `mapstructure:"mq"`
 }
 
 type MySQLConfig struct {
@@ -37,6 +38,14 @@ type SnowflakeConfig struct {
 
 type TimeoutConfig struct {
 	DBQueryMS int `mapstructure:"db_query_ms"`
+}
+
+type MQConfig struct {
+	Enabled               bool     `mapstructure:"enabled"`
+	Brokers               []string `mapstructure:"brokers"`
+	PaymentSucceededTopic string   `mapstructure:"payment_succeeded_topic"`
+	DispatcherIntervalMS  int      `mapstructure:"dispatcher_interval_ms"`
+	DispatcherBatchSize   int      `mapstructure:"dispatcher_batch_size"`
 }
 
 type DownstreamRPCConfig struct {
@@ -80,6 +89,11 @@ func Load() (Config, error) {
 	v.SetDefault("order_rpc.consul_address", "127.0.0.1:8500")
 	v.SetDefault("order_rpc.connect_timeout_ms", 500)
 	v.SetDefault("order_rpc.rpc_timeout_ms", 2000)
+	v.SetDefault("mq.enabled", false)
+	v.SetDefault("mq.brokers", []string{"127.0.0.1:9092"})
+	v.SetDefault("mq.payment_succeeded_topic", "payment.events")
+	v.SetDefault("mq.dispatcher_interval_ms", 1000)
+	v.SetDefault("mq.dispatcher_batch_size", 100)
 
 	if err := v.ReadInConfig(); err != nil {
 		return Config{}, err

@@ -11,6 +11,7 @@ import (
 	paymentpb "meshcart/kitex_gen/meshcart/payment"
 	"meshcart/services/payment-service/biz/errno"
 	"meshcart/services/payment-service/biz/repository"
+	dalmodel "meshcart/services/payment-service/dal/model"
 
 	"go.uber.org/zap"
 )
@@ -184,6 +185,19 @@ func (s *PaymentService) ConfirmPaymentSuccess(ctx context.Context, req *payment
 	if req.GetPaidAt() > 0 {
 		succeededAt = time.Unix(req.GetPaidAt(), 0)
 	}
+	payment.PaymentMethod = method
+	payment.PaymentTradeNo = tradeNo
+	payment.SucceededAt = &succeededAt
+	outboxRecord, err := s.buildPaymentSucceededOutbox(payment, s.mqTopic)
+	if err != nil {
+		logx.L(ctx).Error("build payment succeeded outbox failed",
+			zap.Error(err),
+			zap.Int64("payment_id", payment.PaymentID),
+			zap.Int64("order_id", payment.OrderID),
+		)
+		s.markActionFailed(ctx, actionTypeConfirm, actionKey, common.ErrInternalError)
+		return nil, common.ErrInternalError
+	}
 	updated, updateErr := s.repo.TransitionStatus(ctx, repository.PaymentTransition{
 		PaymentID:      payment.PaymentID,
 		FromStatuses:   []int32{PaymentStatusPending},
@@ -194,6 +208,7 @@ func (s *PaymentService) ConfirmPaymentSuccess(ctx context.Context, req *payment
 		ActionType:     actionTypeConfirm,
 		Reason:         "payment_confirmed",
 		ExternalRef:    tradeNo,
+		OutboxRecords:  []*dalmodel.PaymentOutbox{outboxRecord},
 	})
 	if updateErr != nil {
 		bizErr = mapRepositoryError(updateErr)

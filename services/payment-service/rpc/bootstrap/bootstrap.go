@@ -26,6 +26,7 @@ import (
 	"meshcart/app/lifecycle"
 	logx "meshcart/app/log"
 	metricsx "meshcart/app/metrics"
+	mqx "meshcart/app/mq"
 	paymentservice "meshcart/kitex_gen/meshcart/payment/paymentservice"
 	"meshcart/services/payment-service/biz/repository"
 	bizservice "meshcart/services/payment-service/biz/service"
@@ -55,6 +56,8 @@ func Run() {
 	adminServer := startAdminServer(sqlDB, &draining)
 
 	svc := initService(mysqlDB, cfg)
+	outboxStop := startOutboxDispatcher(mysqlDB, cfg)
+	defer outboxStop()
 	svr := newServer(cfg, svc)
 
 	logx.L(nil).Info("payment-service starting")
@@ -113,6 +116,9 @@ func runPreflight(cfg config.Config) {
 	checks := []lifecycle.PreflightCheck{
 		{Name: "mysql", Address: cfg.MySQL.Address},
 	}
+	if cfg.MQ.Enabled && len(cfg.MQ.Brokers) > 0 {
+		checks = append(checks, lifecycle.PreflightCheck{Name: "kafka", Address: cfg.MQ.Brokers[0]})
+	}
 	if strings.EqualFold(getEnv("PAYMENT_SERVICE_REGISTRY", "consul"), "consul") {
 		checks = append(checks, lifecycle.PreflightCheck{Name: "consul", Address: getEnv("CONSUL_ADDR", "127.0.0.1:8500")})
 	}
@@ -160,7 +166,53 @@ func initService(mysqlDB *gorm.DB, cfg config.Config) *bizservice.PaymentService
 	if err != nil {
 		logx.L(nil).Fatal("init order rpc client failed", zap.Error(err))
 	}
-	return bizservice.NewPaymentService(repo, node, orderClient)
+	return bizservice.NewPaymentService(repo, node, orderClient, cfg.MQ.PaymentSucceededTopic)
+}
+
+func startOutboxDispatcher(mysqlDB *gorm.DB, cfg config.Config) func() {
+	if !cfg.MQ.Enabled {
+		return func() {}
+	}
+
+	store := mqx.NewGormStore(mysqlDB, "payment_outbox")
+	publisher := mqx.NewKafkaPublisher(cfg.MQ.Brokers)
+	if publisher == nil {
+		logx.L(nil).Warn("payment-service mq dispatcher disabled by empty brokers")
+		return func() {}
+	}
+	dispatcher := mqx.NewDispatcher(
+		store,
+		publisher,
+		cfg.MQ.DispatcherBatchSize,
+		time.Duration(cfg.MQ.DispatcherIntervalMS)*time.Millisecond,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		ticker := time.NewTicker(time.Duration(cfg.MQ.DispatcherIntervalMS) * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				processed, err := dispatcher.RunOnce(ctx)
+				if err != nil {
+					logx.L(nil).Error("payment outbox dispatcher run failed", zap.Error(err))
+					continue
+				}
+				if processed > 0 {
+					logx.L(nil).Info("payment outbox dispatcher published messages", zap.Int("count", processed))
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		if err := publisher.Close(); err != nil {
+			logx.L(nil).Warn("close payment kafka publisher failed", zap.Error(err))
+		}
+	}
 }
 
 func startAdminServer(sqlDB *sql.DB, draining *atomic.Bool) *http.Server {

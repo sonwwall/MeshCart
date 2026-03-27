@@ -115,7 +115,7 @@ func newPaymentService(t *testing.T, repo repository.PaymentRepository, orderCli
 	if err != nil {
 		t.Fatalf("new snowflake node: %v", err)
 	}
-	svc := NewPaymentService(repo, node, orderClient)
+	svc := NewPaymentService(repo, node, orderClient, "payment.events")
 	svc.nowFunc = func() time.Time { return time.Unix(1710000000, 0) }
 	return svc
 }
