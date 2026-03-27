@@ -27,6 +27,10 @@ type stubPaymentRepository struct {
 	createActionRecordFn       func(context.Context, *dalmodel.PaymentActionRecord) error
 	markActionOKFn             func(context.Context, string, string, int64, int64) error
 	markActionFailFn           func(context.Context, string, string, string) error
+	createConsumeRecordFn      func(context.Context, *dalmodel.PaymentConsumeRecord) error
+	getConsumeRecordFn         func(context.Context, string, string) (*dalmodel.PaymentConsumeRecord, error)
+	markConsumeOKFn            func(context.Context, int64) error
+	markConsumeFailFn          func(context.Context, int64, string) error
 }
 
 func (s *stubPaymentRepository) Create(ctx context.Context, payment *dalmodel.Payment) (*dalmodel.Payment, error) {
@@ -86,6 +90,30 @@ func (s *stubPaymentRepository) MarkActionRecordSucceeded(ctx context.Context, a
 func (s *stubPaymentRepository) MarkActionRecordFailed(ctx context.Context, actionType, actionKey, errorMessage string) error {
 	if s.markActionFailFn != nil {
 		return s.markActionFailFn(ctx, actionType, actionKey, errorMessage)
+	}
+	return nil
+}
+func (s *stubPaymentRepository) CreateConsumeRecord(ctx context.Context, record *dalmodel.PaymentConsumeRecord) error {
+	if s.createConsumeRecordFn != nil {
+		return s.createConsumeRecordFn(ctx, record)
+	}
+	return nil
+}
+func (s *stubPaymentRepository) GetConsumeRecord(ctx context.Context, consumerGroup, eventID string) (*dalmodel.PaymentConsumeRecord, error) {
+	if s.getConsumeRecordFn != nil {
+		return s.getConsumeRecordFn(ctx, consumerGroup, eventID)
+	}
+	return nil, repository.ErrActionRecordNotFound
+}
+func (s *stubPaymentRepository) MarkConsumeRecordSucceeded(ctx context.Context, id int64) error {
+	if s.markConsumeOKFn != nil {
+		return s.markConsumeOKFn(ctx, id)
+	}
+	return nil
+}
+func (s *stubPaymentRepository) MarkConsumeRecordFailed(ctx context.Context, id int64, message string) error {
+	if s.markConsumeFailFn != nil {
+		return s.markConsumeFailFn(ctx, id, message)
 	}
 	return nil
 }

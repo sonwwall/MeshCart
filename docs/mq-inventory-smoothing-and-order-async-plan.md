@@ -115,7 +115,7 @@
 
 ### 2.6 当前已完成到哪里
 
-截至当前版本，`P0` 基础设施已经落地了第一版骨架，但还没有开始写入真实业务事件。
+截至当前版本，`P0` 基础设施已经落地并打通了第一条最小事件链路，但整体仍处于“小闭环验证”阶段。
 
 已经完成的部分：
 
@@ -127,14 +127,17 @@
    - 基于 Gorm 的通用 `outbox` store
 3. `order-service` 已增加 `order_outbox` 表模型和数据库迁移
 4. `payment-service` 已增加 `payment_outbox` 表模型和数据库迁移
-5. 新增基础件和订单、支付服务现有测试已通过，没有破坏当前主链路
+5. `payment-service.ConfirmPaymentSuccess` 成功后，已经会同事务写入 `payment.succeeded` 到 `payment_outbox`
+6. `payment-service` 已补最小 Kafka publisher 与后台 dispatcher，能够把 `payment_outbox` 消息投递到 Kafka
+7. 已补独立的最小 `payment-consumer`，可消费 `payment.succeeded` 并做幂等落库与日志验证
+8. 新增基础件和订单、支付服务现有测试已通过，没有破坏当前主链路
 
 当前还没有做的部分：
 
-1. 业务事务内真实写入 `outbox`
-2. Kafka producer 真正投递
-3. 第一批领域事件发布
-4. 下游消费者与死信处理闭环
+1. `order-service` 侧真实业务事件写入 `outbox`
+2. 除 `payment.succeeded` 外的第一批领域事件发布
+3. 真正业务型消费者，例如积分、优惠券、通知
+4. 更完整的失败重试、死信与监控指标闭环
 
 ## 3. 库存削峰的 MQ 化推进方案
 
@@ -388,7 +391,9 @@
 1. `outbox` 表已在 `order-service`、`payment-service` 落地
 2. 通用消息 envelope 已落地
 3. 通用投递器和 Gorm store 骨架已落地
-4. Kafka producer、指标打点、真实业务事件写入仍待继续推进
+4. `payment.succeeded` 已完成真实 outbox 写入与 Kafka 投递
+5. 最小 `payment-consumer` 已落地，可做幂等消费和链路验证
+6. 更完整的指标打点、多事件扩展和业务型消费者仍待继续推进
 
 ### P1：先做订单后置动作事件化
 

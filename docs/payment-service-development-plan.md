@@ -237,19 +237,23 @@
 
 ### 4.6 支付事件基础设施
 
-为了支持后续支付成功后的后置动作异步化，当前已经补了第一版事件基础设施，但还没有开始发布真实支付事件。
+为了支持后续支付成功后的后置动作异步化，当前已经补了第一版事件基础设施，并且已经打通了 `payment.succeeded` 的最小闭环。
 
 当前已完成：
 
 1. `payment_outbox` 表模型和数据库迁移
 2. 共享 `app/mq` 基础件接入前置准备
-3. 支付域后续事件的可靠落表载体已经具备
+3. `ConfirmPaymentSuccess` 成功后会同事务写入 `payment.succeeded` 到 `payment_outbox`
+4. 已补最小 Kafka publisher 与后台 dispatcher
+5. 已补独立的最小 `payment-consumer`
+6. 支付域后续事件的可靠落表、投递、消费骨架已经具备
 
 当前未完成：
 
-1. 在 `CreatePayment`、`ConfirmPaymentSuccess` 等事务里写入 `outbox`
-2. 真正发布 `payment.created`、`payment.succeeded`
-3. 支付事件投递指标、重试和死信闭环
+1. `CreatePayment` 等其余事务里的 `outbox` 写入
+2. `payment.created` 等其他支付领域事件
+3. 真正业务型消费者，例如积分、通知、营销
+4. 支付事件投递指标、重试和死信闭环
 
 ## 5. 数据库设计
 
@@ -277,18 +281,6 @@
   - 支付金额，来自订单 `pay_amount`
 - `currency`
   - 币种，当前固定为 `CNY`
-
-### 5.5 支付本地消息表 `payment_outbox`
-
-定义见：
-
-- [outbox.go](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/dal/model/outbox.go)
-- [000010_create_payment_outbox.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/migrations/000010_create_payment_outbox.up.sql)
-
-用途：
-
-- 作为支付域本地 `Outbox` 表，为后续 `payment.created`、`payment.succeeded` 等事件提供可靠落表载体
-- 当前阶段只完成表结构和模型，不承载真实业务事件写入
 - `payment_trade_no`
   - 外部渠道流水号；`mock` 场景在支付确认时生成
 - `request_id`
@@ -317,6 +309,41 @@
   - 支撑按状态排障和后续恢复任务
 - `idx_payments_status_expire_at`
   - 支撑按状态扫描过期支付单
+
+### 5.5 支付本地消息表 `payment_outbox`
+
+定义见：
+
+- [outbox.go](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/dal/model/outbox.go)
+- [000010_create_payment_outbox.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/migrations/000010_create_payment_outbox.up.sql)
+
+用途：
+
+- 作为支付域本地 `Outbox` 表，为后续 `payment.created`、`payment.succeeded` 等事件提供可靠落表载体
+- 当前已经承载 `payment.succeeded` 的真实业务事件写入
+- 当前投递目标是 Kafka `payment.events` topic
+- 当前主要用于验证 `payment-service -> outbox -> dispatcher -> Kafka` 链路
+
+### 5.6 支付消费幂等表 `payment_consume_records`
+
+定义见：
+
+- [consume_record.go](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/dal/model/consume_record.go)
+- [000011_create_payment_consume_records.up.sql](/Users/ruitong/GolandProjects/MeshCart/services/payment-service/migrations/000011_create_payment_consume_records.up.sql)
+
+用途：
+
+- 作为最小 `payment-consumer` 的消费幂等表
+- 通过 `(consumer_group, event_id)` 唯一键避免重复消费
+- 当前主要用于验证 `payment.succeeded` 消费闭环，而不是承载真正业务处理
+
+当前最小消费者行为：
+
+1. 订阅 Kafka `payment.events`
+2. 解析 `payment.succeeded` envelope
+3. 先写 `payment_consume_records`
+4. 打结构化日志
+5. 标记消费成功
 
 支付单超时设计约定：
 

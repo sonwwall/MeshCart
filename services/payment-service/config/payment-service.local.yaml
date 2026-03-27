@@ -30,5 +30,6 @@ mq:
   brokers:
     - 127.0.0.1:9092
   payment_succeeded_topic: payment.events
+  payment_succeeded_consumer_group: meshcart.payment.succeeded.smoke
   dispatcher_interval_ms: 1000
   dispatcher_batch_size: 100

@@ -41,11 +41,12 @@ type TimeoutConfig struct {
 }
 
 type MQConfig struct {
-	Enabled               bool     `mapstructure:"enabled"`
-	Brokers               []string `mapstructure:"brokers"`
-	PaymentSucceededTopic string   `mapstructure:"payment_succeeded_topic"`
-	DispatcherIntervalMS  int      `mapstructure:"dispatcher_interval_ms"`
-	DispatcherBatchSize   int      `mapstructure:"dispatcher_batch_size"`
+	Enabled                       bool     `mapstructure:"enabled"`
+	Brokers                       []string `mapstructure:"brokers"`
+	PaymentSucceededTopic         string   `mapstructure:"payment_succeeded_topic"`
+	PaymentSucceededConsumerGroup string   `mapstructure:"payment_succeeded_consumer_group"`
+	DispatcherIntervalMS          int      `mapstructure:"dispatcher_interval_ms"`
+	DispatcherBatchSize           int      `mapstructure:"dispatcher_batch_size"`
 }
 
 type DownstreamRPCConfig struct {
@@ -92,6 +93,7 @@ func Load() (Config, error) {
 	v.SetDefault("mq.enabled", false)
 	v.SetDefault("mq.brokers", []string{"127.0.0.1:9092"})
 	v.SetDefault("mq.payment_succeeded_topic", "payment.events")
+	v.SetDefault("mq.payment_succeeded_consumer_group", "meshcart.payment.succeeded.smoke")
 	v.SetDefault("mq.dispatcher_interval_ms", 1000)
 	v.SetDefault("mq.dispatcher_batch_size", 100)
 

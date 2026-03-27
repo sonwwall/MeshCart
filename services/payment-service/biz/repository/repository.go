@@ -33,6 +33,10 @@ type PaymentRepository interface {
 	CreateActionRecord(ctx context.Context, record *dalmodel.PaymentActionRecord) error
 	MarkActionRecordSucceeded(ctx context.Context, actionType, actionKey string, paymentID, orderID int64) error
 	MarkActionRecordFailed(ctx context.Context, actionType, actionKey, errorMessage string) error
+	CreateConsumeRecord(ctx context.Context, record *dalmodel.PaymentConsumeRecord) error
+	GetConsumeRecord(ctx context.Context, consumerGroup, eventID string) (*dalmodel.PaymentConsumeRecord, error)
+	MarkConsumeRecordSucceeded(ctx context.Context, id int64) error
+	MarkConsumeRecordFailed(ctx context.Context, id int64, message string) error
 }
 
 type PaymentTransition struct {
@@ -316,6 +320,10 @@ func (r *MySQLPaymentRepository) GetActionRecord(ctx context.Context, actionType
 		return nil, err
 	}
 	return &record, nil
+}
+
+func isRecordNotFound(err error) bool {
+	return errors.Is(err, gorm.ErrRecordNotFound)
 }
 
 func (r *MySQLPaymentRepository) CreateActionRecord(ctx context.Context, record *dalmodel.PaymentActionRecord) error {
